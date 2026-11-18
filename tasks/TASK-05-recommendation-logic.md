@@ -10,15 +10,15 @@
 추천 후보·정렬·슬롯 규칙을 함수로 구현하고 테스트한다. 최종 추천 결과를 이 함수가 만들지, LLM 구조화 출력이 만들지는 TASK-06에서 비교한 뒤 정한다(R6).
 
 ## 작업 내용
-- [ ] 레시피 파서: `data/recipes_*.md`에서 주재료·부재료·kcal 읽기
-- [ ] 후보 조건: 주재료가 재고에 있고 만료되지 않음, 부족 재료 목록 계산
-- [ ] 안전 필터: 알레르기 재료 제외, 비선호 요리는 슬롯에서 제외
-- [ ] 평균 평점(요청자 기준, 소수 첫째 자리), 미평가는 신메뉴
-- [ ] 동점 정렬: 임박 재료 사용 → 임박 재료 최소 D-day → 평균 평점 → 평가 횟수 → 요리명
-- [ ] 슬롯 규칙 1~6 (SERVICE.md 5.2): 카테고리별 3슬롯, 3점 이상 우선, 신메뉴 1~2개, 추가 신메뉴, 신메뉴 0개, 카테고리 지정
-- [ ] 가족 합의 규칙 함수 (SERVICE.md 5.5): 그룹 평점, 칼로리 제약, 출력 2개와 대안 (TASK-17에서 사용)
-- [ ] Pydantic 모델 `RecommendationResult` 정의
-- [ ] `tests/test_recommend.py`
+- [x] 레시피 파서: `data/recipes_*.md`에서 주재료·부재료·kcal 읽기
+- [x] 후보 조건: 주재료가 재고에 있고 만료되지 않음, 부족 재료 목록 계산
+- [x] 안전 필터: 알레르기 재료 제외, 비선호 요리는 슬롯에서 제외
+- [x] 평균 평점(요청자 기준, 소수 첫째 자리), 미평가는 신메뉴
+- [x] 동점 정렬: 임박 재료 사용 → 임박 재료 최소 D-day → 평균 평점 → 평가 횟수 → 요리명
+- [x] 슬롯 규칙 1~6 (SERVICE.md 5.2): 카테고리별 3슬롯, 3점 이상 우선, 신메뉴 1~2개, 추가 신메뉴, 신메뉴 0개, 카테고리 지정
+- [x] 가족 합의 규칙 함수 (SERVICE.md 5.5): 그룹 평점, 칼로리 제약, 출력 2개와 대안 (TASK-17에서 사용)
+- [x] Pydantic 모델 `RecommendationResult` 정의
+- [x] `tests/test_recommend.py`
 
 ## 대상 파일
 - `src/tools.py`, `tests/test_recommend.py`
@@ -30,3 +30,19 @@
 
 ## 참고
 - SERVICE.md 5.2, 5.5
+
+## 결과 (2026-11-18)
+- `src/tools.py`에 추가: 레시피 파서 `parse_recipes()`(형식 위반 시 `ValueError`), 재고 조회 `usable_stock()`, 안전 필터 `has_allergen()`, 평점 `user_ratings()`, 동점 정렬 `rank_key()`, 단일 추천 `recommend()`, 가족 추천 `recommend_family()`, Pydantic `RecommendationItem`·`RecommendationResult`·`FamilyRecommendationResult`.
+- 품목명 매칭·D-day·단위 환산은 TASK-04 함수(`item_key`, `d_day`, `alert_level`, `convert_to_base`)를 그대로 쓴다.
+- 규칙 해석
+  - 부족 재료: 만료 전 재고 합계가 `인분당 양 × servings`(기본 1인분)보다 적으면 부족. 만료 재고는 없는 것으로 본다.
+  - 알레르기: 메타 표 분류(갑각류)와 재료명·별칭(새우, 대하)을 모두 확인한다.
+  - 비선호 요리는 슬롯과 추가 신메뉴 모두에서 뺀다.
+  - 평점은 소수 첫째 자리 사사오입(3.83 → 3.8).
+  - 슬롯 신메뉴가 3개면 정렬상 마지막 것을 비우고 "신메뉴는 한 번에 2개까지만 추천해요"를 적는다.
+  - 빈 슬롯 이유는 재고 후보가 아예 없을 때와 평점 3점 미만만 있을 때를 나눠 적는다.
+  - 가족 칼로리 제약은 `calorie_budgets`를 받았을 때만 적용한다(워치 MCP는 TASK-14). 결과에는 개인별 평점·칼로리를 담지 않는다.
+- 알레르기·비선호는 아직 `seed_profile()`이 시드 JSON에서 읽는다. TASK-16에서 Store로 바꾼다.
+- 검증: `tests/test_recommend.py` 27개 통과. 대표 시나리오(dad)는 소고기 무국 4.5 / 규동 4.0 / 신메뉴 소고기 라구 파스타(부족: 토마토 캔, 소고기 D-2). 가족(dad·mom·jimin)은 그룹 평점 소고기 무국 3.8 + 그룹 신메뉴 소고기 라구 파스타.
+- 함께 고친 점: 동시 편집 중 `datetime` import가 빠져 `now_iso()`(TASK-04)가 `NameError`를 냈다. import를 복구하고 겹친 `STORAGE_GUIDE` 정의를 한 줄로 정리했다.
+- R6(최종 추천을 이 함수로 낼지 LLM 구조화 출력으로 낼지)은 그대로 TASK-06에서 정한다.
