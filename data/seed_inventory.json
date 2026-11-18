@@ -1,0 +1,24 @@
+{
+  "description": "시연·평가용 초기 재고. 날짜는 today() 기준 상대 일수입니다. FRIDGE_TODAY=2026-11-20이면 input_offset_days -1은 2026-11-19입니다. S/N의 연-월은 투입일자의 연-월과 같습니다. qty와 unit은 storage_guide.md의 기준 단위입니다. expiry_offset_days가 null이면 유효기간 미상입니다.",
+  "data_status": "예시 데이터. 실제 냉장고 목록(SERVICE.md 19장 Assignment)을 받으면 교체합니다. 교체해도 평가 공통 전제(SERVICE.md 10.1)는 유지해야 합니다.",
+  "items": [
+    {"sn": "2026-10-001", "item": "김치", "qty": 1500, "unit": "g", "input_offset_days": -30, "expiry_offset_days": 30, "expiry_source": "guide", "status": "stored"},
+    {"sn": "2026-10-002", "item": "파스타면", "qty": 500, "unit": "g", "input_offset_days": -26, "expiry_offset_days": 339, "expiry_source": "guide", "status": "stored"},
+    {"sn": "2026-11-001", "item": "양파", "qty": 3, "unit": "개", "input_offset_days": -14, "expiry_offset_days": 16, "expiry_source": "guide", "status": "stored"},
+    {"sn": "2026-11-002", "item": "감자", "qty": 4, "unit": "개", "input_offset_days": -14, "expiry_offset_days": 16, "expiry_source": "guide", "status": "stored"},
+    {"sn": "2026-11-003", "item": "한우", "qty": 600, "unit": "g", "input_offset_days": -12, "expiry_offset_days": 2, "expiry_source": "user", "status": "stored"},
+    {"sn": "2026-11-004", "item": "계란", "qty": 10, "unit": "개", "input_offset_days": -9, "expiry_offset_days": 12, "expiry_source": "guide", "status": "stored"},
+    {"sn": "2026-11-005", "item": "무", "qty": 1500, "unit": "g", "input_offset_days": -8, "expiry_offset_days": 6, "expiry_source": "guide", "status": "stored"},
+    {"sn": "2026-11-006", "item": "당근", "qty": 2, "unit": "개", "input_offset_days": -8, "expiry_offset_days": 13, "expiry_source": "guide", "status": "stored"},
+    {"sn": "2026-11-007", "item": "파르메산 치즈", "qty": 100, "unit": "g", "input_offset_days": -7, "expiry_offset_days": 23, "expiry_source": "guide", "status": "stored"},
+    {"sn": "2026-11-008", "item": "시금치", "qty": 200, "unit": "g", "input_offset_days": -6, "expiry_offset_days": -1, "expiry_source": "guide", "status": "stored"},
+    {"sn": "2026-11-009", "item": "대파", "qty": 2, "unit": "개", "input_offset_days": -5, "expiry_offset_days": 5, "expiry_source": "guide", "status": "stored"},
+    {"sn": "2026-11-010", "item": "피클", "qty": 1, "unit": "개", "input_offset_days": -4, "expiry_offset_days": null, "expiry_source": "unknown", "status": "stored"},
+    {"sn": "2026-11-011", "item": "우유", "qty": 1, "unit": "L", "input_offset_days": -3, "expiry_offset_days": 7, "expiry_source": "guide", "status": "stored"},
+    {"sn": "2026-11-012", "item": "두부", "qty": 1, "unit": "개", "input_offset_days": -2, "expiry_offset_days": 5, "expiry_source": "guide", "status": "stored"},
+    {"sn": "2026-11-013", "item": "표고버섯", "qty": 150, "unit": "g", "input_offset_days": -2, "expiry_offset_days": 5, "expiry_source": "guide", "status": "stored"}
+  ],
+  "item_units": [
+    {"item": "피클", "base_unit": "개"}
+  ]
+}

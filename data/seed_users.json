@@ -1,0 +1,45 @@
+{
+  "description": "가족 구성원, 선호·비선호·알레르기, 초기 평점. likes와 dislikes는 레시피 요리명입니다. allergies는 레시피 메타 표의 알레르기 값(예: 갑각류)과 같은 이름을 씁니다. 평점의 created_offset_days는 today() 기준 상대 일수입니다.",
+  "data_status": "예시 데이터. 실제 가족 선호(SERVICE.md 19장 Assignment)를 받으면 교체합니다. 교체해도 평가 공통 전제(SERVICE.md 10.1: dad 소고기 무국 4.5·규동 4.0, jimin 갑각류 알레르기)는 유지해야 합니다.",
+  "family_id": "family-1",
+  "users": [
+    {
+      "user_id": "dad",
+      "name": "아빠",
+      "likes": ["소고기 무국", "규동", "김치볶음밥"],
+      "dislikes": ["가지 파르미자나"],
+      "allergies": []
+    },
+    {
+      "user_id": "mom",
+      "name": "엄마",
+      "likes": ["된장찌개", "새우 로제 파스타", "연어 데리야키"],
+      "dislikes": ["까르보나라"],
+      "allergies": []
+    },
+    {
+      "user_id": "jimin",
+      "name": "지민",
+      "likes": ["오므라이스", "계란말이", "감자 뇨끼"],
+      "dislikes": ["김치볶음밥"],
+      "allergies": ["갑각류"]
+    }
+  ],
+  "ratings": [
+    {"user_id": "dad", "dish": "소고기 무국", "cuisine": "한식", "score": 5, "comment": "국물이 시원하다", "created_offset_days": -20},
+    {"user_id": "dad", "dish": "소고기 무국", "cuisine": "한식", "score": 4, "comment": "무가 조금 덜 익었다", "created_offset_days": -6},
+    {"user_id": "dad", "dish": "규동", "cuisine": "일식", "score": 4, "comment": "양파가 달아서 좋다", "created_offset_days": -9},
+    {"user_id": "dad", "dish": "김치볶음밥", "cuisine": "한식", "score": 4, "comment": "", "created_offset_days": -15},
+    {"user_id": "dad", "dish": "계란말이", "cuisine": "한식", "score": 4, "comment": "", "created_offset_days": -18},
+    {"user_id": "dad", "dish": "계란말이", "cuisine": "한식", "score": 3, "comment": "조금 짰다", "created_offset_days": -4},
+    {"user_id": "dad", "dish": "까르보나라", "cuisine": "이탈리아식", "score": 2, "comment": "너무 느끼하다", "created_offset_days": -12},
+    {"user_id": "mom", "dish": "소고기 무국", "cuisine": "한식", "score": 4, "comment": "", "created_offset_days": -20},
+    {"user_id": "mom", "dish": "된장찌개", "cuisine": "한식", "score": 4, "comment": "", "created_offset_days": -11},
+    {"user_id": "mom", "dish": "규동", "cuisine": "일식", "score": 3, "comment": "조금 달다", "created_offset_days": -9},
+    {"user_id": "mom", "dish": "새우 로제 파스타", "cuisine": "이탈리아식", "score": 5, "comment": "또 먹고 싶다", "created_offset_days": -13},
+    {"user_id": "mom", "dish": "까르보나라", "cuisine": "이탈리아식", "score": 2, "comment": "", "created_offset_days": -12},
+    {"user_id": "jimin", "dish": "소고기 무국", "cuisine": "한식", "score": 3, "comment": "", "created_offset_days": -20},
+    {"user_id": "jimin", "dish": "계란말이", "cuisine": "한식", "score": 5, "comment": "제일 좋아함", "created_offset_days": -18},
+    {"user_id": "jimin", "dish": "오므라이스", "cuisine": "일식", "score": 4, "comment": "", "created_offset_days": -7}
+  ]
+}
