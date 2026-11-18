@@ -461,13 +461,14 @@ def list_alerts(conn: sqlite3.Connection) -> list[dict]:
     """보관 중인 재고의 임박·만료 경고를 D-day 순으로 돌려준다 (`trace.alerts`용)."""
     alerts = []
     rows = conn.execute(
-        "SELECT sn, item, expiry_date FROM inventory WHERE status = 'stored' AND expiry_date IS NOT NULL"
+        "SELECT sn, item, qty, unit, expiry_date FROM inventory WHERE status = 'stored' AND expiry_date IS NOT NULL"
     ).fetchall()
     for row in rows:
         dd = d_day(row["expiry_date"])
         level = alert_level(dd)
         if level:
-            alerts.append({"sn": row["sn"], "item": row["item"], "d_day": dd, "level": level})
+            alerts.append({"sn": row["sn"], "item": row["item"], "qty": row["qty"], "unit": row["unit"],
+                           "d_day": dd, "level": level})
     return sorted(alerts, key=lambda a: (a["d_day"], a["sn"]))
 
 

@@ -1,0 +1,312 @@
+"""냉장고 관리 Agent HTTP API.
+
+제출 규약대로 `POST /query`로 `question`을 받아 `answer`, `contexts`, `trace` 세 키로 답한다.
+요청자 신원(`X-User-Token`)과 스레드 소유권을 확인한 뒤 에이전트 한 턴을 실행하고,
+특수 상황(SERVICE.md 8장)은 `trace.errors`에 `{code, message}`로 담는다.
+
+실행: `uvicorn src.api:app`
+"""
+
+from __future__ import annotations
+
+import hmac
+import json
+import os
+import time
+import uuid
+from contextlib import asynccontextmanager
+from typing import Any, Literal
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, Header
+from langchain_core.callbacks import BaseCallbackHandler
+from pydantic import BaseModel, Field
+
+from src.agent import open_agent, pending_interrupt, run_turn
+from src.tools import (
+    GUEST_DENIED,
+    GUEST_USER,
+    FridgeContext,
+    connect,
+    list_alerts,
+    now_iso,
+    rescued_g_week,
+    reset_db,
+)
+
+load_dotenv()
+
+# 특수 상황 응답 문구 (SERVICE.md 8장 표)
+MSG_NO_PENDING = "대기 중인 승인 요청이 없어요"
+MSG_THREAD_MISMATCH = "이 대화에 접근할 수 없어요"
+MSG_IDENTITY_MISMATCH = "사용자 확인에 실패했어요"
+MSG_AGENT_ERROR = "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요"
+
+# 답변 근거(contexts)를 돌려주는 도구
+CONTEXT_TOOLS = {"search_recipes", "get_recipe", "rank_recipes", "get_storage_days"}
+
+
+class QueryRequest(BaseModel):
+    """`POST /query` 요청 본문."""
+
+    question: str = Field(description="사용자 질문. resume 요청에서도 필수지만 trace에만 기록한다")
+    user_id: str | None = Field(default=None, description="요청자. 주면 X-User-Token과 같아야 한다")
+    thread_id: str | None = Field(default=None, description="대화 스레드. 없으면 서버가 만든다")
+    resume: Literal["approve", "reject"] | None = Field(default=None, description="대기 중인 승인에 대한 답")
+
+
+class QueryResponse(BaseModel):
+    """`POST /query` 응답. 세 키 고정 (제출 규약)."""
+
+    answer: str
+    contexts: list[str]
+    trace: dict[str, Any]
+
+
+class IdentityError(Exception):
+    """토큰과 `user_id`로 요청자를 확인하지 못했을 때 낸다."""
+
+
+def parse_user_tokens(raw: str | None = None) -> dict[str, str]:
+    """`.env`의 `USER_TOKENS`(`dad:토큰1,mom:토큰2`)를 `{user_id: 토큰}`으로 읽는다."""
+    raw = os.environ.get("USER_TOKENS", "") if raw is None else raw
+    tokens: dict[str, str] = {}
+    for pair in raw.split(","):
+        user, sep, token = pair.strip().partition(":")
+        if sep and user.strip() and token.strip():
+            tokens[user.strip()] = token.strip()
+    return tokens
+
+
+def resolve_identity(token: str | None, user_id: str | None) -> str:
+    """요청자 `user_id`를 정한다 (SERVICE.md 8장 신원 확인).
+
+    - 토큰이 있으면 `USER_TOKENS`와 상수 시간 비교로 대조한다. 본문 `user_id`가 다르면 실패.
+    - 토큰 없이 `user_id`만 있으면 실패한다(guest로 낮추지 않음).
+    - 둘 다 없으면 `DEFAULT_USER`, 그것도 비어 있으면 조회 전용 `guest`.
+    실패하면 IdentityError를 낸다.
+    """
+    token = (token or "").strip()
+    user_id = (user_id or "").strip() or None
+    if token:
+        matched = None
+        for user, expected in parse_user_tokens().items():
+            if hmac.compare_digest(token.encode(), expected.encode()):
+                matched = user
+        if matched is None or (user_id is not None and user_id != matched):
+            raise IdentityError
+        return matched
+    if user_id is not None:
+        raise IdentityError
+    return os.environ.get("DEFAULT_USER", "").strip() or GUEST_USER
+
+
+def claim_thread(db_path: str | None, thread_id: str, user_id: str) -> bool:
+    """스레드 소유자를 확인한다. 처음 보는 스레드면 요청자를 소유자로 기록한다.
+
+    다른 사용자의 스레드면 False를 돌려준다.
+    """
+    conn = connect(db_path)
+    try:
+        with conn:
+            row = conn.execute("SELECT user_id FROM threads WHERE thread_id = ?", (thread_id,)).fetchone()
+            if row is None:
+                conn.execute(
+                    "INSERT INTO threads (thread_id, user_id, created_at) VALUES (?, ?, ?)",
+                    (thread_id, user_id, now_iso()),
+                )
+                return True
+            return row["user_id"] == user_id
+    finally:
+        conn.close()
+
+
+def new_thread_id(user_id: str) -> str:
+    """새 스레드 ID(`user_id-YYYYMMDD-8자리`)를 만든다."""
+    return f"{user_id}-{time.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}"
+
+
+class StepRecorder(BaseCallbackHandler):
+    """한 턴 동안 실행된 도구 이름·소요 시간과 도구 결과를 모은다 (`trace.steps`, `contexts`용)."""
+
+    def __init__(self) -> None:
+        """기록을 비운다."""
+        self.steps: list[dict[str, Any]] = []
+        self.outputs: list[tuple[str, str]] = []
+        self._started: dict[Any, tuple[str, float]] = {}
+
+    def on_tool_start(self, serialized: dict, input_str: str, *, run_id: Any, **kwargs: Any) -> None:
+        """도구 시작 시각을 기록한다."""
+        name = (serialized or {}).get("name") or kwargs.get("name") or "tool"
+        self._started[run_id] = (name, time.perf_counter())
+
+    def on_tool_end(self, output: Any, *, run_id: Any, **kwargs: Any) -> None:
+        """도구 소요 시간과 결과 문자열을 기록한다."""
+        name, ms = self._finish(run_id)
+        self.steps.append({"tool": name, "ms": ms})
+        self.outputs.append((name, str(getattr(output, "content", output))))
+
+    def on_tool_error(self, error: BaseException, *, run_id: Any, **kwargs: Any) -> None:
+        """승인 대기(interrupt)나 오류로 끝난 도구를 기록한다."""
+        name, ms = self._finish(run_id)
+        event = "interrupt" if type(error).__name__ == "GraphInterrupt" else "error"
+        self.steps.append({"tool": name, "ms": ms, "event": event})
+
+    def _finish(self, run_id: Any) -> tuple[str, int]:
+        """시작 기록을 꺼내 (도구 이름, 경과 ms)를 돌려준다."""
+        name, start = self._started.pop(run_id, ("tool", time.perf_counter()))
+        return name, int((time.perf_counter() - start) * 1000)
+
+
+def extract_contexts(outputs: list[tuple[str, str]]) -> list[str]:
+    """근거 도구 결과에서 `contexts` 문자열 목록을 만든다. 같은 문자열은 한 번만 넣는다."""
+    contexts: list[str] = []
+
+    def add(text: str) -> None:
+        text = text.strip()
+        if text and text not in contexts:
+            contexts.append(text)
+
+    for name, output in outputs:
+        if name not in CONTEXT_TOOLS:
+            continue
+        try:
+            data = json.loads(output)
+        except (ValueError, TypeError):
+            if output.startswith("["):  # get_recipe: "[recipes_x.md#요리] ..."
+                add(output)
+            continue
+        if name == "search_recipes":
+            for hit in data.get("results", []):
+                add(hit)
+        elif name == "rank_recipes":
+            for item in data.get("items", []):
+                add(f"[{item['source']}#{item['dish']}] {item['summary']}")
+        elif name == "get_storage_days" and data.get("source"):
+            add(f"[{data['source']}#{data.get('item', '')}] {json.dumps(data, ensure_ascii=False)}")
+    return contexts
+
+
+def _domain_trace(db_path: str | None) -> dict[str, Any]:
+    """도메인 DB에서 `trace.alerts`와 `trace.rescued_g_week`를 읽는다."""
+    conn = connect(db_path)
+    try:
+        return {"alerts": list_alerts(conn), "rescued_g_week": rescued_g_week(conn)["total_g"]}
+    finally:
+        conn.close()
+
+
+def _error(code: str, message: str) -> dict[str, str]:
+    """`trace.errors` 항목을 만든다."""
+    return {"code": code, "message": message}
+
+
+async def _pending(agent: Any, thread_id: str) -> dict | None:
+    """스레드에 대기 중인 승인 요청이 있으면 그 값(type, summary)을 돌려준다."""
+    snapshot = await agent.aget_state({"configurable": {"thread_id": thread_id}})
+    interrupts = list(getattr(snapshot, "interrupts", ()) or ())
+    if not interrupts:
+        for task in getattr(snapshot, "tasks", ()) or ():
+            interrupts.extend(task.interrupts or ())
+    return pending_interrupt({"__interrupt__": interrupts})
+
+
+async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path: str | None) -> QueryResponse:
+    """`/query` 한 건을 처리한다. 신원 → 스레드 소유권 → 승인 상태 → 에이전트 실행 순서다."""
+    trace: dict[str, Any] = {
+        "thread_id": req.thread_id,
+        "user_id": None,
+        "question": req.question,
+        "resume": req.resume,
+        "alerts": [],
+        "pending_interrupt": None,
+        "steps": [],
+        "rescued_g_week": 0,
+        "errors": [],
+    }
+
+    def reply(answer: str, contexts: list[str] | None = None) -> QueryResponse:
+        """현재 trace로 응답을 만든다."""
+        return QueryResponse(answer=answer, contexts=contexts or [], trace=trace)
+
+    try:
+        user_id = resolve_identity(token, req.user_id)
+    except IdentityError:
+        trace["errors"].append(_error("IDENTITY_MISMATCH", "토큰과 user_id가 맞지 않거나 토큰이 없어요"))
+        return reply(MSG_IDENTITY_MISMATCH)
+    trace["user_id"] = user_id
+
+    thread_id = req.thread_id or new_thread_id(user_id)
+    trace["thread_id"] = thread_id
+    if not claim_thread(db_path, thread_id, user_id):
+        trace["errors"].append(_error("THREAD_OWNER_MISMATCH", "다른 사용자의 thread_id예요"))
+        return reply(MSG_THREAD_MISMATCH)
+
+    trace.update(_domain_trace(db_path))
+    pending = await _pending(agent, thread_id)
+    if req.resume and not pending:
+        trace["errors"].append(_error("NO_PENDING_INTERRUPT", "이 스레드에 대기 중인 승인 요청이 없어요"))
+        return reply(MSG_NO_PENDING)
+    if not req.resume and pending:
+        trace["pending_interrupt"] = pending
+        trace["errors"].append(_error("INTERRUPT_PENDING", "승인 또는 거절 후 다시 질문해 주세요"))
+        return reply(f"{pending['summary']} (approve/reject)")
+
+    recorder = StepRecorder()
+    context = FridgeContext(user_id=user_id, db_path=db_path)
+    try:
+        turn = await run_turn(agent, req.question, context, thread_id, resume=req.resume, callbacks=[recorder])
+    except Exception as exc:  # noqa: BLE001 - 어떤 실패든 세 키 형식으로 돌려준다
+        trace["steps"] = recorder.steps
+        trace["errors"].append(_error("AGENT_ERROR", f"{type(exc).__name__}: {exc}"[:300]))
+        return reply(MSG_AGENT_ERROR)
+
+    answer = turn["answer"]
+    trace["steps"] = recorder.steps
+    trace["pending_interrupt"] = turn["pending_interrupt"]
+    if any(output.strip() == GUEST_DENIED for _, output in recorder.outputs):
+        trace["errors"].append(_error("GUEST_READ_ONLY", "guest는 조회만 할 수 있어요"))
+        answer = GUEST_DENIED
+    trace.update(_domain_trace(db_path))
+    return reply(answer, extract_contexts(recorder.outputs))
+
+
+def ensure_domain_db(db_path: str | None = None) -> None:
+    """도메인 DB에 테이블이 없으면 스키마와 시드로 만든다. 있으면 그대로 둔다."""
+    conn = connect(db_path)
+    try:
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'threads'"
+        ).fetchone()
+    finally:
+        conn.close()
+    if not exists:
+        reset_db(db_path)
+
+
+def create_app(model: Any = None, db_path: str | None = None) -> FastAPI:
+    """API 앱을 만든다. 테스트에서는 가짜 모델과 임시 도메인 DB 경로를 넣는다.
+
+    서버 시작(lifespan) 때 도메인 DB를 확인하고 체크포인터(`data/checkpoints.db`)를 연 에이전트를
+    한 번 만들어 모든 요청이 같이 쓴다.
+    """
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        """체크포인터를 연 에이전트를 서버가 떠 있는 동안 유지한다."""
+        ensure_domain_db(db_path)
+        async with open_agent(model=model) as agent:
+            app.state.agent = agent
+            yield
+
+    app = FastAPI(title="냉장고 관리 Agent", lifespan=lifespan)
+
+    @app.post("/query", response_model=QueryResponse)
+    async def query(req: QueryRequest, x_user_token: str | None = Header(default=None)) -> QueryResponse:
+        """질문 한 건을 처리해 `answer`, `contexts`, `trace`를 돌려준다."""
+        return await handle_query(app.state.agent, req, x_user_token, db_path)
+
+    return app
+
+
+app = create_app()

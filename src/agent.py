@@ -108,12 +108,16 @@ async def run_turn(
     context: FridgeContext,
     thread_id: str,
     resume: str | None = None,
+    callbacks: list | None = None,
 ) -> dict:
     """한 턴을 실행한다. `resume`이 있으면 대기 중인 승인을 그 값으로 재개한다.
 
+    `callbacks`는 도구 실행 기록(trace) 같은 콜백 핸들러 목록이다.
     `answer`(마지막 AI 답 또는 승인 요약), `pending_interrupt`, 원본 `result`를 돌려준다.
     """
-    config = {"configurable": {"thread_id": thread_id}}
+    config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+    if callbacks:
+        config["callbacks"] = callbacks
     payload: Any = Command(resume=resume) if resume else {"messages": [{"role": "user", "content": question}]}
     result = await agent.ainvoke(payload, config=config, context=context)
     pending = pending_interrupt(result)

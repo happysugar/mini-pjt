@@ -261,8 +261,8 @@ def test_d_day(monkeypatch):
 def test_list_alerts_seed(conn):
     alerts = tools.list_alerts(conn)
     assert alerts == [
-        {"sn": "2026-11-008", "item": "시금치", "d_day": -1, "level": "expired"},
-        {"sn": "2026-11-003", "item": "한우", "d_day": 2, "level": "imminent"},
+        {"sn": "2026-11-008", "item": "시금치", "qty": 200, "unit": "g", "d_day": -1, "level": "expired"},
+        {"sn": "2026-11-003", "item": "한우", "qty": 600, "unit": "g", "d_day": 2, "level": "imminent"},
     ]
 
 
