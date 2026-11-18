@@ -41,4 +41,4 @@ SERVICE.md(APPROVED)와 엔지니어링 리뷰 결정(`.gstack/reviews/eng-revie
 
 ## 남은 결정
 
-- **R6 (D10)**: 추천 결과를 결정적 함수가 만들지, LLM 구조화 출력이 만들지. TASK-06에서 P02·E03으로 비교한 뒤 결정합니다.
+- 남은 결정 없음. **R6 (D10)**은 2026-11-18에 (a) 결정적 함수로 확정했습니다. 추천 결과는 `rank_recipes`(결정적 함수)가 만들고 LLM은 설명만 합니다. 근거는 [TASK-06](TASK-06-single-agent-hitl.md)의 비교 표에 있습니다.

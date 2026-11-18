@@ -16,6 +16,8 @@ from datetime import date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
+from langchain.tools import ToolRuntime, tool
+from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -95,13 +97,22 @@ CREATE TABLE item_units (
     base_unit TEXT NOT NULL CHECK (base_unit IN ('g', 'L', '개'))
 );
 
+-- 승인 도구의 멱등 기록: 같은 키(thread_id:tool_call_id)는 한 번만 저장한다.
+CREATE TABLE applied_actions (
+    idem_key   TEXT PRIMARY KEY,
+    action     TEXT NOT NULL,
+    user_id    TEXT NOT NULL,
+    result     TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX idx_inventory_item ON inventory(item, status);
 CREATE INDEX idx_deductions_created ON deductions(created_at);
 CREATE INDEX idx_ratings_user_dish ON ratings(user_id, dish);
 CREATE INDEX idx_meals_user_synced ON meals(user_id, watch_synced);
 """
 
-TABLES = ("deductions", "ratings", "meals", "threads", "item_units", "inventory", "users")
+TABLES = ("applied_actions", "deductions", "ratings", "meals", "threads", "item_units", "inventory", "users")
 
 
 def today() -> date:
@@ -1134,3 +1145,508 @@ def recommend_family(
     else:
         result.empty_slots.append(EmptySlot(slot=SLOT_GROUP_NEW, reason="함께 먹는 사람 모두가 이미 평가한 요리뿐이라 새로 시도할 요리가 없어요"))
     return result
+
+
+# ── 에이전트 도구 (TASK-06) ───────────────────────────────────────
+#
+# 신원(user_id, family_id)은 도구 인자가 아니라 런타임 컨텍스트(`FridgeContext`)로만 받는다.
+# 그래서 LLM이 어떤 말을 들어도 다른 사용자로 도구를 부를 수 없다.
+#
+# 승인 도구 공통 규칙 (SERVICE.md 5.3):
+#   1. 읽기만 해서 승인 요약을 만든다.
+#   2. 쓰기 전에 `interrupt(요약)`을 부른다. 재개되면 도구가 처음부터 다시 실행된다.
+#   3. 승인되면 한 트랜잭션으로 한 번만 저장하고, 멱등 키(thread_id:tool_call_id)로 중복을 막는다.
+#   4. 거절되면 도구가 정해진 문구를 돌려준다.
+
+# 쓰기 전에 사용자 승인을 받는 도구. withdraw_item은 보유량의 50%를 넘게 꺼낼 때만 승인을 받는다.
+APPROVAL_TOOLS = frozenset({"confirm_meal", "discard_item", "withdraw_item"})
+BULK_WITHDRAW_RATIO = 0.5
+GUEST_USER = "guest"
+
+REJECT_MEAL = "취소했어요. 평가도 저장하지 않았어요"
+REJECT_DISCARD = "취소했어요. 폐기하지 않았어요"
+REJECT_WITHDRAW = "취소했어요. 재고를 바꾸지 않았어요"
+GUEST_DENIED = "평가와 재고 변경은 로그인한 가족만 할 수 있어요"
+ASK_SERVINGS = "몇 인분 만들었고, 본인은 몇 인분 드셨나요?"
+WATCH_PENDING = "워치 기록은 아직 연결 전이라 대기 중이에요"
+
+
+@dataclass
+class FridgeContext:
+    """서버가 확인한 요청자 신원. 에이전트 실행 시 `context=`로 넣는다.
+
+    `db_path`는 테스트·평가에서 임시 DB를 쓰려고 둔다. 없으면 `data/fridge.db`.
+    """
+
+    user_id: str
+    family_id: str = "family-1"
+    db_path: str | None = None
+
+
+class InventoryInput(BaseModel):
+    """입고할 재고 한 건."""
+
+    item: str = Field(description="품목명. 사용자가 말한 이름 그대로 (예: 한우, 두부)")
+    qty: float = Field(description="수량")
+    unit: str = Field(description="단위. 사용자가 말한 그대로 (g, kg, L, ml, 개, 모, 팩, 봉, 알 등)")
+    input_date: str | None = Field(
+        default=None,
+        description="투입일자. '오늘', '어제', '-1' 같은 상대 표현이나 YYYY-MM-DD. 말하지 않았으면 비운다",
+    )
+    expiry_date: str | None = Field(default=None, description="사용자가 말한 유효기간(YYYY-MM-DD). 말하지 않았으면 비운다")
+    sn: str | None = Field(default=None, description="사용자가 직접 준 S/N(YYYY-MM-NNN). 말하지 않았으면 비운다")
+
+
+def _context(runtime: ToolRuntime[FridgeContext]) -> FridgeContext:
+    """런타임 컨텍스트에서 서버가 확인한 신원을 꺼낸다. 없으면 실행을 멈춘다."""
+    ctx = runtime.context
+    # `tools`와 `src.tools`로 두 번 import돼도 동작하도록 클래스 대신 속성으로 확인한다.
+    if not getattr(ctx, "user_id", None):
+        raise RuntimeError("런타임 컨텍스트(FridgeContext)가 없어요")
+    return ctx
+
+
+def _open(runtime: ToolRuntime[FridgeContext]) -> sqlite3.Connection:
+    """요청자 컨텍스트의 도메인 DB 연결을 연다."""
+    return connect(_context(runtime).db_path)
+
+
+def idempotency_key(runtime: ToolRuntime[FridgeContext]) -> str:
+    """승인 도구의 멱등 키 `thread_id:tool_call_id`를 만든다."""
+    thread_id = (runtime.config or {}).get("configurable", {}).get("thread_id", "no-thread")
+    return f"{thread_id}:{runtime.tool_call_id}"
+
+
+def is_approved(decision: object) -> bool:
+    """재개 값이 승인인지 판단한다. `"approve"` 또는 `{"decision": "approve"}`를 받는다."""
+    if isinstance(decision, dict):
+        decision = decision.get("decision") or decision.get("resume")
+    return str(decision).strip().lower() in {"approve", "approved", "yes", "y", "승인", "true"}
+
+
+def _fmt_qty(qty: float, unit: str = "") -> str:
+    """수량을 보기 좋게 적는다 (300.0 → "300", 0.5 → "0.5")."""
+    return f"{qty:.2f}".rstrip("0").rstrip(".") + unit
+
+
+def _to_json(obj: object) -> str:
+    """도구 결과를 한글이 그대로 보이는 JSON 문자열로 바꾼다."""
+    return json.dumps(obj, ensure_ascii=False, default=str)
+
+
+def _applied_result(conn: sqlite3.Connection, key: str) -> str | None:
+    """이미 처리한 승인 작업이면 그때 돌려준 문구를, 아니면 None을 돌려준다."""
+    row = conn.execute("SELECT result FROM applied_actions WHERE idem_key = ?", (key,)).fetchone()
+    return row["result"] if row else None
+
+
+def _record_applied(conn: sqlite3.Connection, key: str, action: str, user_id: str, message: str) -> None:
+    """승인 작업을 처리했다고 기록한다. 저장과 같은 트랜잭션에서 부른다."""
+    conn.execute(
+        "INSERT INTO applied_actions (idem_key, action, user_id, result, created_at) VALUES (?, ?, ?, ?, ?)",
+        (key, action, user_id, message, now_iso()),
+    )
+
+
+def _lot_label(conn: sqlite3.Connection, result: dict) -> str:
+    """차감 결과를 보여줄 이름. 실제로 차감한 재고의 이름(예: 한우)을 쓰고, 없으면 요청한 이름."""
+    for detail in result.get("details", []):
+        row = conn.execute("SELECT item FROM inventory WHERE sn = ?", (detail["sn"],)).fetchone()
+        if row:
+            return row["item"]
+    return result["item"]
+
+
+def plan_meal_deductions(conn: sqlite3.Connection, recipe: Recipe, servings_made: float) -> list[dict]:
+    """레시피 재료를 만든 인분만큼 FEFO로 차감한다. 커밋하지 않는다.
+
+    승인 요약을 만들 때는 이 함수를 부른 뒤 롤백해서 미리보기로 쓰고,
+    승인 후에는 같은 함수를 트랜잭션 안에서 다시 불러 실제로 차감한다.
+    """
+    results = []
+    for ing in recipe.ingredients:
+        result = deduct_fefo(conn, ing.item, _round(ing.qty * servings_made), ing.unit, reason=REASON_MEAL)
+        result["label"] = _lot_label(conn, result)
+        results.append(result)
+    return results
+
+
+def describe_deductions(results: list[dict]) -> tuple[str, list[str]]:
+    """차감 결과를 '한우 300g·양파 1개' 문구와 부족·건너뜀 안내 목록으로 바꾼다."""
+    parts: list[str] = []
+    notes: list[str] = []
+    for r in results:
+        if r["status"] in ("ok", "partial") and r["deducted"] > 0:
+            parts.append(f"{r['label']} {_fmt_qty(r['deducted'], r['unit'])}")
+        if r["status"] == "partial":
+            notes.append(f"{r['label']} {_fmt_qty(r['shortage'], r['unit'])} 부족")
+        elif r["status"] == "not_in_stock":
+            notes.append(f"{r['item']} 재고 없음")
+        elif r["status"] == "unit_mismatch":
+            notes.append(f"{r['item']} 재고 단위 불일치로 차감 건너뜀")
+    return "·".join(parts), notes
+
+
+def recipe_text(recipe: Recipe) -> str:
+    """레시피를 사용자에게 보여줄 문장으로 정리한다. 레시피 문서에 있는 내용만 쓴다."""
+    ingredients = "\n".join(f"- {i.item} {_fmt_qty(i.qty, i.unit)}" for i in recipe.ingredients)
+    steps = "\n".join(f"{n}. {s}" for n, s in enumerate(recipe.steps, 1))
+    allergens = ", ".join(recipe.allergens) or "없음"
+    return (
+        f"[{recipe.source}#{recipe.name}] {recipe.name} ({recipe.cuisine})\n{recipe.summary}\n"
+        f"주재료: {recipe.main} / 1인분 {_fmt_qty(recipe.kcal)}kcal / 알레르기: {allergens}\n"
+        f"재료 (1인분 기준)\n{ingredients}\n조리 순서\n{steps}"
+    )
+
+
+def _resolve_diners(conn: sqlite3.Connection, family_id: str, names: list[str]) -> tuple[list[str], list[str]]:
+    """'엄마', '지민이', 'mom' 같은 이름을 같은 가족의 user_id로 바꾼다. (찾은 id, 못 찾은 이름)을 돌려준다."""
+    users = conn.execute("SELECT user_id, name FROM users WHERE family_id = ?", (family_id,)).fetchall()
+    found: list[str] = []
+    unknown: list[str] = []
+    for raw in names:
+        name = raw.strip()
+        candidates = {name, name[:-1] if len(name) > 2 and name.endswith("이") else name}
+        match = next((u["user_id"] for u in users if u["user_id"] in candidates or u["name"] in candidates), None)
+        if match:
+            found.append(match)
+        else:
+            unknown.append(name)
+    return found, unknown
+
+
+@tool
+def add_items_from_text(runtime: ToolRuntime[FridgeContext], items: list[InventoryInput]) -> str:
+    """사용자가 말한 식재료를 냉장고 재고로 입고한다.
+
+    문장에 나온 품목마다 하나씩 넣는다. 날짜·S/N·유효기간·단위 환산은 도구가 계산하므로
+    직접 계산하지 말고 사용자가 말한 값을 그대로 넘긴다. 결과의 status가
+    `sn_invalid`면 중복·형식 오류를 알리고 suggested_sn을 제안하고,
+    `unit_mismatch`면 기준 단위로 다시 물어본다. expiry_source가 `unknown`이면
+    유효기간 미상으로 저장됐다고 알린다.
+    """
+    ctx = _context(runtime)
+    if ctx.user_id == GUEST_USER:
+        return GUEST_DENIED
+    conn = _open(runtime)
+    try:
+        results = []
+        with conn:
+            for it in items:
+                try:
+                    results.append(add_inventory(conn, it.item, it.qty, it.unit, it.input_date, it.expiry_date, it.sn))
+                except ValueError as e:
+                    results.append({"status": "invalid", "item": it.item, "message": str(e)})
+        return _to_json(results)
+    finally:
+        conn.close()
+
+
+@tool
+def list_inventory(runtime: ToolRuntime[FridgeContext]) -> str:
+    """냉장고에 보관 중인 재고 목록을 유효기간이 빠른 순으로 돌려준다.
+
+    각 항목에 S/N, 수량, 유효기간(미상이면 null), D-day, 경고 수준(imminent·expired)이 있다.
+    """
+    conn = _open(runtime)
+    try:
+        rows = conn.execute(
+            "SELECT sn, item, qty, unit, expiry_date, expiry_source, input_date FROM inventory"
+            " WHERE status = 'stored' AND qty > 0 ORDER BY expiry_date IS NULL, expiry_date, sn"
+        ).fetchall()
+        items = []
+        for r in rows:
+            dd = d_day(r["expiry_date"])
+            items.append({**dict(r), "d_day": dd, "level": alert_level(dd)})
+        return _to_json(items)
+    finally:
+        conn.close()
+
+
+@tool
+def withdraw_item(runtime: ToolRuntime[FridgeContext], item: str, qty: float, unit: str) -> str:
+    """재고를 꺼내 쓴다(출고). 유효기간이 빠른 것부터 차감한다.
+
+    그 품목 전체 보유량의 50%를 넘게 꺼내면 사용자 승인을 먼저 받는다.
+    """
+    ctx = _context(runtime)
+    if ctx.user_id == GUEST_USER:
+        return GUEST_DENIED
+    conn = _open(runtime)
+    try:
+        try:
+            need, base = convert_to_base(item, qty, unit, conn)
+        except UnitMismatchError as e:
+            return f"{e}. 기준 단위({e.base_unit})로 다시 알려 주세요"
+        except ValueError as e:
+            return str(e)
+        total = _round(sum(r["qty"] for r in stock_rows(conn, item)))
+        if total <= 0:
+            return f"{item} 재고가 없어요"
+
+        key = idempotency_key(runtime)
+        if need > total * BULK_WITHDRAW_RATIO:
+            done = _applied_result(conn, key)
+            if done:
+                return done
+            summary = (
+                f"{item} {_fmt_qty(need, base)} 출고 (보유량 {_fmt_qty(total, base)}의 "
+                f"{round(min(need, total) / total * 100)}%). 진행할까요?"
+            )
+            decision = interrupt({"type": "bulk_withdraw", "tool": "withdraw_item", "summary": summary})
+            if not is_approved(decision):
+                return REJECT_WITHDRAW
+
+        with conn:
+            done = _applied_result(conn, key)
+            if done:
+                return done
+            result = deduct_fefo(conn, item, need, base, reason=REASON_OUTFLOW)
+            message = f"{item} {_fmt_qty(result['deducted'], base)} 출고했어요"
+            if result["shortage"] > 0:
+                message += f" (재고가 {_fmt_qty(result['shortage'], base)} 모자랐어요)"
+            _record_applied(conn, key, "withdraw_item", ctx.user_id, message)
+        return message
+    finally:
+        conn.close()
+
+
+@tool
+def discard_item(runtime: ToolRuntime[FridgeContext], item: str, sn: str | None = None) -> str:
+    """재고를 폐기한다. 반드시 사용자 승인을 먼저 받는다.
+
+    S/N을 주면 그 재고만, 주지 않으면 그 품목의 보관 중 재고를 모두 폐기한다.
+    """
+    ctx = _context(runtime)
+    if ctx.user_id == GUEST_USER:
+        return GUEST_DENIED
+    conn = _open(runtime)
+    try:
+        key = idempotency_key(runtime)
+        done = _applied_result(conn, key)
+        if done:
+            return done
+        lots = [r for r in stock_rows(conn, item) if sn is None or r["sn"] == sn.strip()]
+        if not lots:
+            return f"폐기할 {item} 재고가 없어요"
+        desc = ", ".join(
+            f"{r['item']} {_fmt_qty(r['qty'], r['unit'])} (S/N {r['sn']}, D-day {d_day(r['expiry_date'])})"
+            for r in lots
+        )
+        decision = interrupt({"type": "discard", "tool": "discard_item", "summary": f"{desc} 폐기. 진행할까요?"})
+        if not is_approved(decision):
+            return REJECT_DISCARD
+
+        with conn:
+            done = _applied_result(conn, key)
+            if done:
+                return done
+            created_at = now_iso()
+            for r in lots:
+                conn.execute("UPDATE inventory SET qty = 0, status = 'discarded' WHERE sn = ?", (r["sn"],))
+                conn.execute(
+                    "INSERT INTO deductions (sn, qty_g, d_day_at_deduction, reason, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (r["sn"], to_grams(r["item"], r["qty"], r["unit"]), d_day(r["expiry_date"]), REASON_DISCARD, created_at),
+                )
+            message = f"폐기했어요: {desc}"
+            _record_applied(conn, key, "discard_item", ctx.user_id, message)
+        return message
+    finally:
+        conn.close()
+
+
+@tool
+def search_recipes(query: str) -> str:
+    """레시피 문서에서 요리를 찾아 재료, 1인분 kcal, 조리 순서, 출처를 돌려준다.
+
+    지원 카테고리는 한식·일식·이탈리아식뿐이다. 찾지 못하면 빈 목록과 안내를 돌려주므로
+    레시피를 지어내지 않는다. (키워드 검색. 하이브리드 RAG는 TASK-10에서 바꾼다)
+    """
+    tokens = [t for t in re.split(r"[\s,]+", query) if len(t) >= 2]
+    scored = []
+    for recipe in parse_recipes().values():
+        score = 0
+        for t in tokens:
+            key = item_key(t)
+            if t in recipe.name or recipe.name in t:
+                score += 3
+            if key == item_key(recipe.main):
+                score += 2
+            if any(item_key(i.item) == key for i in recipe.ingredients):
+                score += 1
+            if t in recipe.cuisine:
+                score += 1
+        if score:
+            scored.append((score, recipe.name, recipe))
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    hits = [recipe_text(r) for _, _, r in scored[:3]]
+    if not hits:
+        return _to_json({"results": [], "note": "레시피 문서에서 찾지 못했어요. 지원 카테고리: 한식·일식·이탈리아식"})
+    return _to_json({"results": hits})
+
+
+@tool
+def get_recipe(dish: str) -> str:
+    """요리명으로 레시피 한 개를 정확히 찾는다. 레시피에 없는 요리(외식 등)면 그렇다고 알려준다."""
+    recipe = parse_recipes().get(dish.strip())
+    if recipe is None:
+        return f"레시피에 없는 요리예요: {dish}"
+    return recipe_text(recipe)
+
+
+@tool
+def rank_recipes(runtime: ToolRuntime[FridgeContext], category: str | None = None, diners: list[str] | None = None) -> str:
+    """재고·평점·알레르기·비선호 규칙으로 오늘 만들 요리를 추천한다. 결과를 바꾸지 말고 그대로 설명한다.
+
+    - category: 한식·일식·이탈리아식 중 하나. 지정하지 않으면 세 카테고리 슬롯으로 추천한다.
+    - diners: 함께 먹는 가족 이름(예: ["엄마", "지민"]). 요청자는 자동 포함이므로 넣지 않는다.
+      주면 가족 합의 저녁 규칙으로 메뉴 1개와 신메뉴 1개를 고른다.
+    """
+    ctx = _context(runtime)
+    conn = _open(runtime)
+    try:
+        notes: list[str] = []
+        if category is not None and category not in CUISINES:
+            notes.append(f"{category}는 지원하지 않아요. 한식·일식·이탈리아식 중에서 골랐어요")
+            category = None
+        others: list[str] = []
+        if diners:
+            found, unknown = _resolve_diners(conn, ctx.family_id, diners)
+            others = [d for d in found if d != ctx.user_id]
+            if unknown:
+                notes.append(f"가족 목록에 없는 이름은 빼고 골랐어요: {', '.join(unknown)}")
+        if others:
+            result = recommend_family(conn, ctx.user_id, others)
+        else:
+            result = recommend(conn, ctx.user_id, category=category)
+        result.notes = notes + result.notes
+        return result.model_dump_json()
+    finally:
+        conn.close()
+
+
+@tool("calc_kcal")
+def calc_kcal_tool(servings_eaten: float, dish: str | None = None, kcal_per_serving: float | None = None) -> str:
+    """먹은 인분으로 섭취 kcal을 계산한다. 레시피에 있는 요리면 레시피의 1인분 kcal을 쓴다."""
+    recipe = parse_recipes().get(dish.strip()) if dish else None
+    per = recipe.kcal if recipe else kcal_per_serving
+    try:
+        kcal = calc_kcal(servings_eaten, per)
+    except ValueError as e:
+        return str(e)
+    return _to_json({"dish": dish, "servings_eaten": servings_eaten, "kcal_per_serving": per, "kcal": kcal})
+
+
+@tool
+def get_storage_days(item: str) -> str:
+    """보관 가이드에서 품목의 권장 보관일수와 기준 단위를 찾는다. 가이드에 없으면 그렇다고 알려준다."""
+    info = guide_info(item)
+    if info is None:
+        return f"보관 가이드에 없는 품목이에요: {item}. 유효기간을 직접 알려 주세요"
+    return _to_json({"item": item, "guide_item": resolve_item(item), "storage_days": info["storage_days"],
+                     "base_unit": info["base_unit"], "source": STORAGE_GUIDE.name})
+
+
+@tool
+def confirm_meal(
+    runtime: ToolRuntime[FridgeContext],
+    dish: str,
+    score: int,
+    servings_made: float | None = None,
+    servings_eaten: float | None = None,
+    kcal_per_serving: float | None = None,
+    comment: str | None = None,
+) -> str:
+    """식사 평가를 확정한다: 평가 저장, 레시피 재료 차감, 식사·칼로리 기록. 반드시 사용자 승인을 먼저 받는다.
+
+    - score: 1~5점.
+    - servings_made: 만든 인분(재료 차감 기준). servings_eaten: 요청자가 먹은 인분(칼로리 기준).
+      레시피에 있는 요리인데 둘 중 하나라도 사용자가 말하지 않았으면 추측하지 말고 비워서 부른다.
+      그러면 도구가 되물을 문구를 돌려준다.
+    - 레시피에 없는 요리(외식 등)는 재고를 차감하지 않는다. 사용자가 kcal을 말했으면
+      kcal_per_serving에 넣고, 모르면 비운다(워치 기록 생략).
+    """
+    ctx = _context(runtime)
+    if ctx.user_id == GUEST_USER:
+        return GUEST_DENIED
+    if not 1 <= int(score) <= 5:
+        return "평가는 1~5점으로 알려 주세요"
+    recipe = parse_recipes().get(dish.strip())
+    if recipe is not None and (servings_made is None or servings_eaten is None):
+        return ASK_SERVINGS
+    if recipe is None:
+        servings_eaten = servings_eaten or 1  # 외식은 1인분으로 기록한다
+    if (servings_made is not None and servings_made <= 0) or servings_eaten <= 0:
+        return "인분은 0보다 커야 해요"
+    kcal = calc_kcal(servings_eaten, recipe.kcal if recipe else kcal_per_serving)
+
+    conn = _open(runtime)
+    try:
+        key = idempotency_key(runtime)
+        done = _applied_result(conn, key)
+        if done:
+            return done
+
+        # 1) 읽기 전용 미리보기: 차감해 보고 롤백한다.
+        preview = plan_meal_deductions(conn, recipe, servings_made) if recipe else []
+        conn.rollback()
+        deducted, notes = describe_deductions(preview)
+        parts = [f"{dish} 평가 {score}점 저장"]
+        if recipe:
+            parts.append(f"{_fmt_qty(servings_made)}인분 기준 {deducted} 차감" if deducted else "차감할 재고 없음")
+        else:
+            parts.append("레시피에 없는 요리라 재고는 차감하지 않음")
+        if kcal is None:
+            parts.append(f"{ctx.user_id} 식사 {_fmt_qty(servings_eaten)}인분 기록 (kcal을 몰라 워치 기록은 생략)")
+        else:
+            parts.append(f"{ctx.user_id} 식사 {_fmt_qty(servings_eaten)}인분 {_fmt_qty(kcal)}kcal를 워치에 기록")
+        summary = ", ".join(parts) + (f" ({'; '.join(notes)})" if notes else "") + ". 진행할까요?"
+
+        # 2) 쓰기 전에 승인. 재개되면 이 도구가 처음부터 다시 실행된다.
+        decision = interrupt({"type": "meal_confirm", "tool": "confirm_meal", "summary": summary})
+        if not is_approved(decision):
+            return REJECT_MEAL
+
+        # 3) 승인 후 한 트랜잭션으로 한 번만 저장한다.
+        with conn:
+            done = _applied_result(conn, key)
+            if done:
+                return done
+            now = now_iso()
+            conn.execute(
+                "INSERT INTO ratings (user_id, dish, cuisine, score, comment, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (ctx.user_id, dish.strip(), recipe.cuisine if recipe else None, int(score), comment, now),
+            )
+            conn.execute(
+                "INSERT INTO meals (user_id, dish, servings, kcal, eaten_at, watch_synced) VALUES (?, ?, ?, ?, ?, 0)",
+                (ctx.user_id, dish.strip(), servings_eaten, kcal, now),
+            )
+            applied = plan_meal_deductions(conn, recipe, servings_made) if recipe else []
+            deducted, notes = describe_deductions(applied)
+            message = f"저장했어요. {dish} {score}점"
+            if deducted:
+                message += f", {deducted} 차감"
+            message += f", {ctx.user_id} 식사 {_fmt_qty(servings_eaten)}인분"
+            message += f" {_fmt_qty(kcal)}kcal 기록." if kcal is not None else " 기록 (kcal 미상)."
+            if notes:
+                message += f" ({'; '.join(notes)})"
+            if kcal is not None:
+                message += f" {WATCH_PENDING}."
+            _record_applied(conn, key, "confirm_meal", ctx.user_id, message)
+        return message
+    finally:
+        conn.close()
+
+
+AGENT_TOOLS = [
+    add_items_from_text,
+    list_inventory,
+    withdraw_item,
+    discard_item,
+    search_recipes,
+    get_recipe,
+    rank_recipes,
+    calc_kcal_tool,
+    get_storage_days,
+    confirm_meal,
+]

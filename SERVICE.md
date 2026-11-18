@@ -145,7 +145,7 @@ Mode: Builder (Learning, 교육 과정 개인 미니 프로젝트)
 
 | # | 개념 | 이 서비스에서의 쓰임 | 위치 | 시연 장면 |
 |---|---|---|---|---|
-| 1 | LCEL + Pydantic | 자연어 입고 문장을 `InventoryInput` 목록으로 파싱합니다(`prompt \| llm.with_structured_output`). 추천 결과는 `RecommendationResult`로 받습니다 | `src/chains.py` | "한우 600g, 두부 1모, 우유 1L 샀어" |
+| 1 | LCEL + Pydantic | 자연어 입고 문장을 `InventoryInput` 목록으로 파싱합니다(`prompt \| llm.with_structured_output`). 추천 결과 `RecommendationResult`는 결정적 함수 `rank_recipes`가 만들고 LLM은 설명만 합니다(R6 결정) | `src/chains.py` | "한우 600g, 두부 1모, 우유 1L 샀어" |
 | 2 | ReAct (bind_tools) | 재고 에이전트가 입고·출고·조회·폐기 도구를 스스로 골라 호출합니다 | `src/agent.py`, `src/tools.py` | trace의 tool 호출 순서 |
 | 3 | RAG (하이브리드·리랭킹·쿼리 확장) | 레시피 24~30개와 보관 가이드를 대상으로 kiwi 형태소 BM25와 Chroma 벡터 검색을 RRF로 결합하고, LLM 기반 리랭커로 상위 문서를 다시 고릅니다. 쿼리 확장은 "소고기 → 한우, 우둔, 차돌" 식입니다 | `src/retriever.py` | `contexts` 필드 |
 | 4 | 도구 다중 | "오늘 저녁 뭐 먹지?" 한 번에 재고 DB 조회, D-day·칼로리 계산기, 레시피 검색을 결합합니다(M2부터). M4부터는 요리추천 에이전트에도 워치 MCP `get_calorie_budget`(외부 시스템 역할)을 붙여, DB·계산기·외부 API 세 종류를 한 질의에서 함께 씁니다 | `src/tools.py` | 대표 시나리오 3단계 (M4 이후 완전한 형태) |
