@@ -2,7 +2,7 @@
 pytest>=8.4
 
 # ── 과정 공통 스택 (Amazon Bedrock) ────────────────────────
-langchain>=0.3
+langchain>=1.0
 langchain-text-splitters>=0.3
 langchain-core>=0.3
 langchain-aws>=0.2
@@ -12,6 +12,13 @@ langchain-mcp-adapters>=0.1
 fastmcp>=2.0
 python-dotenv>=1.0
 pydantic>=2.7
+
+# ── 체크포인트·서버·평가 (SERVICE.md 18장) ──────────────────
+langgraph-checkpoint-sqlite
+aiosqlite
+fastapi
+uvicorn
+ragas
 
 # ── RAG ────────────────────────────────────────────────────
 chromadb>=0.5
