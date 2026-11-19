@@ -19,6 +19,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
+from src.middleware import build_middleware
 from src.tools import AGENT_TOOLS, CHECKPOINT_DB, FridgeContext, today
 
 load_dotenv()
@@ -100,13 +101,19 @@ def one_tool_call_at_a_time(state: AgentState, runtime: Runtime) -> dict[str, An
     return {"messages": [last.model_copy(update={"tool_calls": calls[:1], "content": content})]}
 
 
-def build_agent(checkpointer: Any = None, model: Any = None):
-    """단일 냉장고 에이전트 그래프를 만든다. 테스트에서는 가짜 모델과 메모리 체크포인터를 넣는다."""
+def build_agent(checkpointer: Any = None, model: Any = None, middleware: list | None = None):
+    """단일 냉장고 에이전트 그래프를 만든다. 테스트에서는 가짜 모델과 메모리 체크포인터를 넣는다.
+
+    `middleware`가 없으면 `build_middleware`(요약·PII 마스킹·재시도)를 붙인다.
+    """
+    model = model or build_model()
+    if middleware is None:
+        middleware = build_middleware(model)
     return create_agent(
-        model=model or build_model(),
+        model=model,
         tools=AGENT_TOOLS,
         system_prompt=SYSTEM_PROMPT.format(today=today().isoformat()),
-        middleware=[one_tool_call_at_a_time],
+        middleware=[*middleware, one_tool_call_at_a_time],
         context_schema=FridgeContext,
         checkpointer=checkpointer,
     )

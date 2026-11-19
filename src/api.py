@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from src import retriever
 from src.agent import open_agent, pending_interrupt, run_turn
+from src.middleware import ModelUnavailableError
 from src.tools import (
     GUEST_DENIED,
     NOT_IN_GUIDE,
@@ -45,6 +46,7 @@ MSG_NO_PENDING = "대기 중인 승인 요청이 없어요"
 MSG_THREAD_MISMATCH = "이 대화에 접근할 수 없어요"
 MSG_IDENTITY_MISMATCH = "사용자 확인에 실패했어요"
 MSG_AGENT_ERROR = "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요"
+MSG_MODEL_UNAVAILABLE = "지금 AI 모델에 연결할 수 없어요. 잠시 후 다시 시도해 주세요"
 
 # 답변 근거(contexts)를 돌려주는 도구
 CONTEXT_TOOLS = {"list_inventory", "search_recipes", "search_docs", "get_recipe", "rank_recipes", "get_storage_days"}
@@ -155,6 +157,12 @@ class StepRecorder(BaseCallbackHandler):
         name, ms = self._finish(run_id)
         event = "interrupt" if type(error).__name__ == "GraphInterrupt" else "error"
         self.steps.append({"tool": name, "ms": ms, "event": event})
+
+    def on_chat_model_start(self, serialized: dict, messages: Any, *, run_id: Any, metadata: dict | None = None,
+                            **kwargs: Any) -> None:
+        """대화 이력 요약 미들웨어가 요약 모델을 부르면 `summary` 이벤트를 남긴다."""
+        if (metadata or {}).get("lc_source") == "summarization":
+            self.steps.append({"event": "summary"})
 
     def _finish(self, run_id: Any) -> tuple[str, int]:
         """시작 기록을 꺼내 (도구 이름, 경과 ms)를 돌려준다."""
@@ -313,6 +321,10 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
     context = FridgeContext(user_id=user_id, db_path=db_path)
     try:
         turn = await run_turn(agent, req.question, context, thread_id, resume=req.resume, callbacks=[recorder])
+    except ModelUnavailableError as exc:
+        trace["steps"] = recorder.steps
+        trace["errors"].append(_error("MODEL_UNAVAILABLE", str(exc)[:300]))
+        return reply(MSG_MODEL_UNAVAILABLE)
     except Exception as exc:  # noqa: BLE001 - 어떤 실패든 세 키 형식으로 돌려준다
         trace["steps"] = recorder.steps
         trace["errors"].append(_error("AGENT_ERROR", f"{type(exc).__name__}: {exc}"[:300]))
