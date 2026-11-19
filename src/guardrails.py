@@ -18,6 +18,7 @@ import os
 import re
 import unicodedata
 from dataclasses import asdict, dataclass, field
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
@@ -553,6 +554,120 @@ def check_rating_form(question: str, user_id: str) -> FormVerdict:
     }
     detail = ", ".join(f"{uid} {_fmt(eaten)}인분 {score}점" for uid, eaten, score in entries)
     question = f"{FORM_CONFIRM_REQUEST}: {form['recipe']} {_fmt(cooked)}인분, {detail}"
+    return FormVerdict(True, question=question, form=form)
+
+
+# ── 재고 입력 Form (JSON, SERVICE.md 5.1) ─────────────────────────
+# 화면은 {"item", "aliases", "sn", "qty", "unit", "avgWeight", "expiryDate", "inputDate", "storageDays", "status"}
+# JSON을 `question`에 담아 보낸다(비운 칸은 null). 요청 종류는 status(stored 입고, consumed 출고, discarded 폐기)로 정한다.
+# 여기서는 형식만 검사하고, 지금 재고와 맞춰 보는 검사(S/N 중복, 보유량 등)는 `tools.check_inventory_form_stock`이 한다.
+
+MSG_INVENTORY_FORM_INVALID = "재고 입력을 저장하지 않았어요. 입력 Form을 다시 확인해 주세요"
+INVENTORY_FORM_REQUEST = "재고 입력 Form을 확정해줘"  # src/tools.py의 같은 이름 상수와 같은 문구
+INVENTORY_FORM_KEYS = ("item", "aliases", "sn", "qty", "unit", "avgWeight", "expiryDate", "inputDate", "storageDays", "status")
+INVENTORY_UNITS = ("g", "L", "개")
+INVENTORY_ACTIONS = {"stored": "입고", "consumed": "출고", "discarded": "폐기"}
+_SN = re.compile(r"^\d{4}-(0[1-9]|1[0-2])-(?!000)\d{3}$")
+
+
+def _number(value: Any) -> float | None:
+    """숫자(bool 제외)면 float로, 아니면 None."""
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _iso_date(value: Any) -> date | None:
+    """"YYYY-MM-DD" 문자열이면 날짜로, 아니면 None."""
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def check_inventory_form(question: str) -> FormVerdict:
+    """`question`이 재고 입력 JSON이면 형식과 값을 검사한다. LLM과 DB를 쓰지 않는다.
+
+    검사: 알 수 없는 키, 상태 값, 품목, 별칭(문자열 배열), S/N 형식, 입고·출고의 양(0보다 큰 숫자)과 단위(g·L·개),
+    개당 평균 무게(0보다 큼), 권장 보관일수(1 이상 정수), 날짜 형식, 투입일자가 오늘보다 늦지 않은지,
+    유효기간이 투입일자보다 빠르지 않은지. 통과하면 보관할 값(`form`)과 확정 요청 문장(`question`)을 담는다.
+    """
+    from src.tools import today
+
+    text = question.strip()
+    if not text.startswith("{"):
+        return FormVerdict()
+    try:
+        data = json.loads(text)
+    except ValueError:
+        if '"item"' in text and '"recipe"' not in text:  # 재고 Form처럼 보이지만 JSON이 깨진 요청
+            return FormVerdict(True, "FORM_INVALID", ["JSON 형식이 아니에요"],
+                               f"{MSG_INVENTORY_FORM_INVALID}: JSON 형식이 아니에요")
+        return FormVerdict()
+    if not isinstance(data, dict) or "item" not in data or "recipe" in data:
+        return FormVerdict()
+
+    problems: list[str] = []
+    unknown = [k for k in data if k not in INVENTORY_FORM_KEYS]
+    if unknown:
+        problems.append(f"알 수 없는 항목이 있어요: {', '.join(map(str, unknown))}")
+    status = data.get("status") or "stored"
+    if status not in INVENTORY_ACTIONS:
+        problems.append("상태는 stored, consumed, discarded 중 하나여야 해요")
+    item = data.get("item")
+    if not isinstance(item, str) or not item.strip():
+        problems.append("품목이 비었어요")
+    aliases = data.get("aliases")
+    if aliases is not None and (not isinstance(aliases, list)
+                                or not all(isinstance(a, str) and a.strip() for a in aliases)):
+        problems.append("별칭은 글자 목록이어야 해요")
+    sn = data.get("sn")
+    if sn is not None and (not isinstance(sn, str) or not _SN.match(sn.strip())):
+        problems.append("S/N은 YYYY-MM-NNN 형식이어야 해요(예: 2026-11-014)")
+    qty, unit = _number(data.get("qty")), data.get("unit")
+    if status in ("stored", "consumed"):
+        if data.get("qty") is None:
+            problems.append("양이 비었어요")
+        elif qty is None or qty <= 0:
+            problems.append("양은 0보다 큰 숫자여야 해요")
+        if unit is None:
+            problems.append("단위가 비었어요")
+        elif unit not in INVENTORY_UNITS:
+            problems.append("단위는 g, L, 개 중 하나여야 해요")
+    weight = data.get("avgWeight")
+    if weight is not None and not (_number(weight) and _number(weight) > 0):
+        problems.append("개당 평균 무게는 0보다 큰 숫자(g)여야 해요")
+    days = data.get("storageDays")
+    if days is not None and (isinstance(days, bool) or not isinstance(days, int) or days < 1):
+        problems.append("권장 보관일수는 1 이상의 정수여야 해요")
+    expiry, input_date = _iso_date(data.get("expiryDate")), _iso_date(data.get("inputDate"))
+    if data.get("expiryDate") is not None and expiry is None:
+        problems.append("유효기간은 YYYY-MM-DD 형식이어야 해요")
+    if data.get("inputDate") is not None and input_date is None:
+        problems.append("투입일자는 YYYY-MM-DD 형식이어야 해요")
+    if status == "stored":
+        if input_date and input_date > today():
+            problems.append("투입일자가 오늘보다 늦어요")
+        if expiry and expiry < (input_date or today()):
+            problems.append("유효기간이 투입일자보다 빨라요")
+
+    if problems:
+        return FormVerdict(True, "FORM_INVALID", problems, f"{MSG_INVENTORY_FORM_INVALID}: " + "; ".join(problems))
+    form = {
+        "action": status,
+        "item": item.strip(),
+        "aliases": [a.strip() for a in aliases] if aliases else [],
+        "sn": sn.strip() if sn else None,
+        "qty": qty,
+        "unit": unit,
+        "avg_weight_g": _number(weight),
+        "expiry_date": expiry.isoformat() if expiry else None,
+        "input_date": input_date.isoformat() if input_date else None,
+        "storage_days": days,
+    }
+    amount = f" {_fmt(qty)}{unit}" if status != "discarded" else ""
+    where = f" (S/N {form['sn']})" if form["sn"] else ""
+    question = f"{INVENTORY_FORM_REQUEST}: {INVENTORY_ACTIONS[status]} {form['item']}{amount}{where}"
     return FormVerdict(True, question=question, form=form)
 
 

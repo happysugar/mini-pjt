@@ -33,11 +33,13 @@ from src.tools import (
     STORAGE_ITEMS,
     GUEST_USER,
     FridgeContext,
+    check_inventory_form_stock,
     connect,
     list_alerts,
     now_iso,
     rescued_g_week,
     reset_db,
+    save_inventory_form,
     save_meal_form,
     resend_unsynced_meals,
     resolve_item,
@@ -394,6 +396,23 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
                 return reply(form.message)
             await asyncio.to_thread(save_meal_form, db_path, thread_id, user_id, form.form)
             question = form.question
+
+    # 재고 입력 Form(JSON, 입고·출고·폐기)도 같은 방식이다 (SERVICE.md 5.1). 형식 검사 뒤 지금 재고와 맞춰 보고
+    # (S/N 중복, 보유량 등), 통과하면 보관한 Form을 재고 에이전트의 confirm_inventory_form이 읽어 처리한다.
+    if not req.resume and question == req.question:
+        stock_form = guardrails.check_inventory_form(req.question)
+        if stock_form.is_form:
+            if not stock_form.code:
+                problems = await asyncio.to_thread(check_inventory_form_stock, db_path, stock_form.form)
+                if problems:
+                    stock_form.code, stock_form.problems = "FORM_INVALID", problems
+                    stock_form.message = f"{guardrails.MSG_INVENTORY_FORM_INVALID}: " + "; ".join(problems)
+            trace["form"] = stock_form.as_trace()
+            if stock_form.code:
+                trace["errors"].append(_error(stock_form.code, "; ".join(stock_form.problems)))
+                return reply(stock_form.message)
+            await asyncio.to_thread(save_inventory_form, db_path, thread_id, user_id, stock_form.form)
+            question = stock_form.question
 
     context = FridgeContext(user_id=user_id, db_path=db_path)
     try:

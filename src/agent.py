@@ -32,10 +32,12 @@ from src.planner import build_planner
 from src.tools import (
     CHECKPOINT_DB,
     FORM_CONFIRM_REQUEST,
+    INVENTORY_FORM_REQUEST,
     SEED_USERS,
     FridgeContext,
     add_items_from_text,
     calc_kcal_tool,
+    confirm_inventory_form,
     confirm_meal,
     confirm_meal_form,
     discard_item,
@@ -74,7 +76,8 @@ COMMON_RULES = """한국어 존댓말로 짧고 정확하게 답한다.
 SUPERVISOR_PROMPT = """너는 가족이 함께 쓰는 냉장고 비서의 Supervisor다. 질문을 알맞은 에이전트 하나에게 넘긴다.
 직접 도구를 쓰거나 재고·레시피·칼로리 내용을 지어내지 않는다.
 
-- inventory_agent: 입고("~ 샀어", "~ 넣었어"), 출고, 재고 조회, 폐기, 입고 S/N 후속 답("제안한 S/N으로 저장해줘")
+- inventory_agent: 입고("~ 샀어", "~ 넣었어"), 출고, 재고 조회, 폐기, 입고 S/N 후속 답("제안한 S/N으로 저장해줘"),
+  재고 입력 Form 확정("재고 입력 Form을 확정해줘: …")
 - recommend_agent: 요리 추천("뭐 먹지", "추천해줘"), 레시피, 보관 기간·보관 방법, 칼로리 계산, 오늘 섭취·남은 칼로리(워치),
   내 음식 선호·비선호·알레르기 말하기("나 가지 싫어", "새우 알레르기 있어")와 저장된 선호 확인
 - rating_health_agent: 식사 기록과 평가("~ 먹었어, 4점"), 평가 입력 Form 확정("평가 입력 Form을 확정해줘: …")
@@ -95,6 +98,10 @@ INVENTORY_PROMPT = """너는 가족 냉장고의 재고 에이전트다. 입고,
   status가 sn_invalid면 저장하지 않았다고 알리고, 이유와 suggested_sn을 보여 주며 그 S/N으로 저장할지 묻는다.
   사용자가 "제안한 S/N으로 저장해줘"처럼 동의하면, 원래 입고 문장에서 S/N만 suggested_sn으로 바꾼 문장을 text로 다시 넘긴다.
 - 출고·폐기 요청은 사용자에게 먼저 되묻지 말고 바로 withdraw_item·discard_item을 부른다. 승인은 도구가 받는다.
+- "재고 입력 Form을 확정해줘"로 시작하는 요청(화면의 재고 입력 Form)은 confirm_inventory_form만 부른다. 인자는 없다.
+  품목·S/N·양·날짜는 서버가 검사해 보관한 값을 도구가 읽으므로, 문장에 나온 값으로 다른 재고 도구를 부르지 않는다.
+  승인이 필요하면 도구가 받는다. 부르기 전에 사용자에게 확정 여부를 직접 묻지 않는다.
+  입고 결과는 S/N, 투입일자, 기준 단위 수량, 유효기간(미상이면 "유효기간 미상")을 그대로 적고, notes가 있으면 그대로 덧붙인다.
 """
 
 RECOMMEND_PROMPT = """너는 가족 냉장고의 요리추천 에이전트다. 추천, 레시피, 보관, 칼로리 질문을 맡는다.
@@ -165,7 +172,9 @@ INVENTORY_AGENT = "inventory_agent"
 RECOMMEND_AGENT = "recommend_agent"
 RATING_AGENT = "rating_health_agent"
 SUB_AGENTS = {
-    INVENTORY_AGENT: (INVENTORY_PROMPT, [add_items_from_text, list_inventory, withdraw_item, discard_item]),
+    INVENTORY_AGENT: (
+        INVENTORY_PROMPT, [add_items_from_text, list_inventory, withdraw_item, discard_item, confirm_inventory_form]
+    ),
     RECOMMEND_AGENT: (
         RECOMMEND_PROMPT,
         [list_inventory, rank_recipes, search_recipes, search_docs, get_recipe, get_storage_days, calc_kcal_tool,
@@ -259,11 +268,15 @@ def one_tool_call_at_a_time(state: AgentState, runtime: Runtime) -> dict[str, An
     return first_tool_call_only(state)
 
 
-def form_confirm_tool_choice(messages: list[Any]) -> str | None:
-    """마지막 사용자 메시지가 평가 입력 Form 확정 요청이고 아직 확정 도구를 부르지 않았으면 그 도구 이름을 돌려준다.
+# 화면 Form의 확정 요청 문장 머리말 → 그 요청에서 반드시 부를 확정 도구 (SERVICE.md 5.1, 5.6)
+FORM_CONFIRM_TOOLS = {FORM_CONFIRM_REQUEST: confirm_meal_form.name, INVENTORY_FORM_REQUEST: confirm_inventory_form.name}
 
-    API가 Form을 검사·보관한 뒤 만드는 질문(`FORM_CONFIRM_REQUEST`로 시작)은 형식이 정해져 있으므로
-    모델 판단에 맡기지 않고 `confirm_meal_form` 호출을 강제한다. 이미 불렀으면 None(결과 요약은 평소대로 답한다).
+
+def form_confirm_tool_choice(messages: list[Any]) -> str | None:
+    """마지막 사용자 메시지가 화면 Form 확정 요청이고 아직 그 확정 도구를 부르지 않았으면 도구 이름을 돌려준다.
+
+    API가 Form을 검사·보관한 뒤 만드는 질문(`FORM_CONFIRM_REQUEST`, `INVENTORY_FORM_REQUEST`로 시작)은 형식이
+    정해져 있으므로 모델 판단에 맡기지 않고 확정 도구 호출을 강제한다. 이미 불렀으면 None(결과 요약은 평소대로 답한다).
     """
     for i in range(len(messages) - 1, -1, -1):
         msg = messages[i]
@@ -271,28 +284,37 @@ def form_confirm_tool_choice(messages: list[Any]) -> str | None:
             continue
         text = msg.content if isinstance(msg.content, str) else "".join(
             b.get("text", "") for b in msg.content if isinstance(b, dict))
-        if not text.lstrip().startswith(FORM_CONFIRM_REQUEST):
+        name = next((t for p, t in FORM_CONFIRM_TOOLS.items() if text.lstrip().startswith(p)), None)
+        if name is None:
             return None
-        called = any(c.get("name") == confirm_meal_form.name
-                     for m in messages[i + 1:] for c in (getattr(m, "tool_calls", None) or []))
-        return None if called else confirm_meal_form.name
+        called = any(c.get("name") == name for m in messages[i + 1:] for c in (getattr(m, "tool_calls", None) or []))
+        return None if called else name
     return None
 
 
 class FormConfirmToolChoice(AgentMiddleware):
-    """평가 에이전트용: 평가 입력 Form 확정 요청이면 모델 호출에 `confirm_meal_form`을 강제한다.
+    """Form 확정 요청이면 모델 호출에 그 확정 도구(`confirm_meal_form`, `confirm_inventory_form`)를 강제한다.
 
     모델이 도구 대신 사용자에게 확정 여부를 되묻는 일을 막는다(승인은 도구의 interrupt가 받는다).
+    그 에이전트에 없는 도구면 강제하지 않는다.
     """
+
+    @staticmethod
+    def _choice(request) -> str | None:
+        """이 모델 호출에 강제할 도구 이름. 없으면 None."""
+        name = form_confirm_tool_choice(request.messages)
+        tools = {getattr(t, "name", None) or (t.get("name") if isinstance(t, dict) else None)
+                 for t in (getattr(request, "tools", None) or [])}
+        return name if name and (not tools or name in tools) else None
 
     def wrap_model_call(self, request, handler):
         """동기 모델 호출 감싸기."""
-        name = form_confirm_tool_choice(request.messages)
+        name = self._choice(request)
         return handler(request.override(tool_choice=name) if name else request)
 
     async def awrap_model_call(self, request, handler):
         """비동기 모델 호출 감싸기."""
-        name = form_confirm_tool_choice(request.messages)
+        name = self._choice(request)
         return await handler(request.override(tool_choice=name) if name else request)
 
 
@@ -330,7 +352,7 @@ def build_agent(
     for name, (prompt, tools) in SUB_AGENTS.items():
         if name == RECOMMEND_AGENT:
             tools = tools + list(extra_tools or [])
-        extra = [FormConfirmToolChoice()] if name == RATING_AGENT else []
+        extra = [FormConfirmToolChoice()] if name in (RATING_AGENT, INVENTORY_AGENT) else []
         agents.append(
             create_agent(
                 model=model,

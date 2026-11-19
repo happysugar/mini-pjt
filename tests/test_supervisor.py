@@ -156,3 +156,22 @@ def test_rating_agent_uses_form_confirm_middleware(make_client, env, monkeypatch
     r = ask({"question": FORM_TWO, "thread_id": "dad-form-mw"}, DAD)
     assert r["trace"]["pending_interrupt"]["type"] == "meal_form_confirm"
     assert picked and picked[0] == "confirm_meal_form"
+
+
+def test_inventory_form_request_forces_its_own_tool_only_where_bound():
+    from langchain_core.messages import HumanMessage
+
+    from src.agent import FormConfirmToolChoice, form_confirm_tool_choice
+
+    ask = HumanMessage(f"{tools.INVENTORY_FORM_REQUEST}: 입고 두부 2개")
+    assert form_confirm_tool_choice([ask]) == "confirm_inventory_form"
+
+    class Req:
+        """도구 목록과 메시지만 가진 최소 요청 객체."""
+
+        def __init__(self, names):
+            self.messages = [ask]
+            self.tools = [type("T", (), {"name": n})() for n in names]
+
+    assert FormConfirmToolChoice._choice(Req(["list_inventory", "confirm_inventory_form"])) == "confirm_inventory_form"
+    assert FormConfirmToolChoice._choice(Req(["get_recipe", "confirm_meal_form"])) is None  # 그 에이전트에 없는 도구는 강제하지 않는다

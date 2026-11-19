@@ -3,6 +3,7 @@
 LLM 인젝션 분류는 가짜 분류기로 바꿔 Bedrock 없이 돈다.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -239,3 +240,72 @@ def test_non_form_questions_are_untouched():
         assert not guardrails.check_rating_form(q, "dad").is_form
     broken = guardrails.check_rating_form('{"recipe": "규동", "ratings": [', "dad")
     assert broken.code == "FORM_INVALID" and broken.problems == ["JSON 형식이 아니에요"]
+
+
+# ── 재고 입력 Form 형식 검사 (SERVICE.md 5.1) ─────────────────────
+
+
+def _stock(**values) -> str:
+    """재고 입력 Form JSON. 화면처럼 모든 키를 보내고 주지 않은 칸은 null이다."""
+    keys = guardrails.INVENTORY_FORM_KEYS
+    return json.dumps({k: values.get(k) for k in keys}, ensure_ascii=False)
+
+
+@pytest.fixture
+def fridge_today(monkeypatch):
+    monkeypatch.setenv("FRIDGE_TODAY", "2026-11-20")
+
+
+def test_inventory_form_stored_with_blank_fields(fridge_today):
+    v = guardrails.check_inventory_form(_stock(item="두부", qty=2, unit="개", status="stored"))
+    assert v.is_form and not v.code
+    assert v.form == {"action": "stored", "item": "두부", "aliases": [], "sn": None, "qty": 2.0, "unit": "개",
+                      "avg_weight_g": None, "expiry_date": None, "input_date": None, "storage_days": None}
+    assert v.question == "재고 입력 Form을 확정해줘: 입고 두부 2개"
+    blank_status = guardrails.check_inventory_form(_stock(item="두부", qty=2, unit="개"))
+    assert blank_status.form["action"] == "stored"  # 상태가 비면 입고
+
+
+def test_inventory_form_consume_and_discard_questions(fridge_today):
+    out = guardrails.check_inventory_form(_stock(item="한우", sn="2026-11-003", qty=200, unit="g", status="consumed"))
+    assert out.question == "재고 입력 Form을 확정해줘: 출고 한우 200g (S/N 2026-11-003)"
+    gone = guardrails.check_inventory_form(_stock(item="시금치", sn="2026-11-008", status="discarded"))
+    assert not gone.code and gone.question == "재고 입력 Form을 확정해줘: 폐기 시금치 (S/N 2026-11-008)"
+
+
+@pytest.mark.parametrize(
+    "values, problem",
+    [
+        ({"item": "우유", "qty": 0, "unit": "L"}, "양은 0보다 큰"),
+        ({"item": "우유", "qty": 1, "unit": "ml"}, "단위는 g, L, 개"),
+        ({"item": "우유", "unit": "L"}, "양이 비었어요"),
+        ({"item": "", "qty": 1, "unit": "L"}, "품목이 비었어요"),
+        ({"item": "우유", "qty": 1, "unit": "L", "status": "eaten"}, "상태는 stored"),
+        ({"item": "우유", "qty": 1, "unit": "L", "sn": "2026-11-14"}, "S/N은 YYYY-MM-NNN"),
+        ({"item": "우유", "qty": 1, "unit": "L", "expiryDate": "2026-11-10", "inputDate": "2026-11-20"}, "유효기간이 투입일자보다"),
+        ({"item": "우유", "qty": 1, "unit": "L", "inputDate": "2026-11-21"}, "투입일자가 오늘보다 늦어요"),
+        ({"item": "우유", "qty": 1, "unit": "L", "expiryDate": "11월 30일"}, "유효기간은 YYYY-MM-DD"),
+        ({"item": "망고", "qty": 1, "unit": "개", "storageDays": 0}, "권장 보관일수는 1 이상"),
+        ({"item": "망고", "qty": 1, "unit": "개", "avgWeight": -3}, "개당 평균 무게는 0보다"),
+        ({"item": "망고", "qty": 1, "unit": "개", "aliases": "애플망고"}, "별칭은 글자 목록"),
+        ({"item": "한우", "qty": "200", "unit": "g", "status": "consumed"}, "양은 0보다 큰"),
+    ],
+)
+def test_inventory_form_invalid_values(fridge_today, values, problem):
+    v = guardrails.check_inventory_form(_stock(**values))
+    assert v.is_form and v.code == "FORM_INVALID" and not v.question
+    assert any(problem in p for p in v.problems), v.problems
+    assert v.message.startswith(guardrails.MSG_INVENTORY_FORM_INVALID)
+
+
+def test_inventory_form_unknown_key_and_broken_json(fridge_today):
+    v = guardrails.check_inventory_form('{"item": "두부", "qty": 1, "unit": "개", "price": 3000}')
+    assert v.code == "FORM_INVALID" and "알 수 없는 항목이 있어요: price" in v.problems
+    broken = guardrails.check_inventory_form('{"item": "두부", "qty": ')
+    assert broken.code == "FORM_INVALID" and broken.problems == ["JSON 형식이 아니에요"]
+
+
+def test_inventory_form_leaves_other_questions_alone(fridge_today):
+    rating = '{"recipe": "규동", "cooked": "2 인분", "ratings": []}'
+    for q in ["한우 600g 넣었어", rating, '{"a": 1}']:
+        assert not guardrails.check_inventory_form(q).is_form

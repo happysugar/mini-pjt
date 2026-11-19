@@ -18,7 +18,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src import agent as agent_module  # noqa: E402
-from src import tools  # noqa: E402
+from src import guardrails, tools  # noqa: E402
 from src.api import create_app  # noqa: E402
 
 HANWOO = "2026-11-003"  # 시드 한우 600g, D-day 2
@@ -578,3 +578,110 @@ def test_multi_evaluator_form_reject_saves_nothing(make_client, env):
         assert conn.execute("SELECT COUNT(*) FROM meal_forms").fetchone()[0] == 0  # 거절하면 보관한 Form도 지운다
     finally:
         conn.close()
+
+
+# ── 재고 입력 Form (입고·출고·폐기, SERVICE.md 5.1) ────────────────
+
+SPINACH = "2026-11-008"  # 시드 시금치 200g, 만료(D-1)
+
+
+def stock_form(**values) -> str:
+    """재고 입력 Form JSON. 화면처럼 모든 키를 보내고 주지 않은 칸은 null이다."""
+    return json.dumps({k: values.get(k) for k in guardrails.INVENTORY_FORM_KEYS}, ensure_ascii=False)
+
+
+def lot(db: str, sn: str) -> dict | None:
+    """재고 한 건을 사전으로 읽는다."""
+    conn = tools.connect(db)
+    try:
+        row = conn.execute("SELECT * FROM inventory WHERE sn = ?", (sn,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def test_stock_form_stored_fills_blanks_without_approval(make_client, env):
+    client, ask = make_client(call("confirm_inventory_form", {}), say("입고했어요."))
+    r = ask({"question": stock_form(item="두부", qty=2, unit="개", status="stored"), "thread_id": "dad-stock-in"}, DAD)
+    assert not codes(r) and r["trace"]["pending_interrupt"] is None
+    assert r["trace"]["form"]["question"] == "재고 입력 Form을 확정해줘: 입고 두부 2개"
+    row = lot(env, "2026-11-014")
+    assert row["item"] == "두부" and row["qty"] == 2 and row["input_date"] == "2026-11-20"
+    assert row["expiry_date"] == "2026-11-27" and row["expiry_source"] == "guide"  # 기준표 7일
+    conn = tools.connect(env)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM inventory_forms").fetchone()[0] == 0  # 처리 뒤 Form을 지운다
+    finally:
+        conn.close()
+
+
+def test_stock_form_guide_item_keeps_guide_values(make_client, env):
+    client, ask = make_client(call("confirm_inventory_form", {}), say("입고했어요."))
+    ask({"question": stock_form(item="두부", qty=1, unit="개", storageDays=30, avgWeight=500), "thread_id": "dad-guide"}, DAD)
+    out = json.loads(tool_outputs(client, "dad-guide")[0])
+    assert out["expiry_date"] == "2026-11-27"  # Form의 30일이 아니라 기준표 7일
+    assert "권장 보관일수는 기준표 값(7일)을 썼어요" in out["notes"]
+    assert "개당 평균 무게는 기준표 값(300g)을 썼어요" in out["notes"]
+
+
+def test_stock_form_new_item_uses_form_profile(make_client, env):
+    """기준표에 없는 품목은 Form의 별칭·평균 무게·보관일수를 그 품목의 기준으로 저장하고 다음 요청부터 쓴다."""
+    _, ask = make_client(call("confirm_inventory_form", {}), say("입고했어요."),
+                         call("confirm_inventory_form", {}), say("출고했어요."))
+    ask({"question": stock_form(item="망고", aliases=["애플망고"], qty=2, unit="개", avgWeight=350, storageDays=5),
+         "thread_id": "dad-mango"}, DAD)
+    row = lot(env, "2026-11-014")
+    assert row["expiry_date"] == "2026-11-25" and row["expiry_source"] == "user" and row["unit"] == "개"
+    conn = tools.connect(env)
+    try:
+        profile = tools.item_profile(conn, "애플망고")
+        assert profile["item"] == "망고" and profile["avg_weight_g"] == 350 and profile["storage_days"] == 5
+    finally:
+        conn.close()
+    # 별칭과 g 단위로 출고해도 평균 무게로 환산해 망고에서 차감한다(700g 중 350g = 1개, 50% 이하라 승인 없음)
+    r = ask({"question": stock_form(item="애플망고", qty=350, unit="g", status="consumed"), "thread_id": "dad-mango-out"}, DAD)
+    assert not codes(r) and lot(env, "2026-11-014")["qty"] == 1
+
+
+def test_stock_form_consume_by_sn_without_approval(make_client, env):
+    client, ask = make_client(call("confirm_inventory_form", {}), say("출고했어요."))
+    r = ask({"question": stock_form(item="한우", sn=HANWOO, qty=200, unit="g", status="consumed"), "thread_id": "dad-out"}, DAD)
+    assert not codes(r) and r["trace"]["pending_interrupt"] is None
+    assert lot(env, HANWOO)["qty"] == 400
+    assert "남은 양 400g" in tool_outputs(client, "dad-out")[0]
+
+
+def test_stock_form_bulk_consume_needs_approval_and_reject_keeps_stock(make_client, env):
+    _, ask = make_client(call("confirm_inventory_form", {}), say("취소했어요."))
+    r = ask({"question": stock_form(item="한우", sn=HANWOO, qty=500, unit="g", status="consumed"), "thread_id": "dad-bulk"}, DAD)
+    pending = r["trace"]["pending_interrupt"]
+    assert pending["type"] == "bulk_withdraw" and "83%" in pending["summary"]
+    done = ask({"question": "거절", "thread_id": "dad-bulk", "resume": "reject"}, DAD)
+    assert done["answer"] == tools.REJECT_WITHDRAW and lot(env, HANWOO)["qty"] == 600
+
+
+def test_stock_form_discard_after_approval(make_client, env):
+    _, ask = make_client(call("confirm_inventory_form", {}), say("폐기했어요."))
+    r = ask({"question": stock_form(item="시금치", sn=SPINACH, status="discarded"), "thread_id": "dad-discard"}, DAD)
+    assert r["trace"]["pending_interrupt"]["type"] == "discard" and lot(env, SPINACH)["status"] == "stored"
+    ask({"question": "승인", "thread_id": "dad-discard", "resume": "approve"}, DAD)
+    assert lot(env, SPINACH)["status"] == "discarded" and lot(env, HANWOO)["status"] == "stored"
+
+
+@pytest.mark.parametrize(
+    "values, problem",
+    [
+        ({"item": "양파", "sn": ONION, "qty": 2, "unit": "개"}, "이미 있는 S/N이에요: 2026-11-001. 2026-11-014로 저장하려면"),
+        ({"item": "두부", "sn": HANWOO, "qty": 1, "unit": "개", "status": "consumed"}, "품목(한우)과 Form의 품목(두부)이 달라요"),
+        ({"item": "한우", "sn": HANWOO, "qty": 700, "unit": "g", "status": "consumed"}, "출고량(700g)이 보유량(600g)보다 많아요"),
+        ({"item": "연어", "status": "discarded"}, "연어 재고가 없어요"),
+        ({"item": "우유", "qty": 500, "unit": "g"}, "재고 단위 불일치"),
+    ],
+)
+def test_stock_form_checked_against_stock_before_model(make_client, env, values, problem):
+    before = counts(env)
+    _, ask = make_client()  # 대본이 비어 있어 에이전트가 불리면 오류가 난다
+    r = ask({"question": stock_form(**values)}, DAD)
+    assert codes(r) == ["FORM_INVALID"] and problem in r["answer"], r["answer"]
+    assert r["answer"].startswith(guardrails.MSG_INVENTORY_FORM_INVALID)
+    assert counts(env) == before and lot(env, "2026-11-014") is None

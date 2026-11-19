@@ -101,9 +101,14 @@ CREATE TABLE threads (
     created_at TEXT NOT NULL
 );
 
+-- 품목 기준표(storage_items.csv)에 없는 품목의 기준. 기준 단위는 처음 등록할 때 쓴 단위이고,
+-- 별칭·개당 평균 무게·권장 보관일수는 재고 입력 Form으로 받은 값이다(없으면 NULL, SERVICE.md 5.1).
 CREATE TABLE item_units (
-    item      TEXT PRIMARY KEY,
-    base_unit TEXT NOT NULL CHECK (base_unit IN ('g', 'L', '개'))
+    item         TEXT PRIMARY KEY,
+    base_unit    TEXT NOT NULL CHECK (base_unit IN ('g', 'L', '개')),
+    aliases      TEXT,     -- JSON 문자열 배열
+    avg_weight_g REAL,
+    storage_days INTEGER
 );
 
 -- 승인 도구의 멱등 기록: 같은 키(thread_id:tool_call_id)는 한 번만 저장한다.
@@ -124,6 +129,15 @@ CREATE TABLE meal_forms (
     created_at TEXT NOT NULL
 );
 
+-- 화면의 재고 입력 Form(JSON). API가 검사를 통과한 값만 스레드별로 하나 보관하고,
+-- 확정 도구(confirm_inventory_form)가 읽어 입고·출고·폐기에 쓴다. 끝나면 지운다 (SERVICE.md 5.1).
+CREATE TABLE inventory_forms (
+    thread_id  TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    form_json  TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX idx_inventory_item ON inventory(item, status);
 CREATE INDEX idx_deductions_created ON deductions(created_at);
 CREATE INDEX idx_ratings_user_dish ON ratings(user_id, dish);
@@ -131,8 +145,10 @@ CREATE INDEX idx_meals_user_synced ON meals(user_id, watch_synced);
 CREATE UNIQUE INDEX idx_meals_meal_id ON meals(meal_id);
 """
 
-TABLES = ("meal_forms", "applied_actions", "deductions", "ratings", "meals", "threads", "item_units", "inventory", "users")
+TABLES = ("inventory_forms", "meal_forms", "applied_actions", "deductions", "ratings", "meals", "threads", "item_units", "inventory", "users")
 MEAL_FORMS_DDL = SCHEMA.split("CREATE TABLE meal_forms", 1)[1].split(";", 1)[0]
+INVENTORY_FORMS_DDL = SCHEMA.split("CREATE TABLE inventory_forms", 1)[1].split(";", 1)[0]
+ITEM_PROFILE_COLUMNS = {"aliases": "TEXT", "avg_weight_g": "REAL", "storage_days": "INTEGER"}
 
 
 def today() -> date:
@@ -165,6 +181,7 @@ def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     _migrate_meal_id(conn)
     _migrate_meal_forms(conn)
+    _migrate_inventory_forms(conn)
     return conn
 
 
@@ -174,6 +191,23 @@ def _migrate_meal_forms(conn: sqlite3.Connection) -> None:
     if "meals" in names and "meal_forms" not in names:
         with conn:
             conn.execute(f"CREATE TABLE meal_forms{MEAL_FORMS_DDL}")
+
+
+def _migrate_inventory_forms(conn: sqlite3.Connection) -> None:
+    """재고 입력 Form 이전에 만든 DB에 `inventory_forms` 테이블과 `item_units`의 기준 열을 더한다.
+
+    도메인 테이블이 없는 빈 DB는 건드리지 않는다.
+    """
+    names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "inventory" in names and "inventory_forms" not in names:
+        with conn:
+            conn.execute(f"CREATE TABLE inventory_forms{INVENTORY_FORMS_DDL}")
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(item_units)")}
+    missing = [c for c in ITEM_PROFILE_COLUMNS if cols and c not in cols]
+    if missing:
+        with conn:
+            for col in missing:
+                conn.execute(f"ALTER TABLE item_units ADD COLUMN {col} {ITEM_PROFILE_COLUMNS[col]}")
 
 
 def _migrate_meal_id(conn: sqlite3.Connection) -> None:
@@ -380,10 +414,23 @@ def base_unit_of(item: str, conn: sqlite3.Connection | None = None) -> str | Non
     if info:
         return info["base_unit"]
     if conn is not None:
-        row = conn.execute("SELECT base_unit FROM item_units WHERE item = ?", (item.strip(),)).fetchone()
-        if row:
-            return row["base_unit"]
+        profile = item_profile(conn, item)
+        if profile:
+            return profile["base_unit"]
     return None
+
+
+def item_profile(conn: sqlite3.Connection, name: str) -> dict | None:
+    """기준표에 없는 품목의 기준(`item_units`)을 품목명 → 별칭 순으로 찾는다(공백 무시).
+
+    `{"item", "base_unit", "aliases": [...], "avg_weight_g", "storage_days"}`을 돌려준다. 없으면 None.
+    """
+    key = _name_key(name)
+    rows = [dict(r) for r in conn.execute("SELECT * FROM item_units").fetchall()]
+    for row in rows:
+        row["aliases"] = json.loads(row.get("aliases") or "[]")
+    exact = next((r for r in rows if _name_key(r["item"]) == key), None)
+    return exact or next((r for r in rows if any(_name_key(a) == key for a in r["aliases"])), None)
 
 
 def convert_to_base(item: str, qty: float, unit: str, conn: sqlite3.Connection | None = None) -> tuple[float, str]:
@@ -397,7 +444,8 @@ def convert_to_base(item: str, qty: float, unit: str, conn: sqlite3.Connection |
     if base is None or u == base:
         return q, u
     info = guide_info(item)
-    weight = info["avg_weight_g"] if info else None
+    profile = item_profile(conn, item) if info is None and conn is not None else None
+    weight = info["avg_weight_g"] if info else (profile or {}).get("avg_weight_g")
     if weight:
         if u == "개" and base == "g":
             return _round(q * weight), "g"
@@ -599,8 +647,10 @@ def stock_rows(conn: sqlite3.Connection, item: str) -> list[sqlite3.Row]:
     """품목(별칭 포함)의 보관 중 재고를 FEFO 순서로 돌려준다.
 
     유효기간이 빠른 순, 유효기간 미상은 맨 뒤, 같으면 투입일자·S/N 순.
+    기준표에 없는 품목은 재고 입력 Form으로 등록한 별칭(`item_units`)으로도 찾는다.
     """
-    key = item_key(item)
+    profile = item_profile(conn, item) if resolve_item(item) is None else None
+    key = item_key(profile["item"] if profile else item)
     rows = conn.execute(
         "SELECT * FROM inventory WHERE status = 'stored'"
         " ORDER BY expiry_date IS NULL, expiry_date, input_date, sn"
@@ -608,8 +658,12 @@ def stock_rows(conn: sqlite3.Connection, item: str) -> list[sqlite3.Row]:
     return [r for r in rows if item_key(r["item"]) == key]
 
 
-def deduct_fefo(conn: sqlite3.Connection, item: str, qty: float, unit: str, reason: str = REASON_OUTFLOW) -> dict:
+def deduct_fefo(
+    conn: sqlite3.Connection, item: str, qty: float, unit: str, reason: str = REASON_OUTFLOW, sn: str | None = None
+) -> dict:
     """재고를 유효기간이 빠른 것부터(FEFO) 차감한다. 커밋은 호출한 쪽이 한다.
+
+    `sn`을 주면 그 재고 한 건에서만 차감한다(재고 입력 Form의 출고).
 
     출고·식사 차감·폐기가 모두 이 함수 하나를 쓴다. S/N마다 `deductions`에
     g 환산량(평균 무게가 없으면 NULL)과 차감 시점 D-day를 남기고, 0이 된 재고는
@@ -626,7 +680,7 @@ def deduct_fefo(conn: sqlite3.Connection, item: str, qty: float, unit: str, reas
     except UnitMismatchError as e:
         return {"status": "unit_mismatch", "item": item, "unit": e.unit, "base_unit": e.base_unit, "message": str(e)}
 
-    rows = stock_rows(conn, item)
+    rows = [r for r in stock_rows(conn, item) if sn is None or r["sn"] == sn]
     if not rows:
         return {"status": "not_in_stock", "item": item, "requested": need, "deducted": 0.0,
                 "shortage": need, "unit": u, "details": []}
@@ -1657,6 +1711,24 @@ def withdraw_item(runtime: ToolRuntime[FridgeContext], item: str, qty: float, un
         conn.close()
 
 
+def describe_lots(lots: list[sqlite3.Row]) -> str:
+    """폐기 대상 재고를 승인 요약용 문구로 적는다(품목, 수량, S/N, D-day)."""
+    return ", ".join(
+        f"{r['item']} {_fmt_qty(r['qty'], r['unit'])} (S/N {r['sn']}, D-day {d_day(r['expiry_date'])})" for r in lots
+    )
+
+
+def apply_discard(conn: sqlite3.Connection, lots: list[sqlite3.Row]) -> None:
+    """재고 여러 건을 폐기 상태로 바꾸고 폐기 차감 기록을 남긴다. 커밋은 호출한 쪽이 한다."""
+    created_at = now_iso()
+    for r in lots:
+        conn.execute("UPDATE inventory SET qty = 0, status = 'discarded' WHERE sn = ?", (r["sn"],))
+        conn.execute(
+            "INSERT INTO deductions (sn, qty_g, d_day_at_deduction, reason, created_at) VALUES (?, ?, ?, ?, ?)",
+            (r["sn"], to_grams(r["item"], r["qty"], r["unit"]), d_day(r["expiry_date"]), REASON_DISCARD, created_at),
+        )
+
+
 @tool
 def discard_item(runtime: ToolRuntime[FridgeContext], item: str, sn: str | None = None) -> str:
     """재고를 폐기한다. 반드시 사용자 승인을 먼저 받는다.
@@ -1675,10 +1747,7 @@ def discard_item(runtime: ToolRuntime[FridgeContext], item: str, sn: str | None 
         lots = [r for r in stock_rows(conn, item) if sn is None or r["sn"] == sn.strip()]
         if not lots:
             return f"폐기할 {item} 재고가 없어요"
-        desc = ", ".join(
-            f"{r['item']} {_fmt_qty(r['qty'], r['unit'])} (S/N {r['sn']}, D-day {d_day(r['expiry_date'])})"
-            for r in lots
-        )
+        desc = describe_lots(lots)
         decision = interrupt({"type": "discard", "tool": "discard_item", "summary": f"{desc} 폐기. 진행할까요?"})
         if not is_approved(decision):
             return REJECT_DISCARD
@@ -1687,13 +1756,7 @@ def discard_item(runtime: ToolRuntime[FridgeContext], item: str, sn: str | None 
             done = _applied_result(conn, key)
             if done:
                 return done
-            created_at = now_iso()
-            for r in lots:
-                conn.execute("UPDATE inventory SET qty = 0, status = 'discarded' WHERE sn = ?", (r["sn"],))
-                conn.execute(
-                    "INSERT INTO deductions (sn, qty_g, d_day_at_deduction, reason, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (r["sn"], to_grams(r["item"], r["qty"], r["unit"]), d_day(r["expiry_date"]), REASON_DISCARD, created_at),
-                )
+            apply_discard(conn, lots)
             message = f"폐기했어요: {desc}"
             _record_applied(conn, key, "discard_item", ctx.user_id, message)
         return message
@@ -2057,6 +2120,231 @@ def confirm_meal_form(runtime: ToolRuntime[FridgeContext]) -> str:
         conn.close()
 
 
+# ── 재고 입력 Form (입고·출고·폐기, SERVICE.md 5.1) ────────────────
+
+INVENTORY_FORM_REQUEST = "재고 입력 Form을 확정해줘"  # src/guardrails.py의 같은 이름 상수와 같은 문구
+NO_INVENTORY_FORM = "확정할 재고 입력이 없어요. 재고 입력 Form을 다시 보내 주세요"
+STOCK_CHANGED = "재고가 그 사이 바뀌어 처리하지 않았어요. 재고 입력 Form을 다시 보내 주세요"
+FORM_ACTIONS = {"stored": "입고", "consumed": "출고", "discarded": "폐기"}
+
+
+def form_item_name(conn: sqlite3.Connection, item: str) -> str:
+    """Form의 품목명을 저장·조회에 쓸 이름으로 바꾼다.
+
+    기준표 품목은 입력한 이름 그대로(기준표 매칭은 조회 때 한다), 기준표에 없지만 Form으로 등록한 품목이면
+    그 품목명(별칭으로 들어와도), 처음 보는 품목이면 입력한 이름.
+    """
+    if resolve_item(item) is None:
+        profile = item_profile(conn, item)
+        if profile:
+            return profile["item"]
+    return item.strip()
+
+
+def check_inventory_form_stock(db_path: str | None, form: dict) -> list[str]:
+    """재고 입력 Form을 지금 재고와 맞춰 본다. 형식 검사(`guardrails.check_inventory_form`)를 통과한 값만 받는다.
+
+    입고: S/N 중복(자동 발번 S/N 제안), 기준 단위 환산. 출고·폐기: S/N이 보관 중 재고인지와 품목이 맞는지,
+    재고가 있는지, 출고량이 보유량(S/N을 주면 그 재고의 양)보다 많지 않은지. 문제 문구 목록을 돌려준다(없으면 빈 목록).
+    """
+    conn = connect(db_path)
+    try:
+        problems: list[str] = []
+        action, sn = form["action"], form.get("sn")
+        name = form_item_name(conn, form["item"])
+        if action == "stored":
+            if sn:
+                check = check_sn(conn, sn)
+                if not check["valid"]:
+                    suggested = next_sn(conn, resolve_date(form.get("input_date")))
+                    problems.append(
+                        f"이미 있는 S/N이에요: {sn}. {suggested}로 저장하려면 S/N 칸을 그 번호로 바꾸거나 비워 주세요"
+                        if check["reason"].startswith("이미") else check["reason"]
+                    )
+            try:
+                convert_to_base(name, form["qty"], form["unit"], conn)
+            except UnitMismatchError as e:
+                problems.append(f"{e}. 기준 단위({e.base_unit})로 입력해 주세요")
+            return problems
+
+        rows = stock_rows(conn, name)
+        lot = None
+        if sn:
+            lot = conn.execute("SELECT * FROM inventory WHERE sn = ?", (sn,)).fetchone()
+            if lot is None:
+                problems.append(f"S/N {sn} 재고가 없어요")
+            elif lot["status"] != "stored" or lot["qty"] <= 0:
+                problems.append(f"S/N {sn} 재고는 보관 중이 아니에요")
+            elif item_key(lot["item"]) != item_key(name):
+                problems.append(f"S/N {sn}의 품목({lot['item']})과 Form의 품목({form['item']})이 달라요")
+        elif not rows:
+            problems.append(f"{form['item']} 재고가 없어요")
+        if action == "consumed" and not problems:
+            try:
+                need, base = convert_to_base(name, form["qty"], form["unit"], conn)
+            except UnitMismatchError as e:
+                return [f"{e}. 기준 단위({e.base_unit})로 입력해 주세요"]
+            have = _round(lot["qty"] if lot else sum(r["qty"] for r in rows))
+            if need > have:
+                problems.append(f"출고량({_fmt_qty(need, base)})이 보유량({_fmt_qty(have, base)})보다 많아요")
+        return problems
+    finally:
+        conn.close()
+
+
+def save_inventory_form(db_path: str | None, thread_id: str, user_id: str, form: dict) -> None:
+    """API가 검사를 통과시킨 재고 입력 Form을 스레드별로 하나 보관한다(같은 스레드의 이전 Form은 바꾼다).
+
+    확정 도구 `confirm_inventory_form`이 이 값만 읽는다.
+    """
+    conn = connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO inventory_forms (thread_id, user_id, form_json, created_at) VALUES (?, ?, ?, ?)",
+                (thread_id, user_id, json.dumps(form, ensure_ascii=False), now_iso()),
+            )
+    finally:
+        conn.close()
+
+
+def _update_profile(conn: sqlite3.Connection, name: str, form: dict) -> None:
+    """기준표에 없는 품목의 기준(`item_units`)을 Form 값으로 고친다. Form에서 비운 값은 그대로 둔다."""
+    aliases = json.dumps(form["aliases"], ensure_ascii=False) if form.get("aliases") else None
+    conn.execute(
+        "UPDATE item_units SET aliases = COALESCE(?, aliases), avg_weight_g = COALESCE(?, avg_weight_g),"
+        " storage_days = COALESCE(?, storage_days) WHERE item = ?",
+        (aliases, form.get("avg_weight_g"), form.get("storage_days"), name),
+    )
+
+
+def _guide_notes(info: dict, form: dict) -> list[str]:
+    """기준표 품목인데 Form의 별칭·개당 평균 무게·권장 보관일수가 기준표와 다르면 기준표 값을 썼다는 안내를 만든다."""
+    notes = []
+    days = form.get("storage_days")
+    if days is not None and days != info["storage_days"]:
+        notes.append(f"권장 보관일수는 기준표 값({info['storage_days']}일)을 썼어요")
+    weight = form.get("avg_weight_g")
+    if weight is not None and weight != info["avg_weight_g"]:
+        base = f"{_fmt_qty(info['avg_weight_g'])}g" if info["avg_weight_g"] else "없음"
+        notes.append(f"개당 평균 무게는 기준표 값({base})을 썼어요")
+    known = {_name_key(a) for a in info["aliases"]}
+    if any(_name_key(a) not in known for a in form.get("aliases") or []):
+        notes.append("별칭은 기준표 값을 썼어요")
+    return notes
+
+
+class _FormRejected(Exception):
+    """확정 직전에 재고가 바뀌어 Form대로 저장할 수 없을 때 트랜잭션을 되돌리려고 낸다."""
+
+
+def store_from_form(conn: sqlite3.Connection, form: dict) -> dict:
+    """재고 입력 Form으로 입고한다. 커밋은 호출한 쪽이 한다.
+
+    기준표 품목은 기준표 값으로 계산하고 Form 값이 다르면 `notes`에 알린다. 기준표에 없는 품목은 Form의 별칭·개당 평균
+    무게·권장 보관일수를 그 품목의 기준으로 저장하고, 유효기간이 비면 권장 보관일수로 계산한다(출처 `user`).
+    """
+    info = guide_info(form["item"])
+    name = form_item_name(conn, form["item"])
+    notes = _guide_notes(info, form) if info else []
+    expiry = form.get("expiry_date")
+    if info is None:
+        _update_profile(conn, name, form)
+        days = form.get("storage_days") or (item_profile(conn, name) or {}).get("storage_days")
+        if expiry is None and days:
+            expiry = (resolve_date(form.get("input_date")) + timedelta(days=int(days))).isoformat()
+    result = add_inventory(conn, name, form["qty"], form["unit"], form.get("input_date"), expiry, form.get("sn"))
+    if result["status"] != "added":
+        raise _FormRejected(result.get("message") or result.get("reason") or STOCK_CHANGED)
+    if info is None:
+        _update_profile(conn, name, form)  # 처음 보는 품목은 add_inventory가 만든 기준 행에 값을 채운다
+    return {**result, "action": "stored", "notes": notes}
+
+
+@tool
+def confirm_inventory_form(runtime: ToolRuntime[FridgeContext]) -> str:
+    """화면의 재고 입력 Form(입고·출고·폐기)을 확정한다. 인자는 없다.
+
+    "재고 입력 Form을 확정해줘"로 시작하는 요청에만 쓴다. 품목·S/N·양·날짜는 서버가 검사해 보관한 Form에서 읽으므로
+    대화 내용으로 값을 넘기거나 바꾸지 않는다. 입고는 승인 없이 저장하고 결과(sn, input_date, expiry_date, notes)를
+    돌려준다. 출고는 그 품목 보유량의 50%를 넘으면, 폐기는 항상 사용자 승인을 도구가 먼저 받는다.
+    결과의 notes(기준표 값을 썼다는 안내 등)는 답변에 그대로 적는다.
+    """
+    ctx = _context(runtime)
+    if ctx.user_id == GUEST_USER:
+        return GUEST_DENIED
+    thread_id = (runtime.config or {}).get("configurable", {}).get("thread_id")
+    conn = _open(runtime)
+    try:
+        key = idempotency_key(runtime)
+        done = _applied_result(conn, key)
+        if done:
+            return done
+        row = conn.execute("SELECT form_json FROM inventory_forms WHERE thread_id = ?", (thread_id,)).fetchone()
+        if row is None:
+            return NO_INVENTORY_FORM
+        form = json.loads(row["form_json"])
+        action, sn, item = form["action"], form.get("sn"), form["item"]
+
+        def finish(message: str) -> str:
+            """Form을 지우고 처리 기록을 남긴다(저장과 같은 트랜잭션)."""
+            conn.execute("DELETE FROM inventory_forms WHERE thread_id = ?", (thread_id,))
+            _record_applied(conn, key, "confirm_inventory_form", ctx.user_id, message)
+            return message
+
+        def drop(answer: str) -> str:
+            """거절이나 재고 변경으로 끝낼 때 보관한 Form만 지운다."""
+            with conn:
+                conn.execute("DELETE FROM inventory_forms WHERE thread_id = ?", (thread_id,))
+            return answer
+
+        if action == "stored":
+            try:
+                with conn:
+                    return finish(_to_json(store_from_form(conn, form)))
+            except _FormRejected as e:
+                return drop(f"{e}. 재고 입력 Form을 다시 보내 주세요")
+
+        name = form_item_name(conn, item)
+        rows = stock_rows(conn, name)
+        lots = [r for r in rows if sn is None or r["sn"] == sn]
+        if not lots:
+            return drop(STOCK_CHANGED)
+        where = f" (S/N {sn})" if sn else ""
+
+        if action == "consumed":
+            need, base = convert_to_base(name, form["qty"], form["unit"], conn)
+            total = _round(sum(r["qty"] for r in rows))
+            if need > _round(sum(r["qty"] for r in lots)):
+                return drop(STOCK_CHANGED)
+            if need > total * BULK_WITHDRAW_RATIO:
+                summary = (f"{item} {_fmt_qty(need, base)} 출고{where} (보유량 {_fmt_qty(total, base)}의 "
+                           f"{round(need / total * 100)}%). 진행할까요?")
+                decision = interrupt({"type": "bulk_withdraw", "tool": "confirm_inventory_form", "summary": summary})
+                if not is_approved(decision):
+                    return drop(REJECT_WITHDRAW)
+            with conn:
+                done = _applied_result(conn, key)
+                if done:
+                    return done
+                result = deduct_fefo(conn, name, need, base, reason=REASON_OUTFLOW, sn=sn)
+                left = _round(sum(r["qty"] for r in stock_rows(conn, name) if sn is None or r["sn"] == sn))
+                return finish(f"{item} {_fmt_qty(result['deducted'], base)} 출고했어요{where}. 남은 양 {_fmt_qty(left, base)}")
+
+        desc = describe_lots(lots)
+        decision = interrupt({"type": "discard", "tool": "confirm_inventory_form", "summary": f"{desc} 폐기. 진행할까요?"})
+        if not is_approved(decision):
+            return drop(REJECT_DISCARD)
+        with conn:
+            done = _applied_result(conn, key)
+            if done:
+                return done
+            apply_discard(conn, lots)
+            return finish(f"폐기했어요: {desc}")
+    finally:
+        conn.close()
+
+
 def _preference_target(kind: str, value: str) -> str | None:
     """선호 값이 추천 필터에 쓰이는 대상인지 본다: "요리", "재료", "알레르기 분류" 또는 None(자유 메모)."""
     recipes = parse_recipes().values()
@@ -2124,6 +2412,7 @@ AGENT_TOOLS = [
     get_storage_days,
     confirm_meal,
     confirm_meal_form,
+    confirm_inventory_form,
     remember_preference,
     get_my_preferences,
 ]
