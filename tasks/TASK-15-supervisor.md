@@ -65,7 +65,7 @@
   바꾼 단언은 두 곳: 도구 순서 단언에서 handoff 단계를 거르고(`if "tool" in s`), 추천 테스트에 handoff 단언을 더했다. `tool_outputs` 도우미는 핸드오프 결과를 뺀다.
 - `tests/test_supervisor.py`(새 파일): 에이전트별 도구 분리, 서브 에이전트 안 식사 승인 1회 저장, 인사는 handoff 없음, 상위 이력 요약 1번·중복 없음, 승인 대기 중 요약 안 함.
 - `tests/test_middleware.py`: 요약은 `HistoryCompactor`, 재시도 실패는 서브 에이전트(`AgentFailingModel`)와 Supervisor Bedrock 오류 두 경우로 나눴다.
-- `.venv/Scripts/python -m pytest` 206개 통과.
+- `.venv/Scripts/python -m pytest` 208개 통과.
 
 ### 실제 Bedrock 확인 (임시 DB, `FRIDGE_TODAY=2026-11-20`)
 - 기본 모델(`BEDROCK_MODEL_ID`)과 `global.anthropic.claude-sonnet-4-6`은 하루 토큰 한도(`ThrottlingException`)에 걸려 모든 문항이 `MODEL_UNAVAILABLE`로 끝났다(Supervisor 모델 오류 표시 확인).
