@@ -54,6 +54,19 @@ def test_add_preference_dedupes_and_validates_field():
         memory.add_preference(store, "dad", "secrets", "x")
 
 
+def test_like_and_dislike_are_exclusive():
+    store = InMemoryStore()
+    asyncio.run(memory.seed_store(store, tools.SEED_USERS))
+    assert "규동" in memory.get_profile(store, "dad")["likes"]  # 시드 likes
+
+    profile, added = memory.add_preference(store, "dad", "dislikes", "규동")
+    assert added and "규동" in profile["dislikes"] and "규동" not in profile["likes"]
+    assert "규동" not in memory.get_profile(store, "dad")["likes"]  # 저장된 값에도 반영
+
+    profile, _ = memory.add_preference(store, "dad", "likes", "규동")
+    assert "규동" in profile["likes"] and "규동" not in profile["dislikes"]
+
+
 def test_cannot_read_other_users_profile():
     store = InMemoryStore()
     memory.add_preference(store, "mom", "allergies", "새우")
