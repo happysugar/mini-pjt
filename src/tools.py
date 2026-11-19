@@ -852,6 +852,9 @@ class RecommendationResult(BaseModel):
     items: list[RecommendationItem] = Field(default_factory=list)
     empty_slots: list[EmptySlot] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list, description="신메뉴가 없을 때 같은 안내 문구")
+    within_calorie_budget: bool | None = Field(
+        default=None, description="추천 요리가 모두 요청자의 오늘 남은 칼로리 안인지. 칼로리 정보가 없으면 null"
+    )
 
 
 class FamilyRecommendationResult(BaseModel):
@@ -1058,12 +1061,19 @@ def recommend(
     allergies: list[str] | None = None,
     dislikes: list[str] | None = None,
     servings: float = 1,
+    calorie_budget: float | None = None,
 ) -> RecommendationResult:
     """요청자 한 명의 요리 추천을 슬롯 규칙(SERVICE.md 5.2 규칙 1~6)대로 만든다.
 
     알레르기·비선호를 주지 않으면 `seed_profile()`에서 읽는다. 부족 재료는 `servings`
     인분 기준으로 계산한다. 신메뉴는 후보가 있는 만큼 2개까지 넣는다. 카테고리를 지정하면
     그 안에서 평점 우선 2개와 신메뉴 2개를 고른다. 지원하지 않는 카테고리는 ValueError를 낸다.
+
+    `calorie_budget`(요청자의 오늘 남은 kcal)을 주면 안전 필터 다음에 칼로리 제약을 건다(SERVICE.md 5.2).
+    1인분 kcal이 남은 칼로리 이하인 요리만 쓰고, 어떤 슬롯(또는 지정 카테고리)에 그런 요리가 없으면
+    그 카테고리의 가장 가벼운 요리로 대신하고 알린다. 대체 요리도 슬롯 규칙의 우선순위를 따라 평점 3점 이상 요리 중
+    가장 가벼운 것을, 없으면 신메뉴 중 가장 가벼운 것을 고른다. "신메뉴 2개까지" 규칙은 그대로 적용한다.
+    없으면(None) 제약 없이 고른다.
     """
     if category is not None and category not in CUISINES:
         raise ValueError(f"지원하지 않는 카테고리예요: {category} (한식·일식·이탈리아식·중식만 지원)")
@@ -1073,12 +1083,37 @@ def recommend(
 
     candidates, _ = _safe_candidates(conn, allergies, dislikes, servings)
     ratings = user_ratings(conn, user_id)
-    pool = [_to_item(c, *ratings.get(c.recipe.name, (None, 0))) for c in candidates]
+    all_items = [_to_item(c, *ratings.get(c.recipe.name, (None, 0))) for c in candidates]
     result = RecommendationResult(user_id=user_id, category=category)
+
+    # 칼로리 제약: 남은 칼로리 안의 요리만 후보로 쓰고, 그런 요리가 없는 카테고리는 가장 가벼운 요리로 대신한다
+    def fits(item: RecommendationItem) -> bool:
+        return calorie_budget is None or item.kcal_per_serving <= calorie_budget
+
+    pool = [i for i in all_items if fits(i)]
+    lightened: list[str] = []
+
+    def lightest(cuisine: str) -> RecommendationItem | None:
+        in_cat = [i for i in all_items if i.cuisine == cuisine]
+        group = _good(in_cat) or _new(in_cat)
+        if not group:
+            return None
+        lightened.append(cuisine)
+        return min(group, key=lambda i: (i.kcal_per_serving, rank_key(i)))
+
+    def finish() -> RecommendationResult:
+        if calorie_budget is not None:
+            used = [c for c in lightened if any(i.cuisine == c and not fits(i) for i in result.items)]
+            result.within_calorie_budget = all(fits(i) for i in result.items)
+            if used:
+                result.notes.append(f"남은 칼로리 안에 드는 요리가 없어 가장 가벼운 요리를 골랐어요: {', '.join(used)}")
+        return result
 
     # 규칙 6: 카테고리 지정
     if category is not None:
         in_cat = [i for i in pool if i.cuisine == category]
+        if not in_cat and (light := lightest(category)):
+            in_cat = [light]
         result.items = [_slot(i, category) for i in _good(in_cat)[:2]]
         new = _new(in_cat)
         result.items += [_slot(i, category) for i in new[:NEW_MENU_COUNT]]
@@ -1086,7 +1121,7 @@ def recommend(
             result.notes.append(_few_new_note(len(new), f"{category} 요리"))
         if not result.items:
             result.empty_slots.append(EmptySlot(slot=category, reason=_no_dish_reason(category, bool(in_cat))))
-        return result
+        return finish()
 
     # 규칙 1~3: 카테고리별 슬롯
     slots: dict[str, RecommendationItem] = {}
@@ -1094,6 +1129,8 @@ def recommend(
     for cuisine in CUISINES:
         in_cat = [i for i in pool if i.cuisine == cuisine]
         pick = (_good(in_cat) or _new(in_cat) or [None])[0]
+        if pick is None and calorie_budget is not None:
+            pick = lightest(cuisine)
         if pick:
             slots[cuisine] = pick
         else:
@@ -1116,7 +1153,7 @@ def recommend(
     total_new = min(len(new_in_slots), NEW_MENU_COUNT) + len(extra)
     if total_new < NEW_MENU_COUNT:
         result.notes.append(_few_new_note(total_new, "요리"))
-    return result
+    return finish()
 
 
 def recommend_family(
@@ -1730,6 +1767,10 @@ def rank_recipes(runtime: ToolRuntime[FridgeContext], category: str | None = Non
     - diners: 함께 먹는 가족 이름(예: ["엄마", "지민"]). 요청자는 자동 포함이므로 넣지 않는다.
       주면 가족 합의 저녁 규칙으로 메뉴 1개와 신메뉴 2개를 고른다. 참여자 알레르기·비선호를 빼고,
       참여자 전원의 남은 칼로리를 워치에서 읽어 within_calorie_budget(모두의 남은 칼로리 안인지)만 돌려준다.
+      가족 구성원 정보에 없는 이름은 참여자에서 빼고 notes로 알린다.
+    - 혼자 먹는 추천도 요청자의 남은 칼로리를 워치에서 읽어 칼로리 제약에 쓰고 within_calorie_budget을 돌려준다.
+    남은 칼로리는 이 도구가 코드에서 직접 읽는다. 에이전트의 get_calorie_budget 호출 결과는 계산에 쓰지 않으며,
+    다른 가족 구성원의 수치는 결과에 담지 않는다.
     """
     ctx = _context(runtime)
     conn = _open(runtime)
@@ -1759,8 +1800,14 @@ def rank_recipes(runtime: ToolRuntime[FridgeContext], category: str | None = Non
                 notes.append(CALORIE_UNKNOWN)
         else:
             profile = memory.profile_or(store, ctx.user_id, seed_profile(ctx.user_id))
-            result = recommend(conn, ctx.user_id, category=category,
-                               allergies=profile["allergies"], dislikes=profile["dislikes"])
+            # 혼자 먹는 추천도 요청자의 오늘 남은 칼로리를 코드에서 읽어 칼로리 제약에 쓴다(값은 LLM에 넘기지 않는다).
+            budgets, steps = fetch_calorie_budgets([ctx.user_id], caller="rank_recipes")
+            ctx.mcp_calls.extend(steps)
+            budget = budgets.get(ctx.user_id) if budgets else None
+            result = recommend(conn, ctx.user_id, category=category, allergies=profile["allergies"],
+                               dislikes=profile["dislikes"], calorie_budget=budget)
+            if budget is None:
+                notes.append(CALORIE_UNKNOWN)
         result.notes = notes + result.notes
         return result.model_dump_json()
     finally:

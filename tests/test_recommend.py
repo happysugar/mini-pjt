@@ -239,7 +239,7 @@ def test_unsupported_category(conn):
 
 def test_result_is_pydantic(conn):
     data = tools.recommend(conn, "dad").model_dump()
-    assert set(data) == {"user_id", "category", "items", "empty_slots", "notes"}
+    assert set(data) == {"user_id", "category", "items", "empty_slots", "notes", "within_calorie_budget"}
     assert tools.RecommendationResult.model_validate(data).items[0].dish == "소고기 무국"
 
 
@@ -292,3 +292,53 @@ def test_family_nothing_found(conn):
 def test_family_output_has_no_personal_values(conn):
     fields = set(tools.FamilyRecommendationResult.model_fields)
     assert fields == {"diners", "items", "empty_slots", "within_calorie_budget", "notes"}
+
+
+# ── 혼자 먹는 추천의 칼로리 제약 (SERVICE.md 5.2) ─────────────────
+
+
+def _lightest_by_cuisine(conn):
+    """안전 필터를 지난 후보 중 카테고리별 1인분 kcal 최솟값."""
+    cands, _ = tools._safe_candidates(conn, [], [], 1)
+    out: dict[str, float] = {}
+    for c in cands:
+        out[c.recipe.cuisine] = min(out.get(c.recipe.cuisine, float("inf")), c.recipe.kcal)
+    return out
+
+
+def test_calorie_budget_none_keeps_old_behavior(conn):
+    plain = tools.recommend(conn, "dad", allergies=[], dislikes=[])
+    assert plain.within_calorie_budget is None
+    roomy = tools.recommend(conn, "dad", allergies=[], dislikes=[], calorie_budget=3000)
+    assert [i.dish for i in roomy.items] == [i.dish for i in plain.items]
+    assert roomy.within_calorie_budget is True and not any("가장 가벼운" in n for n in roomy.notes)
+
+
+def test_calorie_budget_swaps_dish_within_budget(conn):
+    """남은 칼로리(700)를 넘는 요리(소고기 라구 파스타 720kcal)는 같은 카테고리의 남은 칼로리 안 요리로 바뀐다."""
+    r = tools.recommend(conn, "dad", allergies=[], dislikes=[], calorie_budget=700)
+    assert r.within_calorie_budget is True
+    assert all(i.kcal_per_serving <= 700 for i in r.items)
+    assert "소고기 라구 파스타" not in [i.dish for i in r.items]
+
+
+def test_calorie_budget_too_low_fills_slots_with_lightest(conn):
+    """어떤 요리도 남은 칼로리(50) 안에 들지 않으면 카테고리별 가장 가벼운 요리로 대신하고 알린다.
+
+    대체 요리도 슬롯 규칙의 우선순위를 따른다: 평점 3점 이상 요리 중 가장 가벼운 것, 없으면 신메뉴 중 가장 가벼운 것.
+    시드에서 dad는 한식·일식에 3점 이상 요리가 있어, 신메뉴는 이탈리아식·중식 두 개라 슬롯이 비지 않는다.
+    """
+    r = tools.recommend(conn, "dad", allergies=[], dislikes=[], calorie_budget=50)
+    slots = {i.cuisine: i for i in r.items if i.slot in tools.CUISINES}
+    assert set(slots) == set(tools.CUISINES) and not r.empty_slots
+    assert not slots["한식"].is_new and not slots["일식"].is_new  # 3점 이상 요리 중 가장 가벼운 것
+    assert slots["이탈리아식"].is_new and slots["중식"].is_new
+    lightest = _lightest_by_cuisine(conn)
+    assert slots["이탈리아식"].kcal_per_serving == lightest["이탈리아식"] and slots["중식"].kcal_per_serving == lightest["중식"]
+    assert r.within_calorie_budget is False
+    assert "남은 칼로리 안에 드는 요리가 없어 가장 가벼운 요리를 골랐어요: 한식, 일식, 이탈리아식, 중식" in r.notes
+
+
+def test_calorie_budget_with_category(conn):
+    r = tools.recommend(conn, "dad", category="일식", allergies=[], dislikes=[], calorie_budget=50)
+    assert len(r.items) == 1 and r.items[0].cuisine == "일식" and r.within_calorie_budget is False

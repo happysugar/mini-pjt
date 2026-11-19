@@ -89,8 +89,8 @@ def test_calorie_budget_counts_only_today_and_own_meals(health_db):
     mcp_call("record_meal", {**base, "meal_id": "b", "user_id": "dad", "eaten_at": "2026-11-19T19:00:00"})
     mcp_call("record_meal", {**base, "meal_id": "c", "user_id": "mom", "eaten_at": "2026-11-20T19:00:00"})
     budget = mcp_call("get_calorie_budget", {"user_id": "dad"})
-    assert budget == {"user_id": "dad", "date": "2026-11-20", "target_kcal": 2400, "intake_kcal": 680.0,
-                      "remaining_kcal": 1720.0}
+    assert budget == {"user_id": "dad", "date": "2026-11-20", "target_kcal": 2800, "intake_kcal": 680.0,
+                      "remaining_kcal": 2120.0}
     intake = mcp_call("get_daily_intake", {"user_id": "dad"})
     assert intake["intake_kcal"] == 680.0 and len(intake["meals"]) == 1
 

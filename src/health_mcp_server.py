@@ -27,8 +27,8 @@ from src.tools import DATA_DIR, today
 load_dotenv()
 
 # 사용자별 하루 목표 kcal (mock 프로필). 실서비스에서는 워치 앱의 목표값을 읽는다.
-DAILY_TARGET_KCAL = {"dad": 2400, "mom": 1900, "jimin": 2000}
-DEFAULT_TARGET_KCAL = 2000
+DAILY_TARGET_KCAL = {"dad": 2800, "mom": 2300, "jimin": 2400}  # 2026-11-20 모두 +400kcal 상향
+DEFAULT_TARGET_KCAL = 2400
 
 HEALTH_SCHEMA = """
 CREATE TABLE IF NOT EXISTS watch_meals (
