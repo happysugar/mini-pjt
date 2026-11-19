@@ -93,3 +93,66 @@ def test_pending_approval_is_not_summarized(make_client, env):
     before = client.portal.call(agent.aget_state, config).values["messages"]
     assert client.portal.call(compactor.compact, agent, config) is False
     assert client.portal.call(agent.aget_state, config).values["messages"] == before
+
+
+# ── 평가 입력 Form 확정은 confirm_meal_form 호출을 강제한다 ──────────
+
+
+def test_form_confirm_request_forces_confirm_meal_form():
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    from src.agent import form_confirm_tool_choice
+
+    ask = HumanMessage(f"{tools.FORM_CONFIRM_REQUEST}: 규동 2인분, dad 1인분 4점, mom 1인분 5점")
+    assert form_confirm_tool_choice([ask]) == "confirm_meal_form"
+    # 이미 불렀으면 강제를 풀어 결과 요약은 평소대로 답하게 한다
+    done = [ask, call("confirm_meal_form", {}), ToolMessage("저장했어요", tool_call_id="call-1")]
+    assert form_confirm_tool_choice(done) is None
+    # 다른 요청이나 이전 턴의 Form 요청은 강제하지 않는다
+    assert form_confirm_tool_choice([HumanMessage("규동 먹었어, 4점")]) is None
+    assert form_confirm_tool_choice([ask, say("확정했어요."), HumanMessage("재고 알려줘")]) is None
+
+
+def test_form_confirm_middleware_overrides_tool_choice():
+    from langchain_core.messages import HumanMessage
+
+    from src.agent import FormConfirmToolChoice
+
+    class Req:
+        """tool_choice를 바꾼 복사본만 확인하는 최소 요청 객체."""
+
+        def __init__(self, messages, tool_choice=None):
+            self.messages, self.tool_choice = messages, tool_choice
+
+        def override(self, **kw):
+            return Req(self.messages, kw.get("tool_choice"))
+
+    mw = FormConfirmToolChoice()
+    seen = []
+    form = Req([HumanMessage(f"{tools.FORM_CONFIRM_REQUEST}: 규동 2인분, dad 1인분 4점")])
+    mw.wrap_model_call(form, lambda r: seen.append(r.tool_choice))
+    asyncio.run(mw.awrap_model_call(Req([HumanMessage("규동 먹었어")]), _async_seen(seen)))
+    assert seen == ["confirm_meal_form", None]
+
+
+def _async_seen(seen: list):
+    """비동기 handler: 받은 요청의 tool_choice를 기록한다."""
+
+    async def handler(request):
+        seen.append(request.tool_choice)
+
+    return handler
+
+
+def test_rating_agent_uses_form_confirm_middleware(make_client, env, monkeypatch):
+    """API의 Form 확정 흐름에서 평가 에이전트의 모델 호출이 미들웨어를 거친다."""
+    from src import agent as agent_mod
+    from tests.test_api import FORM_TWO
+
+    picked = []
+    original = agent_mod.form_confirm_tool_choice
+    monkeypatch.setattr(agent_mod, "form_confirm_tool_choice", lambda msgs: picked.append(original(msgs)) or picked[-1])
+    _, ask = make_client(call("confirm_meal_form", {}), say("저장했어요."))
+    r = ask({"question": FORM_TWO, "thread_id": "dad-form-mw"}, DAD)
+    assert r["trace"]["pending_interrupt"]["type"] == "meal_form_confirm"
+    assert picked and picked[0] == "confirm_meal_form"

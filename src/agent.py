@@ -17,7 +17,7 @@ from typing import Any, AsyncIterator
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
-from langchain.agents.middleware import AgentState, after_model
+from langchain.agents.middleware import AgentMiddleware, AgentState, after_model
 from langchain_aws import ChatBedrockConverse
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.interceptors import MCPToolCallRequest
@@ -31,6 +31,7 @@ from src.middleware import HistoryCompactor, build_middleware, build_supervisor_
 from src.planner import build_planner
 from src.tools import (
     CHECKPOINT_DB,
+    FORM_CONFIRM_REQUEST,
     SEED_USERS,
     FridgeContext,
     add_items_from_text,
@@ -141,6 +142,7 @@ RATING_PROMPT = """너는 가족 냉장고의 평가·헬스 에이전트다. �
 평가 규칙
 - "평가 입력 Form을 확정해줘"로 시작하는 요청(화면의 평가 입력 Form)은 confirm_meal_form만 부른다. 인자는 없다.
   평가자·식사량·점수는 서버가 검사해 보관한 값을 도구가 읽으므로, 문장에 나온 값으로 confirm_meal을 부르지 않는다.
+  승인은 도구가 받는다. confirm_meal_form을 부르기 전에 사용자에게 확정 여부를 직접 묻지 않는다.
 - 식사 평가("~ 먹었어, 4점")는 confirm_meal을 부른다. 레시피에 있는 요리인지 모르면 먼저 get_recipe로 확인한다.
   승인은 도구가 받는다. confirm_meal을 부르기 전에 사용자에게 직접 기록 여부를 묻지 않는다.
   인분은 사용자 말에서 이렇게 정한다. 되묻지 말고 바로 confirm_meal을 부른다.
@@ -152,6 +154,7 @@ RATING_PROMPT = """너는 가족 냉장고의 평가·헬스 에이전트다. �
   confirm_meal을 부른다. 기록되는 사용자는 서버가 정하므로 도구에 다른 사용자를 넘기려 하지 않는다.
 - 요리명·점수·인분 같은 식사 내용 없이 승인·확정만 말하면("아까 그 식사 기록 승인할게") 도구를 부르지 말고
   "대기 중인 승인 요청이나 기록할 식사가 없어요"라고만 답한다.
+  단, "평가 입력 Form을 확정해줘"로 시작하는 요청은 이 경우가 아니다(Form 내용이 함께 온다).
 - 외식처럼 레시피에 없는 요리는 kcal을 먼저 묻지 말고 바로 confirm_meal을 부른다. 사용자가 kcal을 말했을 때만
   kcal_per_serving에 넣고, 모르면 비운다(도구가 워치 기록 생략을 승인 요약에 적는다).
 - 식사 확정 결과에 워치 기록 실패 안내가 있으면 답변에 그대로 적는다.
@@ -256,6 +259,43 @@ def one_tool_call_at_a_time(state: AgentState, runtime: Runtime) -> dict[str, An
     return first_tool_call_only(state)
 
 
+def form_confirm_tool_choice(messages: list[Any]) -> str | None:
+    """마지막 사용자 메시지가 평가 입력 Form 확정 요청이고 아직 확정 도구를 부르지 않았으면 그 도구 이름을 돌려준다.
+
+    API가 Form을 검사·보관한 뒤 만드는 질문(`FORM_CONFIRM_REQUEST`로 시작)은 형식이 정해져 있으므로
+    모델 판단에 맡기지 않고 `confirm_meal_form` 호출을 강제한다. 이미 불렀으면 None(결과 요약은 평소대로 답한다).
+    """
+    for i in range(len(messages) - 1, -1, -1):
+        msg = messages[i]
+        if getattr(msg, "type", None) != "human":
+            continue
+        text = msg.content if isinstance(msg.content, str) else "".join(
+            b.get("text", "") for b in msg.content if isinstance(b, dict))
+        if not text.lstrip().startswith(FORM_CONFIRM_REQUEST):
+            return None
+        called = any(c.get("name") == confirm_meal_form.name
+                     for m in messages[i + 1:] for c in (getattr(m, "tool_calls", None) or []))
+        return None if called else confirm_meal_form.name
+    return None
+
+
+class FormConfirmToolChoice(AgentMiddleware):
+    """평가 에이전트용: 평가 입력 Form 확정 요청이면 모델 호출에 `confirm_meal_form`을 강제한다.
+
+    모델이 도구 대신 사용자에게 확정 여부를 되묻는 일을 막는다(승인은 도구의 interrupt가 받는다).
+    """
+
+    def wrap_model_call(self, request, handler):
+        """동기 모델 호출 감싸기."""
+        name = form_confirm_tool_choice(request.messages)
+        return handler(request.override(tool_choice=name) if name else request)
+
+    async def awrap_model_call(self, request, handler):
+        """비동기 모델 호출 감싸기."""
+        name = form_confirm_tool_choice(request.messages)
+        return await handler(request.override(tool_choice=name) if name else request)
+
+
 def _supervisor_one_call(state: dict) -> dict[str, Any]:
     """Supervisor `post_model_hook`: 핸드오프를 한 번에 하나만 남긴다."""
     return first_tool_call_only(state) or {}
@@ -290,12 +330,13 @@ def build_agent(
     for name, (prompt, tools) in SUB_AGENTS.items():
         if name == RECOMMEND_AGENT:
             tools = tools + list(extra_tools or [])
+        extra = [FormConfirmToolChoice()] if name == RATING_AGENT else []
         agents.append(
             create_agent(
                 model=model,
                 tools=tools,
                 system_prompt=prompt.format(**rules),
-                middleware=[*middleware, one_tool_call_at_a_time],
+                middleware=[*middleware, *extra, one_tool_call_at_a_time],
                 context_schema=FridgeContext,
                 name=name,
             )
