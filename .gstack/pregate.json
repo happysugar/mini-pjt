@@ -5,6 +5,9 @@
     "src/tools.py": ["tests/test_tools.py", "tests/test_recommend.py"],
     "src/agent.py": [],
     "src/api.py": [],
-    "src/cli.py": []
+    "src/cli.py": [],
+    "evaluation/run_eval.py": ["tests/test_eval.py"],
+    "evaluation/test_queries.csv": ["tests/test_eval.py"],
+    "evaluation/results/**": ["tests/test_eval.py"]
   }
 }
