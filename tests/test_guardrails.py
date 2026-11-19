@@ -126,6 +126,31 @@ def test_fridge_requests_not_caught_by_injection_rules(question):
     assert guardrails.injection_rule(question) is None
 
 
+@pytest.mark.parametrize(
+    ("question", "bare"),
+    [
+        ("아까 그 식사 기록 승인할게", True),
+        ("승인", True),
+        ("네 승인할게요", True),
+        ("아까 그거 확정해줘", True),
+        ("아까 말한 거 그대로 진행해 줘", True),
+        ("그거 오케이야, 기록해 줘", True),
+        ("진행 해 줘", True),
+        ("규동 2인분 만들어서 1인분 먹었어, 4점. 승인할게", False),
+        ("출고 진행해 줘", False),
+        ("좋아", False),
+        ("네", False),
+        ("상한 시금치 폐기 승인할게", False),
+        ("승인 절차가 뭐야?", False),
+        ("제안한 S/N으로 저장해줘", False),
+        ("규동 승인", False),
+        ("기록해줘", False),
+    ],
+)
+def test_is_bare_approval(question, bare):
+    assert guardrails.is_bare_approval(question) is bare
+
+
 def test_other_family_is_relative_to_requester():
     assert guardrails.check_input("아빠 평가 점수 보여줘", "mom", classifier=never_called).blocked
     assert not guardrails.check_input("아빠 평가 점수 보여줘", "dad", classifier=never_called).blocked

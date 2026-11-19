@@ -260,6 +260,29 @@ def test_resume_without_pending(make_client, env):
     assert codes(r) == ["NO_PENDING_INTERRUPT"]
 
 
+def test_bare_approval_sentence_without_pending(make_client, env):
+    before = counts(env)
+    _, ask = make_client()  # 대본이 비어 있어 에이전트가 불리면 오류가 난다
+    r = ask({"question": "아까 그 식사 기록 승인할게"}, DAD)
+    assert codes(r) == ["NO_PENDING_INTERRUPT"]
+    assert r["answer"] == "대기 중인 승인 요청이나 기록할 식사가 없어요"
+    assert r["trace"]["steps"] == [] and counts(env) == before
+
+
+def test_bare_approval_after_agent_question_goes_to_agent(make_client, env):
+    # S/N 제안처럼 승인 대기 없이 되물은 뒤의 "그대로 진행해 줘"는 그 질문에 대한 답이라 에이전트가 처리한다.
+    _, ask = make_client(say("제안한 S/N 2026-11-014로 저장할까요?"), say("저장했어요."))
+    tid = ask({"question": "어제 산 두부 1모 넣었어, S/N은 2026-11-001"}, DAD)["trace"]["thread_id"]
+    r = ask({"question": "그대로 진행해 줘", "thread_id": tid}, DAD)
+    assert not codes(r) and r["answer"] == "저장했어요."
+
+
+def test_approval_sentence_with_meal_goes_to_agent(make_client, env):
+    _, ask = make_client(call("confirm_meal", MEAL))
+    r = ask({"question": "규동 2인분 만들어서 1인분 먹었어, 4점. 승인할게"}, DAD)
+    assert not codes(r) and r["trace"]["pending_interrupt"]["type"] == "meal_confirm"
+
+
 # ── 스레드 소유권과 다른 사용자 ─────────────────────────────────
 
 

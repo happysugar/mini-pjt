@@ -254,6 +254,22 @@ async def _pending(agent: Any, thread_id: str) -> dict | None:
     return pending_interrupt({"__interrupt__": interrupts})
 
 
+async def _last_answer_asks(agent: Any, thread_id: str) -> bool:
+    """스레드의 마지막 AI 답이 사용자에게 묻는 문장(물음표로 끝남)이었는지 본다.
+
+    재고 에이전트의 S/N 제안("제안한 S/N으로 저장할까요?")처럼 승인 대기(interrupt) 없이 되묻는 흐름에서는
+    "그대로 진행해 줘"가 정상적인 답이라, 빈 승인 처리에서 빼려고 쓴다.
+    """
+    snapshot = await agent.aget_state({"configurable": {"thread_id": thread_id}})
+    for message in reversed((snapshot.values or {}).get("messages", [])):
+        if getattr(message, "type", "") == "ai" and not getattr(message, "tool_calls", None):
+            content = message.content
+            if isinstance(content, list):
+                content = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+            return str(content).strip().rstrip("😊🙂!. ").endswith("?")
+    return False
+
+
 async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path: str | None) -> QueryResponse:
     """`/query` 한 건을 처리한다. 신원 → 스레드 소유권 → 승인 상태 → 입력 가드레일 → 에이전트 실행 순서다.
 
@@ -318,6 +334,12 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
         trace["pending_interrupt"] = pending
         trace["errors"].append(_error("INTERRUPT_PENDING", "승인 또는 거절 후 다시 질문해 주세요"))
         return reply(f"{pending['summary']} (approve/reject)")
+    if (not req.resume and guardrails.is_bare_approval(req.question)
+            and not await _last_answer_asks(agent, thread_id)):
+        # resume 없이 문장으로만 승인한 경우도 resume과 같은 특수 상황으로 보고 모델을 부르지 않는다.
+        # 직전 답이 되물은 질문이면(S/N 제안 등) 그 답으로 보고 에이전트에 넘긴다.
+        trace["errors"].append(_error("NO_PENDING_INTERRUPT", "대기 중인 승인 요청 없이 승인 문장만 왔어요"))
+        return reply(guardrails.MSG_NO_PENDING_MEAL)
 
     if not req.resume:
         verdict = guardrails.check_input(req.question, user_id)

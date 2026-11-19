@@ -37,6 +37,7 @@ MSG_OTHER_FAMILY = (
     "다른 가족의 평가 점수나 칼로리 같은 개인 기록은 보여 드릴 수 없어요. 본인 기록만 확인할 수 있어요. "
     "대신 내 평가 기록이나 오늘 내 섭취 칼로리를 확인해 드릴까요?"
 )
+MSG_NO_PENDING_MEAL = "대기 중인 승인 요청이나 기록할 식사가 없어요"
 MSG_PII_STORE = (
     "전화번호, 주민등록번호, 이메일 같은 개인정보는 저장하지 않아요. "
     "냉장고 재고 입고·조회, 레시피, 보관 방법, 식사 기록 같은 요청을 도와 드릴게요."
@@ -402,6 +403,33 @@ def asks_other_family_record(question: str, user_id: str) -> bool:
 def asks_to_store_pii(question: str) -> bool:
     """전화번호·주민번호·이메일을 저장해 달라는 질문인지 본다."""
     return bool((PHONE.search(question) or RRN.search(question) or EMAIL.search(question)) and STORE_VERB.search(question))
+
+
+# 승인 의도 단어와, 승인 문장에 함께 올 수 있는 군더더기 단어. 어절이 모두 이 단어로만 이뤄져야 "빈 승인"으로 본다.
+_APPROVE_STEM = r"승인|확정|진행|오케이|approve|approved|ok|okay"
+_FILLER_STEM = (
+    rf"{_APPROVE_STEM}|아까|방금|아까의|그|그거|그것|이거|저거|그때|식사|기록|요청|건|거|것|내용"
+    r"|말한|말했던|얘기한|요청한|했던|그대로|줘|주세요|네|응|예|좋아|그냥|이제|다시|좀|빨리|yes"
+)
+_VERB_TAIL = r"할게|할께|할게요|할께요|해|해요|해줘|해줘요|해주세요|합니다|하겠습니다|할래|하자|했어|됐어"
+_PARTICLE = r"은|는|을|를|이|가|도|요|의|로|으로|야|이야"
+# "진행 해 줘"처럼 동사 꼬리가 떨어져 나온 어절("해")도 군더더기로 본다.
+_BARE_TOKEN = re.compile(
+    rf"(?:(?:{_FILLER_STEM})(?:{_VERB_TAIL})?|(?:{_VERB_TAIL}))(?:{_PARTICLE})?", re.IGNORECASE
+)
+_APPROVE_TOKEN = re.compile(_APPROVE_STEM, re.IGNORECASE)
+
+
+def is_bare_approval(question: str) -> bool:
+    """기록할 내용 없이 승인·확정만 말하는 문장인지 본다 ("아까 그 식사 기록 승인할게").
+
+    어절이 모두 승인 단어와 군더더기(아까, 그, 식사, 기록, 할게 …)로만 이뤄지고 승인 단어가 하나라도 있을 때만
+    True다. 요리명·점수·인분·품목·질문어("절차", "뭐야")가 하나라도 있으면 False라서 에이전트가 처리한다.
+    """
+    tokens = re.findall(r"[가-힣A-Za-z0-9/]+", question)
+    if not tokens or not any(_APPROVE_TOKEN.search(t) for t in tokens):
+        return False
+    return all(_BARE_TOKEN.fullmatch(t) for t in tokens)
 
 
 def default_classifier(question: str) -> bool:
