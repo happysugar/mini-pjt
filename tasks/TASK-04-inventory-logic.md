@@ -45,3 +45,18 @@ LLM이 계산하지 않도록 재고 관련 규칙을 모두 Python 함수로 �
   - 입고 중 단위 불일치나 S/N 오류가 나면 저장하지 않고 상태(`unit_mismatch`, `sn_invalid`)와 제안값을 돌려준다. 되묻기는 에이전트가 한다.
 - 검증: `tests/test_tools.py` 61개 통과 (`tests/test_recommend.py` 포함 전체 88개 통과). 테스트는 임시 DB만 쓴다.
 - 함께 작업한 점: TASK-05가 다른 세션에서 동시에 진행돼 같은 파일 아래쪽에 추천 로직이 붙었다. 그 세션이 이 task의 함수를 재사용했고 겹치는 함수는 없다.
+
+## 후속 변경: 재고 입력 Form (2026-11-20, `design-review` branch, `3be3cde`)
+- 입고·출고·폐기를 화면의 고정된 JSON 재고 입력 Form 하나로도 받는다(SERVICE.md 5.1). 요청 종류는 `status`(`stored` 입고, `consumed` 출고, `discarded` 폐기)로 정하고, 비운 칸은 지금 규칙대로 계산한다(S/N 자동 발번, 투입일자 오늘, 유효기간 = 투입일자 + 권장 보관일수).
+- `src/tools.py`에 추가
+  - `check_inventory_form_stock()`: 지금 재고와 맞춰 보는 검사. 입고 S/N 중복(자동 발번 S/N 제안), 기준 단위 환산, 출고·폐기 S/N이 보관 중 재고인지와 품목이 맞는지, 재고가 있는지, 출고량 ≤ 보유량.
+  - `save_inventory_form()`과 `inventory_forms` 테이블: 검사를 통과한 Form을 스레드별로 하나 보관한다.
+  - `store_from_form()`: Form 입고. 기준표 품목은 기준표 값을 쓰고 Form 값이 다르면 `notes`로 알린다. 기준표에 없는 품목은 Form의 별칭·개당 평균 무게·권장 보관일수를 `item_units`의 새 열에 저장하고, 유효기간이 비면 그 보관일수로 계산한다(출처 `user`).
+  - `item_profile()`: 기준표에 없는 품목의 기준을 품목명 → 별칭 순으로 찾는다. `stock_rows()`, `base_unit_of()`, `convert_to_base()`가 기준표 다음으로 이 값을 쓴다.
+  - 확정 도구 `confirm_inventory_form`(인자 없음): 입고는 승인 없이 저장, 출고는 보유량 50% 초과면 승인, 폐기는 항상 승인. 거절하면 보관한 Form을 지운다.
+- 기존 함수 변경
+  - `deduct_fefo(..., sn=None)`: `sn`을 주면 그 재고 한 건에서만 차감한다(Form 출고). 주지 않으면 지금처럼 FEFO.
+  - 폐기 쓰기를 `apply_discard()`, 승인 요약 문구를 `describe_lots()`로 빼서 `discard_item`과 `confirm_inventory_form`이 함께 쓴다.
+  - 기존 DB는 열 때 `inventory_forms` 테이블과 `item_units` 열을 더한다(`_migrate_inventory_forms`).
+- 자유 문장 입고·출고·폐기(`add_items_from_text`, `withdraw_item`, `discard_item`)는 그대로 둔다.
+- 확인: pytest 414개 통과(`tests/test_api.py` 재고 Form 흐름 11개 추가). Bedrock 평가 P08·P09·P11·N07·E14~E19·G10 모두 통과.

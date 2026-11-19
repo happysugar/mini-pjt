@@ -93,3 +93,16 @@
   - 검색 평가 `--no-llm`(`retrieval-20261120-003258.json`): 분리 전(`retrieval-20261119-155407.json`)과 같다(Precision@3 0.387, Recall@3 0.96, MRR 0.933).
   - 검색 평가 LLM 모드 2회(`retrieval-20261120-003036`, `003236`): Recall@3·Hit 1.0, MRR 0.973 / 1.0. S10 순위가 실행마다 1위·3위로 달라지는 건 LLM 리랭킹 편차다.
   - 실제 Bedrock P01·P05·N02·E01(`run-20261120-003515.json`): 4/4 통과, P05 답의 출처가 `storage_items.csv`, faithfulness 1.0.
+
+## 후속 변경: 재고 입력 Form의 품목 기준 (2026-11-20, `design-review` branch)
+- 재고 입력 Form(SERVICE.md 5.1)은 별칭·개당 평균 무게·권장 보관일수를 받는다. 기준표(`storage_items.csv`)는 바꾸지 않는다(기준표 수정은 admin 기능, SERVICE.md 5.7).
+  - 기준표에 있는 품목: 기준표 값을 쓰고, Form 값이 다르면 기준표 값을 썼다고 입고 결과 `notes`에 적는다.
+  - 기준표에 없는 품목: Form 값을 DB `item_units`의 새 열(`aliases`, `avg_weight_g`, `storage_days`)에 그 품목의 기준으로 저장한다.
+- 품목 찾기는 두 단계가 됐다. `resolve_item()`·`guide_info()`는 지금처럼 기준표만 보고, 기준표에 없을 때 `tools.item_profile()`이
+  `item_units`의 품목명 → 별칭 순으로 찾는다. 재고 조회(`stock_rows`), 기준 단위(`base_unit_of`), 단위 환산(`convert_to_base`)이 이 순서를 쓴다.
+- 검색 인덱스와 `get_storage_days`는 바꾸지 않았다. 둘 다 기준표만 본다.
+  - Form으로 등록한 품목(예: 망고 5일)은 검색 청크에 없고, `get_storage_days("망고")`는 지금처럼 "보관 가이드에 없는 품목"이라고 답한다.
+  - 이유: 인덱스는 문서(기준표·보관 가이드)에서 만들고, 가족마다 달라지는 DB 값을 넣으면 인덱스를 요청마다 다시 만들어야 한다.
+    평가 N02(망고 보관일수를 모르면 지어내지 않음)도 이 동작을 전제로 한다(평가는 문항마다 시드로 DB를 새로 만든다).
+  - Form으로 등록한 보관일수를 `get_storage_days`에서도 알려 줄지는 열린 질문으로 둔다.
+- 확인: pytest 414개 통과, 재고 Form 새 문항(P08·P09·P11, N07, E14~E19, G10) Bedrock 평가 모두 통과(`run-20261120-033127.json`, `run-20261120-034045.json`).
