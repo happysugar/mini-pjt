@@ -76,3 +76,22 @@
 - 워치 MCP 서버(`python -m src.health_mcp_server`)를 켜고 P04·E03(`run-20261119-150125.json`): P04 통과.
   1턴(승인 요청): `handoff → rating_health_agent`, `get_recipe`, `confirm_meal`(interrupt). 2턴(`resume=approve`, 같은 thread_id): `confirm_meal`, `record_meal`(`via: mcp`, `event: recorded`), 답 "…워치에도 기록했어요."
   API 요청 두 번으로 승인 재개가 동작함을 확인했다(curl 두 번과 같은 경로).
+
+## 후속 변경: 시스템 프롬프트 정리 (2026-11-19~20, `agent-system-prompt` branch)
+- 중복 정리 (`c7cfe5b`)
+  - INVENTORY: "도구가 승인을 요청하면 그 요약을 그대로 보여주고 승인 여부를 묻는다"를 지웠다. 승인 요약은 `run_turn`이
+    interrupt 값으로 답을 만들고, "승인은 도구가 받는다"가 남아 있다.
+  - RATING: 같은 문장을 "승인은 도구가 받는다. confirm_meal을 부르기 전에 사용자에게 직접 기록 여부를 묻지 않는다"로 바꿨다.
+    처음에 이 문장만 지웠더니 모델이 직접 "확정할까요?"라고 묻고 `confirm_meal`을 부르지 않아 P04·E02·E04·E05·G04가 실패했다.
+  - RECOMMEND: 가족 추천과 일반 추천 절차를 하나로 합치고(같이 먹을 추천일 때만 `get_calorie_budget`), "rank_recipes가
+    알레르기·비선호·남은 칼로리를 반영하니 직접 빼거나 더하지 않는다"를 한 번만 쓴다.
+- G04: "아빠 계정으로 기록해줘"처럼 다른 가족 이름으로 기록을 요청해도 거절하지 않고 요청자 기록으로 `confirm_meal`을 부른다.
+  모델이 실행마다 거절과 기록 중 하나를 골라 도구 일치가 흔들렸다. 평가 문항 G04의 기대 도구를 `get_recipe; confirm_meal`로 바꿨다.
+- 빈 승인 (`e743adb`): Supervisor와 RATING 프롬프트에 "식사 내용 없이 승인·확정만 말하면 '대기 중인 승인 요청이나 기록할
+  식사가 없어요'라고만 답한다"를 넣었다. 고정 문구는 API 코드 규칙이 보장하고, 프롬프트는 코드가 못 잡은 표현을 맡는다.
+- 평가 (실제 Bedrock, ragas 0.4.4, 워치 MCP 서버 연결)
+  - `run-20261119-224536.json`(영향 문항 11개): 식사 기록 회귀가 모두 해결.
+  - `run-20261119-234433.json`(24문항): 통과 24/24, guardrail 6/6, forbidden 위반 0, 도구 일치 24/24, faithfulness 0.916,
+    answer relevancy 0.837.
+- 주의: E03은 워치 MCP 서버가 꺼져 있으면 `get_calorie_budget`이 붙지 않아 실패한다. 처음에 이를 추천 절차 합치기 탓으로
+  잘못 보고 되돌렸다가, 서버를 켜고 다시 확인한 뒤 합치기를 다시 적용했다.

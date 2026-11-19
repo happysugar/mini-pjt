@@ -25,24 +25,35 @@
 - "규동 2인분 만들어서 1인분 먹었어, 4점" 한 문장으로 평가 저장, 재료 차감, 워치 칼로리 기록을 함께 처리합니다.
 - 저장하기 전에 반드시 사용자 승인(HITL)을 받습니다. 폐기와 대량 출고도 같습니다.
 - 인분 정보가 없으면 추측하지 않고 되묻습니다.
+- 대기 중인 승인 없이 "아까 그 식사 기록 승인할게"처럼 승인만 말하면 "대기 중인 승인 요청이나 기록할 식사가 없어요"라고 답합니다.
+- "아빠 계정으로 기록해줘"처럼 다른 가족 이름으로 요청해도 요청한 사람의 기록으로만 저장합니다.
 
 ### 폐기 회피량
 - 유효기간 임박(0~3일) 상태에서 먹거나 쓴 양을 모아 "이번 주에 살린 식재료 g"으로 보여줍니다.
 
 ### 안전장치
 - 사용자 토큰으로 신원을 확인하고, 다른 가족의 평가 원문·건강 기록·대화에는 접근할 수 없습니다.
-- 프롬프트 인젝션을 차단하고, 전화번호·주민번호 같은 개인정보는 응답에서 마스킹합니다.
+- 프롬프트 인젝션을 모델 호출 전에 차단합니다. 단어 하나가 아니라 "이전 지시 + 무시"처럼 동작과 대상의 조합을 보고, 띄어 쓴 글자("무 시 해")나 숫자 치환("1gn0re") 우회도 풀어서 검사합니다.
+- 다른 가족의 기록 조회와 개인정보 저장 요청을 거절하고, 전화번호·주민번호 같은 개인정보는 응답에서 마스킹합니다.
 
 ## 구성
 
 | 위치 | 내용 |
 |---|---|
-| `src/agent.py` | Supervisor와 하위 에이전트(재고, 요리추천, 평가·헬스) |
+| `src/agent.py` | Supervisor와 하위 에이전트(재고, 요리추천, 평가·헬스, 3일 식단) |
 | `src/tools.py` | 결정적 도메인 도구: 날짜, S/N, 단위 환산, FEFO 차감, 추천 정렬, DB |
-| `src/retriever.py` | RAG 파이프라인 |
-| `src/api.py` | FastAPI `POST /query` |
-| `data/` | 레시피 36개, 보관 가이드, 시드 재고·가족 데이터 |
-| `evaluation/` | 평가 문항 `test_queries.csv`와 평가 리포트 |
+| `src/retriever.py` | RAG 파이프라인 (BM25 + 벡터 RRF, LLM 쿼리 확장·리랭킹) |
+| `src/api.py` | FastAPI `POST /query` (신원·스레드·승인 확인, 특수 상황 응답) |
+| `src/guardrails.py` | 입력 검사(인젝션, 다른 가족 기록, 개인정보 저장, 빈 승인 문장)와 출력 마스킹 |
+| `src/chains.py` | 입고 문장을 파싱하는 LCEL 체인 |
+| `src/middleware.py` | 내장 미들웨어 조립(PII 마스킹, 재시도, 이력 요약) |
+| `src/planner.py` | Plan-Execute 3일 저녁 식단 |
+| `src/memory.py` | 장기 메모리(선호·비선호·알레르기) |
+| `src/health_mcp_server.py` | 워치 헬스케어 MCP 서버(mock) |
+| `src/tracer.py` | 로컬 트레이서(`data/trace.jsonl`) |
+| `src/cli.py` | 터미널 데모 |
+| `data/` | 레시피, 보관 가이드, 시드 재고·가족 데이터 |
+| `evaluation/` | 평가 문항 `test_queries.csv`, 검색 평가 `retrieval_queries.csv`, 평가 스크립트 `run_eval.py`, 결과 `results/` |
 
 - 모델: Amazon Bedrock (`ChatBedrockConverse`)
 - 프레임워크: LangChain 1.x (`create_agent`), LangGraph
@@ -62,6 +73,12 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+Windows·Python 3.14에서 `ragas` 설치가 scikit-network 빌드 오류로 실패하면 미리 빌드된 패키지를 우선 쓰도록 설치합니다. 이렇게 해도 평가 지표 계산에는 문제가 없습니다.
+
+```bash
+pip install --prefer-binary ragas==0.4.4
+```
+
 ### 3. 환경 변수 (`.env`)
 
 저장소 루트에 `.env` 파일을 만듭니다. 이 파일은 `.gitignore`에 들어 있으며 **절대 커밋하지 않습니다.**
@@ -78,6 +95,8 @@ EVAL_MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 USER_TOKENS=dad:<토큰>,mom:<토큰>,jimin:<토큰>
 DEFAULT_USER=dad
 FRIDGE_TODAY=2026-11-20
+
+HEALTH_MCP_URL=http://127.0.0.1:8765/mcp
 ```
 
 | 키 | 설명 |
@@ -88,12 +107,17 @@ FRIDGE_TODAY=2026-11-20
 | `USER_TOKENS` | 가족별 토큰. 요청 헤더 `X-User-Token`과 대조해 사용자를 확인합니다 |
 | `DEFAULT_USER` | 토큰도 `user_id`도 없는 요청을 처리할 사용자. 비우면 조회만 가능한 `guest`로 동작합니다 |
 | `FRIDGE_TODAY` | "오늘" 날짜를 고정합니다. 시연과 평가는 `2026-11-20`으로 실행해 결과를 재현합니다. 비우면 실제 오늘 날짜를 씁니다 |
+| `HEALTH_MCP_URL` | 워치 헬스케어 MCP 서버 주소. 비우거나 서버가 꺼져 있으면 워치 조회 도구(`get_calorie_budget`, `get_daily_intake`) 없이 시작합니다 |
+| `HEALTH_MCP_PORT`, `HEALTH_DB` | (선택) 워치 서버 포트(기본 8765)와 기록 DB(기본 `data/health.db`) |
+| `TRACE_FILE` | (선택) 로컬 트레이스 파일. 기본 `data/trace.jsonl` |
+| `LANGSMITH_API_KEY`, `LANGSMITH_TRACING` | (선택) 있으면 LangSmith에도 기록합니다 |
+| `FRIDGE_API_URL` | (선택) 터미널 데모가 부를 API 주소 |
 
 모델 ID는 계정에서 호출 권한이 있는 모델로 바꿔도 됩니다. 목록에 보여도 권한이 없으면 `AccessDeniedException`이 납니다.
 
 ## 사용법
 
-### DB 초기화 (지금 사용 가능)
+### DB 초기화
 
 시드 데이터로 `data/fridge.db`를 새로 만듭니다. 시드의 날짜는 `FRIDGE_TODAY` 기준 상대 일수라서, `2026-11-20`이면 한우 600g(S/N `2026-11-003`)의 유효기간이 `2026-11-22`(D-day 2)가 됩니다.
 
@@ -101,7 +125,15 @@ FRIDGE_TODAY=2026-11-20
 python -c "from dotenv import load_dotenv; load_dotenv(); from src.tools import reset_db; print(reset_db())"
 ```
 
-### API 서버 (구현 예정)
+### 워치 MCP 서버
+
+식사 칼로리 기록과 남은 칼로리 조회를 맡는 워치 mock 서버입니다. API 서버보다 먼저 별도 터미널에서 띄웁니다. 기본 주소는 `http://127.0.0.1:8765/mcp`입니다.
+
+```bash
+python -m src.health_mcp_server
+```
+
+### API 서버
 
 ```bash
 uvicorn src.api:app
@@ -125,21 +157,46 @@ curl -X POST http://localhost:8000/query \
   -d '{"question": "승인", "user_id": "dad", "thread_id": "<이전 응답의 trace.thread_id>", "resume": "approve"}'
 ```
 
-### 터미널 데모 (구현 예정)
+대기 중인 승인이 없는데 `resume`을 보내거나 승인 문장만 보내면 `trace.errors`에 `NO_PENDING_INTERRUPT`가 오고 아무것도 바뀌지 않습니다. 그 밖의 특수 상황 응답은 [SERVICE.md 8장](SERVICE.md#8-api-계약)에 있습니다.
 
-대표 시나리오 "만료 임박 구출 저녁"을 터미널에서 진행합니다. 화면 위에 임박 경고를, 아래에 이번 주 폐기 회피량을 보여줍니다.
+Windows Git Bash의 curl은 `-d '{"question":"한글"}'` 본문을 UTF-8로 보내지 않아 400이 날 수 있습니다. 이때는 본문을 파일로 저장해 `--data-binary @q.json`으로 보냅니다.
 
-### 테스트 (지금 사용 가능)
+### 터미널 데모
+
+대표 시나리오 "만료 임박 구출 저녁"을 터미널에서 진행합니다. 실행 중인 API 서버에 질문을 보내고, 화면 위에 임박 경고를, 승인 요청은 y/n 질문으로, 아래에 이번 주 폐기 회피량을 보여줍니다.
 
 ```bash
-pytest                                  # 결정적 로직 테스트 (Bedrock 불필요)
+python -m src.cli --user dad
 ```
 
-재고 로직(`tests/test_tools.py`)과 추천 로직(`tests/test_recommend.py`)을 임시 DB에서 검증합니다. API 계약 테스트는 M2에서 추가합니다.
+### 테스트
 
-### 평가 (구현 예정)
+```bash
+pytest
+```
 
-평가 스크립트는 `evaluation/test_queries.csv`의 평가 문항을 실행하고 결과를 `evaluation/report.md`에 남깁니다.
+결정적 로직, API 계약(가짜 모델), 가드레일, 미들웨어, 검색, 평가 하네스를 임시 DB에서 검증합니다. Bedrock이나 AWS 자격 증명 없이 돕니다.
+
+### 평가
+
+평가 문항(`evaluation/test_queries.csv`)을 실제 Bedrock으로 실행하고 LLM-as-Judge, 도구 일치, RAGAS(faithfulness, answer relevancy)로 채점합니다. 문항마다 시드로 만든 임시 DB를 쓰므로 `data/` 아래 DB는 바뀌지 않습니다. 워치 MCP 서버를 켜고 실행해야 가족 추천 문항(E03)까지 정상으로 채점됩니다.
+
+```bash
+python -m evaluation.run_eval
+```
+
+```bash
+python -m evaluation.run_eval --only P02,N01 --compare evaluation/results/<이전 결과>.json
+```
+
+```bash
+python -m evaluation.run_eval --retrieval
+```
+
+- `--only`: 일부 문항만 실행합니다. `--compare`: 이전 결과와 도구 일치를 비교합니다.
+- `--retrieval`: 검색기만 따로 채점합니다(`evaluation/retrieval_queries.csv`, Precision@3·Recall@3·MRR·Hit rate). `--no-llm`을 붙이면 LLM 쿼리 확장·리랭킹 없이 채점합니다.
+- 결과는 `evaluation/results/run-YYYYMMDD-HHMMSS.json`(검색 평가는 `retrieval-…json`)에 저장됩니다. 파일 이름의 시각은 결과를 저장한 시각입니다.
+- 최근 전체 평가(`run-20261119-234433.json`): 문항 통과 24/24, guardrail 6/6, forbidden 위반 0, 도구 일치 24/24, faithfulness 0.916, answer relevancy 0.837
 
 ## 진행 상황
 
@@ -149,10 +206,13 @@ pytest                                  # 결정적 로직 테스트 (Bedrock �
 | M1 | 레시피·보관 가이드·시드 데이터 | 완료 |
 | M1 | DB 스키마와 시드 로더 | 완료 |
 | M1 | 재고·추천 결정적 로직과 pytest | 완료 |
-| M2 | 단일 에이전트, HITL, FastAPI `/query`, CLI, 평가 하네스 | 예정 |
-| M3 | 하이브리드 RAG, 입고 파싱 체인, 가드레일, 미들웨어 | 예정 |
-| M4 | Supervisor 분할, 헬스케어 MCP 서버 | 예정 |
-| M5 | 장기 메모리, 가족 합의 저녁, 3일 식단 | 예정 |
-| M6 | Trace 마무리, 최종 평가와 리포트 | 예정 |
+| M2 | 단일 에이전트, HITL, FastAPI `/query`, CLI, 평가 하네스 | 완료 |
+| M3 | 하이브리드 RAG, 입고 파싱 체인, 가드레일, 미들웨어 | 완료 |
+| M4 | Supervisor 분할, 헬스케어 MCP 서버 | 완료 |
+| M5 | 장기 메모리, 가족 합의 저녁, 3일 식단 | 완료 |
+| M6 | Trace 마무리 | 완료 |
+| M6 | 최종 평가와 리포트(`evaluation/report.md`), 시연 리허설 | 예정 (TASK-20) |
+
+M6 전에 시스템 프롬프트 중복 정리, 인젝션 규칙 확장, 빈 승인 문장 처리, 지원하지 않는 카테고리 안내 고정을 반영했습니다(각 TASK 문서의 "후속 변경"). 남은 과제는 일반 추천 답의 answer relevancy(0.74, 목표 0.8)입니다.
 
 시드 데이터(`data/seed_*.json`)는 지금 예시 데이터입니다. 실제 냉장고 목록과 가족 선호로 바꿀 예정입니다.

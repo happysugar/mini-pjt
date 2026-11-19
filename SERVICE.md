@@ -89,6 +89,8 @@ Mode: Builder (Learning, 교육 과정 개인 미니 프로젝트)
 ### 5.2 요리 추천
 
 - 카테고리는 **한식·일식·이탈리아식·중식** 4개로 제한합니다. 다른 요청(예: 멕시코식)은 정중히 거절하고 4개 카테고리 안에서 대안을 제시합니다.
+  - 거절 안내 문장은 `rank_recipes`가 notes로 만듭니다("멕시코식은 지원하지 않아요. …"). 조사(은/는)는 카테고리 이름의 받침으로 고릅니다.
+  - API는 답의 첫 문단을 이 안내 문장으로 고정합니다. 모델이 안내를 바꿔 쓰거나(예: "멕시코식 타코 레시피는 …") 빼먹어도 도구 문장이 그대로 나갑니다(평가 문항 N01).
 - **후보 조건**: 레시피의 주재료(main)가 재고에 있고 만료되지 않았으면 후보가 됩니다. 부재료가 부족해도 추천할 수 있으며, 부족한 재료 목록을 함께 알려줍니다.
 - **안전 필터 (항상 먼저 적용)**: 요청자의 알레르기 재료(장기 메모리)가 들어간 레시피는 후보에서 제외합니다. 요청자가 싫다고 한 요리는 슬롯에 넣지 않습니다.
 - **평점 정의**: 요청자가 그 요리에 준 평점들의 평균(소수 첫째 자리)입니다. 평가가 없으면 "미평가"이고, 요청자 기준 신메뉴입니다.
@@ -123,6 +125,8 @@ Mode: Builder (Learning, 교육 과정 개인 미니 프로젝트)
   3. 성공하면 `watch_synced = 1`로 바꿉니다. 실패하면 답변에 "워치 기록 실패, 다음 요청 때 다시 시도"를 적고 `trace.errors`에 `{"code": "WATCH_SYNC_FAILED", "message": ...}`를 남깁니다.
   4. 같은 사용자의 다음 `/query` 시작 시 API 코드가 `watch_synced = 0`인 식사를 같은 멱등 키로 다시 보냅니다. 멱등 키 덕분에 중복이 생기지 않습니다.
 - **승인 구현 규칙 (식사 확정·폐기·대량 출고 공통)**: 도구는 읽기만 해서 승인 요청 요약을 만든 뒤, 쓰기 전에 `interrupt()`를 호출합니다. 재개되면 도구가 처음부터 다시 실행되므로, 저장은 승인 후 한 트랜잭션으로 한 번만 하고 멱등 키(`thread_id`+`tool_call_id`)로 중복을 막습니다. 승인 도구를 가진 에이전트는 병렬 도구 호출을 끕니다. 거절 시 답변 문구는 도구가 정해서 돌려줍니다.
+  - 에이전트는 승인 도구를 부르기 전에 사용자에게 직접 "기록할까요?"라고 묻지 않습니다. 승인은 도구의 `interrupt()`가 받습니다. 프롬프트에 이 규칙이 없으면 모델이 먼저 확인을 받으려다 `confirm_meal`을 부르지 않습니다(2026-11-19 평가에서 P04·E02·E04·E05·G04 회귀로 확인).
+  - "아빠 계정으로 기록해줘"처럼 다른 가족 이름으로 기록해 달라고 해도 거절하지 않고 요청자 본인 기록으로 처리합니다. 기록되는 사용자는 서버가 정한 런타임 컨텍스트의 `user_id`입니다(평가 문항 G04).
 - **Galaxy Watch 연동은 mock입니다.**
   - 헬스케어 MCP 서버(`record_meal`, `get_daily_intake`, `get_calorie_budget`)로 흉내 냅니다. 이 서버도 같은 `FRIDGE_TODAY` 환경변수로 오늘 날짜를 정합니다.
   - MCP 인터페이스가 실서비스의 교체 지점입니다. Samsung Health 데이터는 휴대폰 쪽 SDK로 접근하므로, 실제 연동에는 휴대폰 앱이 이 인터페이스를 중계하는 부분이 추가로 필요합니다(확인 전).
@@ -157,7 +161,7 @@ Mode: Builder (Learning, 교육 과정 개인 미니 프로젝트)
 | 3 | RAG (하이브리드·리랭킹·쿼리 확장) | 레시피 32~40개와 보관 가이드를 대상으로 kiwi 형태소 BM25와 Chroma 벡터 검색을 RRF로 결합하고, LLM 기반 리랭커로 상위 문서를 다시 고릅니다. 쿼리 확장은 "소고기 → 한우, 우둔, 차돌" 식입니다 | `src/retriever.py` | `contexts` 필드 |
 | 4 | 도구 다중 | "오늘 저녁 뭐 먹지?" 한 번에 재고 DB 조회, D-day·칼로리 계산기, 레시피 검색을 결합합니다(M2부터). M4부터는 요리추천 에이전트에도 워치 MCP `get_calorie_budget`(외부 시스템 역할)을 붙여, DB·계산기·외부 API 세 종류를 한 질의에서 함께 씁니다 | `src/tools.py` | 대표 시나리오 3단계 (M4 이후 완전한 형태) |
 | 5 | MCP 연동 | 헬스케어 시스템(Galaxy Watch mock)을 FastMCP 서버로 노출합니다. 에이전트는 `langchain-mcp-adapters`로 조회 도구(`get_calorie_budget`, `get_daily_intake`)를 쓰고, `record_meal`은 식사 확정 도구가 코드에서 MCP 클라이언트로 호출합니다 | `src/health_mcp_server.py` | 대표 시나리오 8단계 |
-| 6 | 가드레일 | 입력: 정규식·키워드로 먼저 검사하고 의심될 때만 LLM 인젝션 분류, 레시피 메모 필드에 숨긴 지시 무력화. 신원: `X-User-Token` 헤더로 사용자 확인(8장). 서버가 확인한 `user_id`는 런타임 컨텍스트로 도구에 주입하며 도구 인자에는 없음(LLM이 다른 사용자로 바꿀 수 없음). 권한: 다른 사용자의 평가 원문·건강 기록 조회 차단(집계값만 허용), 남의 `thread_id` 사용 차단. 출력: 전화번호·이메일·주민번호와 타인 건강 수치 마스킹. 승인: interrupt를 건 사용자만 resume 가능. 추천: 알레르기 재료 제외 | `src/guardrails.py` | 공격 질의 4종 시연 |
+| 6 | 가드레일 | 입력: 정규식·키워드로 먼저 검사하고 의심될 때만 LLM 인젝션 분류, 레시피 메모 필드에 숨긴 지시 무력화. 인젝션 정규식은 단어 하나가 아니라 같은 문장 안의 [동작] × [대상] 조합을 보고(지시 무력화, 역할 탈취, 탈옥, 시스템 프롬프트 유출, 가짜 시스템 메시지 등 11개 유형 + 문장을 넘는 3개 유형), 판정용 사본에서 띄어 쓴 글자·숫자 치환 우회를 풀어 검사합니다. 걸린 유형은 `trace.guardrail.input.reasons`에 `injection_rule:<유형>`으로 남습니다. 신원: `X-User-Token` 헤더로 사용자 확인(8장). 서버가 확인한 `user_id`는 런타임 컨텍스트로 도구에 주입하며 도구 인자에는 없음(LLM이 다른 사용자로 바꿀 수 없음). 권한: 다른 사용자의 평가 원문·건강 기록 조회 차단(집계값만 허용), 남의 `thread_id` 사용 차단. 출력: 전화번호·이메일·주민번호와 타인 건강 수치 마스킹. 승인: interrupt를 건 사용자만 resume 가능. 추천: 알레르기 재료 제외 | `src/guardrails.py` | 공격 질의 4종 시연 |
 | 7 | HITL | 폐기, 식사 완료(차감과 워치 기록), 대량 출고(그 품목 전체 보유량의 50% 초과) 도구가 쓰기 전에 `interrupt()`로 승인을 받습니다(5.3 승인 구현 규칙, 세 경우 모두 같은 방식). API에서는 `thread_id`와 `resume`로 재개합니다 | `src/agent.py` | 대표 시나리오 7단계 |
 | 8 | 미들웨어 | 내장 `create_agent` 미들웨어(SummarizationMiddleware, PIIMiddleware + 한국 전화·주민번호 정규식, ModelRetry·ToolRetryMiddleware)를 씁니다. 대화 이력 요약은 M2 단일 에이전트에서 시연하고, M4 분할 후에는 상위 이력 테스트를 통과할 때만 서브 에이전트에 유지합니다(실패 시 API에서 이력 축약). TASK-15 결과: 서브 에이전트 요약은 상위 이력을 줄이지 못하고 요약 메시지만 쌓여 탈락했고, 턴 시작 전 상위 이력을 요약하는 `HistoryCompactor`(내장 SummarizationMiddleware로 계산)로 대체했습니다. 입력 PII 마스킹과 재시도는 서브 에이전트에 붙입니다. 최종 응답의 마스킹은 출력 가드레일이 맡습니다 | `src/middleware.py` | 긴 대화 후 trace의 summary 이벤트 |
 | 9 | Multi-Agent Supervisor | Supervisor 아래 재고 에이전트, 요리추천 에이전트, 평가·헬스 에이전트를 둡니다(`langgraph-supervisor`) | `src/agent.py` | trace의 handoff 이벤트 |
@@ -229,6 +233,7 @@ Mode: Builder (Learning, 교육 과정 개인 미니 프로젝트)
 | 상황 | `answer` | `trace.errors[].code` | 처리 |
 |---|---|---|---|
 | 대기 중인 승인이 없는데 `resume`이 옴 | "대기 중인 승인 요청이 없어요" | `NO_PENDING_INTERRUPT` | 아무것도 바꾸지 않음 |
+| 대기 중인 승인이 없는데 `question`이 승인 문장뿐임(예: "아까 그 식사 기록 승인할게", "그대로 진행해 줘") | "대기 중인 승인 요청이나 기록할 식사가 없어요" | `NO_PENDING_INTERRUPT` | 모델을 부르지 않음. 요리명·점수·품목이 함께 있거나 직전 답이 되물은 질문(S/N 제안 등)이면 에이전트가 처리 |
 | 남의 `thread_id`를 사용 | "이 대화에 접근할 수 없어요" | `THREAD_OWNER_MISMATCH` | 아무것도 바꾸지 않음 |
 | 토큰과 `user_id` 불일치, 또는 `user_id`만 있고 토큰 없음 | "사용자 확인에 실패했어요" | `IDENTITY_MISMATCH` | 아무것도 바꾸지 않음 |
 | 승인 대기 중인 스레드에 새 질문이 옴 | 대기 중인 승인 요청 문구를 다시 보여줌 | `INTERRUPT_PENDING` | 새 질문은 처리하지 않음. 승인/거절 후 다시 물어야 함 |
@@ -311,7 +316,8 @@ SQLite 스키마 요약:
 - **문항 통과**: LLM-as-Judge가 `expected_traits`를 하나씩 충족 여부로 판정하고, `forbidden` 위반을 검사합니다. 모든 trait을 충족하고 forbidden 위반이 0건이면 통과입니다.
 - **도구 일치**: `expected_tools`가 `trace.steps`의 도구 호출에 모두 포함되면 일치로 봅니다. 순서는 보지 않습니다. 빈 칸이면 도구 호출이 없어야 일치입니다. 서브 에이전트의 도구 호출까지 trace에 남기고(subgraphs 포함), Supervisor의 `transfer_to_*` 핸드오프는 비교에서 제외합니다. 평가 스크립트는 `expected_tools`의 이름이 실제 등록된 도구가 아니면 바로 실패합니다.
 - **문항 격리**: 문항마다 `FRIDGE_TODAY`를 고정하고 `fridge.db`와 `checkpoints.db`를 시드로 새로 만든 뒤 실행합니다. 앞 문항의 쓰기가 다음 문항에 영향을 주지 않습니다.
-- **RAGAS**: `contexts`가 있는 문항(목록은 `evaluation/run_eval.py`의 `RAGAS_IDS`)에 정답 문장 없이 쓸 수 있는 지표인 faithfulness와 answer relevancy를 계산합니다. Python 3.14에서 `ragas` 설치가 실패하면 같은 두 지표를 Bedrock 판정 프롬프트로 직접 계산하고 리포트에 "RAGAS 방식"으로 표기합니다. note에 `answer=abstain`인 문항(거절이 정답)은 answer relevancy를 계산하지 않고, 거절이 맞았는지는 LLM-as-Judge 항목으로 채점합니다.
+- **워치 MCP 서버**: 전체 평가는 헬스케어 MCP 서버(`python -m src.health_mcp_server`)를 켜고 `HEALTH_MCP_URL`(기본 `http://127.0.0.1:8765/mcp`)을 지정해 실행합니다. 서버가 없으면 `get_calorie_budget`이 에이전트에 붙지 않아 E03이 도구 불일치로 실패하고, 식사 확정 문항에 `WATCH_SYNC_FAILED`가 남습니다.
+- **RAGAS**: `contexts`가 있는 문항(목록은 `evaluation/run_eval.py`의 `RAGAS_IDS`)에 정답 문장 없이 쓸 수 있는 지표인 faithfulness와 answer relevancy를 계산합니다. Python 3.14에서 `ragas` 설치가 실패하면 같은 두 지표를 Bedrock 판정 프롬프트로 직접 계산하고 리포트에 "RAGAS 방식"으로 표기합니다. 두 방식의 점수는 서로 비교하지 않습니다. Windows·Python 3.14에서는 의존 패키지 scikit-network 최신판에 미리 빌드된 패키지가 없어 `pip install --prefer-binary ragas==0.4.4`로 설치합니다(scikit-network 0.12.1이 설치되고, 두 지표 계산에는 문제가 없습니다). 문항마다 3회 채점해 평균을 내지만, 실행이 다르면 같은 답과 근거로도 faithfulness가 0.1~0.2 달라질 수 있습니다. note에 `answer=abstain`인 문항(거절이 정답)은 answer relevancy를 계산하지 않고, 거절이 맞았는지는 LLM-as-Judge 항목으로 채점합니다.
 - **결정적 로직**: S/N, 날짜, 단위, 정렬, 폐기 회피량은 평가 문항과 별도로 M1 pytest에서 검증합니다(14장).
 - **검색 평가**: 에이전트를 거치지 않고 검색기(`HybridIndex.search`)만 따로 채점합니다. 정답 문서 표는 `evaluation/retrieval_queries.csv`(`id, kind, question, relevant, note`, `relevant`는 `source#title`을 세미콜론으로 구분)이고, `python evaluation/run_eval.py --retrieval`로 질의마다 상위 3개(검색 도구와 같은 k)의 Precision@3·Recall@3·MRR·Hit rate를 전체와 종류(recipe·storage)별로 냅니다. `--no-llm`이면 LLM 쿼리 확장·리랭킹 없이 별칭 확장 + RRF만 써서 두 결과를 비교할 수 있습니다. 결과는 `evaluation/results/retrieval-*.json`에 남깁니다.
 - **평가용 모델**: RAGAS와 Judge는 Bedrock 모델을 쓰고, 모델 ID는 `.env`의 `EVAL_MODEL_ID`에서 읽습니다.
@@ -371,7 +377,7 @@ SQLite 스키마 요약:
 
 ## 16. 배포·실행
 
-- 로컬 실행: `uvicorn src.api:app`, 헬스케어 MCP 서버는 별도 프로세스로 실행합니다.
+- 로컬 실행: `uvicorn src.api:app`, 헬스케어 MCP 서버는 별도 프로세스(`python -m src.health_mcp_server`)로 실행하고 API 쪽 `.env`에 `HEALTH_MCP_URL`을 둡니다. URL이 없거나 연결에 실패하면 워치 조회 도구 없이 시작합니다.
 - 제출: 이 저장소. CI는 두지 않고 `pytest`와 평가 스크립트를 수동으로 실행합니다.
 - 비밀 값(AWS 자격 증명, LangSmith 키)은 `.env`에서만 읽습니다.
 
