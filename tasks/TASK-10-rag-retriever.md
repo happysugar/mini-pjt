@@ -41,7 +41,7 @@
   `tests/test_api.py::test_search_contexts_and_no_index_rebuild`, `tests/test_retriever.py::test_index_is_built_once`로도 확인.
 - 구성 (`src/retriever.py`)
   - 청크: 레시피 36개(요리 단위), 보관 가이드 품목 27개(기준표 행 + 보관 팁), 가이드 범위·단위 규칙 1개. 메타데이터 `source`, `title`, `kind`.
-  - 벡터: Chroma `EphemeralClient`(메모리), Bedrock 임베딩 `BEDROCK_EMBED_MODEL_ID`, cosine.
+  - 벡터: Chroma `PersistentClient`(`data/chroma/`, 테스트는 메모리 `EphemeralClient`), Bedrock 임베딩 `BEDROCK_EMBED_MODEL_ID`, cosine.
   - BM25: kiwipiepy 명사·용언 어간·외국어 토큰 + `BM25Okapi`, 제목을 한 번 더 넣어 가중. kind별 인덱스 2개.
   - 질의마다 BM25·벡터 순위, 질문에 제목이 그대로 있으면 제목 순위까지 RRF(k=60, 직접 구현)로 합쳐 상위 8개.
   - 쿼리 확장: 보관 가이드 별칭 표(소고기 ↔ 한우·우둔·차돌…)로 질의 1개 + LLM 질의 2~3개. LLM 실패 시 원문·별칭만 쓴다.
@@ -57,3 +57,6 @@
   - 실측(실제 Bedrock): 첫 시작 인덱스 빌드 24.1초(임베딩·저장) → 두 번째 3.7초(저장본 로드, 나머지는 Kiwi·BM25).
   - `tests/test_retriever.py::test_persisted_vectors_are_reused`: 재사용 시 임베딩 0건, 문서가 바뀌면 전부 다시 임베딩.
   - 테스트는 `persist_dir` 없이 메모리 인덱스를 써서 `data/`를 건드리지 않는다. pytest 전체 120개 통과.
+- 재평가 (저장 인덱스 사용, 실제 Bedrock): P03·P05·N02 3/3 통과, 도구 일치 3/3, forbidden 위반 0.
+  `trace.index`는 `vectors_loaded: true`, `built_ms` 3240, `builds` 1 그대로.
+  RAGAS faithfulness / relevancy: P03 1.00 / 0.87, P05 1.00 / 0.68, N02 0.33 / 0.00("정보 없음" 안내라 낮게 나옴).
