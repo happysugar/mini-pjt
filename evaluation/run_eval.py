@@ -2,6 +2,9 @@
 
 - 문항마다 `FRIDGE_TODAY`를 고정하고 임시 폴더에 `fridge.db`(시드)와 `checkpoints.db`를 새로 만든다.
   `data/` 아래 실제 DB는 건드리지 않는다.
+- 실행마다 평가 전용 워치 MCP 서버를 임시 기록 DB와 빈 포트로 직접 띄우고, 문항마다 그 기록을 비운다.
+  앞 문항이 승인한 식사가 다음 문항의 남은 칼로리에 섞이지 않게 하려는 것이다. `.env`의 `HEALTH_MCP_URL`과
+  `data/health.db`는 쓰지 않는다. `--no-watch`면 워치 서버 없이(워치 조회 도구 없이) 실행한다.
 - `POST /query`를 앱에 직접(ASGI) 보내고, 응답 `trace.steps`로 도구 일치를 본다.
   note에 `resume=approve`가 있으면 같은 `thread_id`로 승인까지 진행한다.
 - LLM-as-Judge(`EVAL_MODEL_ID`)로 trait 충족과 forbidden 위반을 판정한다.
@@ -9,7 +12,7 @@
   Bedrock 판정 프롬프트로 계산해 "RAGAS 방식"으로 표기한다.
 - 결과는 `evaluation/results/run-YYYYMMDD-HHMMSS.json`에 실행별로 저장한다.
 
-실행: `.venv/Scripts/python -m evaluation.run_eval [--only P02,N01] [--compare 이전결과.json]`
+실행: `.venv/Scripts/python -m evaluation.run_eval [--only P02,N01] [--compare 이전결과.json] [--no-watch]`
 """
 
 from __future__ import annotations
@@ -21,10 +24,13 @@ import json
 import math
 import os
 import re
+import socket
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -45,6 +51,7 @@ from pydantic import BaseModel, Field  # noqa: E402
 import src.agent as agent_module  # noqa: E402
 from src.agent import HEALTH_QUERY_TOOLS  # noqa: E402
 from src.api import create_app, parse_user_tokens  # noqa: E402
+from src.health_mcp_server import HEALTH_SCHEMA  # noqa: E402
 from src.tools import AGENT_TOOLS, reset_db  # noqa: E402
 
 EVAL_DIR = Path(__file__).resolve().parent
@@ -55,6 +62,7 @@ RAGAS_IDS = ("P02", "P03", "P05", "N01", "N02")
 # RAGAS 지표를 문항마다 몇 번 채점해 평균 낼지. 같은 답도 채점마다 relevancy가 ±0.1 흔들려
 # 한 번의 점수로 0.8 기준을 판단하기 어렵다. 채점 호출은 이 배수만큼 늘어난다(평가 모델만 사용).
 RAGAS_REPEATS = 3
+WATCH_START_TIMEOUT_S = 30  # 평가 전용 워치 서버가 포트를 열 때까지 기다리는 시간
 HANDOFF_PREFIX = "transfer_to_"
 TOOL_SPEC = re.compile(r"^(?P<name>[A-Za-z_][\w]*)\s*(?:\((?P<args>.*)\))?$")
 
@@ -147,6 +155,74 @@ def state_tool_calls(messages: list[Any]) -> list[dict[str, Any]]:
         for call in getattr(message, "tool_calls", None) or []:
             calls.append({"name": call["name"], "args": call.get("args", {})})
     return calls
+
+
+# ── 평가 전용 워치 서버 ───────────────────────────────────────────
+
+
+def free_port() -> int:
+    """비어 있는 로컬 포트 번호를 하나 고른다."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def reset_watch_db(path: Path) -> None:
+    """평가 전용 워치 기록 DB를 비운다. 테이블이 없으면 만든다.
+
+    문항마다 불러 앞 문항이 기록한 식사가 다음 문항의 섭취량·남은 칼로리에 섞이지 않게 한다.
+    워치 서버는 호출마다 DB를 열고 닫으므로 서버가 떠 있는 동안 비워도 된다.
+    """
+    conn = sqlite3.connect(path)
+    try:
+        with conn:
+            conn.executescript(HEALTH_SCHEMA)
+            conn.execute("DELETE FROM watch_meals")
+    finally:
+        conn.close()
+
+
+@contextmanager
+def watch_server(db_path: Path):
+    """평가 전용 워치 MCP 서버를 임시 기록 DB(`HEALTH_DB`)와 빈 포트로 띄우고 주소를 돌려준다.
+
+    실행하는 동안 이 프로세스의 `HEALTH_MCP_URL`을 그 주소로 바꾸고(앱 시작과 식사 기록이 읽는 값),
+    끝나면 원래 값으로 되돌리고 서버를 끈다. 서버 출력은 DB 옆 `watch-server.log`에 남긴다.
+    """
+    port = free_port()
+    reset_watch_db(db_path)
+    log_path = db_path.with_name("watch-server.log")
+    env = {**os.environ, "HEALTH_DB": str(db_path), "HEALTH_MCP_PORT": str(port), "FRIDGE_TODAY": EVAL_TODAY}
+    previous = os.environ.get("HEALTH_MCP_URL")
+    with log_path.open("w", encoding="utf-8") as log:
+        proc = subprocess.Popen([sys.executable, "-m", "src.health_mcp_server"], cwd=ROOT, env=env,
+                                stdout=log, stderr=subprocess.STDOUT)
+        try:
+            deadline = time.monotonic() + WATCH_START_TIMEOUT_S
+            while True:
+                if proc.poll() is not None:
+                    raise RuntimeError(f"워치 서버가 시작하지 못하고 끝났어요 (종료 코드 {proc.returncode}, 로그 {log_path})")
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=1):
+                        break
+                except OSError:
+                    if time.monotonic() > deadline:
+                        raise RuntimeError(f"워치 서버가 {WATCH_START_TIMEOUT_S}초 안에 열리지 않았어요 (로그 {log_path})")
+                    time.sleep(0.3)
+            url = f"http://127.0.0.1:{port}/mcp"
+            os.environ["HEALTH_MCP_URL"] = url
+            yield url
+        finally:
+            if previous is None:
+                os.environ.pop("HEALTH_MCP_URL", None)
+            else:
+                os.environ["HEALTH_MCP_URL"] = previous
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
 
 
 async def run_query(query: dict[str, Any], model: Any = None) -> dict[str, Any]:
@@ -562,12 +638,14 @@ def compare_tools(results: list[dict[str, Any]], previous_path: Path) -> bool:
     return same
 
 
-async def run_all(queries: list[dict[str, Any]], registered: set[str]) -> list[dict[str, Any]]:
-    """문항을 차례로 실행하고 도구 일치와 Judge 판정을 붙인다."""
+async def run_all(queries: list[dict[str, Any]], registered: set[str], watch_db: Path | None = None) -> list[dict[str, Any]]:
+    """문항을 차례로 실행하고 도구 일치와 Judge 판정을 붙인다. `watch_db`가 있으면 문항마다 워치 기록을 비운다."""
     judge_model = build_eval_model()
     results = []
     for q in queries:
         print(f"[실행] {q['id']} {q['input']}", flush=True)
+        if watch_db is not None:
+            reset_watch_db(watch_db)
         record: dict[str, Any] = {k: q[k] for k in ("id", "category", "input", "user_id", "abstain")}
         try:
             record["run"] = await run_query(q)
@@ -704,6 +782,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="에이전트 대신 검색기만 평가한다(retrieval_queries.csv, Precision/Recall/MRR)")
     parser.add_argument("--k", type=int, default=RETRIEVAL_K, help="검색 평가에서 볼 상위 문서 수")
     parser.add_argument("--no-llm", action="store_true", help="검색 평가에서 LLM 쿼리 확장·리랭킹을 끈다")
+    parser.add_argument("--no-watch", action="store_true",
+                        help="평가 전용 워치 서버 없이 실행한다(워치 조회 도구가 붙지 않아 E03 등이 실패할 수 있음)")
     args = parser.parse_args(argv)
     if args.retrieval:
         return retrieval_main(args.k, use_llm=not args.no_llm)
@@ -717,7 +797,18 @@ def main(argv: list[str] | None = None) -> int:
         if unknown_tools(q, registered):
             print(f"[도구] {q['id']}: 등록되지 않은 기대 도구 {unknown_tools(q, registered)} → 도구 일치 실패로 처리")
 
-    results = asyncio.run(run_all(queries, registered))
+    if args.no_watch:
+        os.environ.pop("HEALTH_MCP_URL", None)
+        watch_mode = "없음"
+        print("[워치] 워치 서버 없이 실행해요")
+        results = asyncio.run(run_all(queries, registered))
+    else:
+        with tempfile.TemporaryDirectory(prefix="watch-eval-", ignore_cleanup_errors=True) as tmp:
+            watch_db = Path(tmp) / "health.db"
+            with watch_server(watch_db) as url:
+                watch_mode = "평가 전용 서버(임시 DB, 문항마다 초기화)"
+                print(f"[워치] 평가 전용 워치 서버 {url} (임시 DB, 문항마다 초기화)", flush=True)
+                results = asyncio.run(run_all(queries, registered, watch_db))
     mode = compute_ragas(results)
     summary = summarize(results)
     print_report(results, summary, mode)
@@ -730,6 +821,7 @@ def main(argv: list[str] | None = None) -> int:
         "agent_model": os.environ.get("BEDROCK_MODEL_ID"),
         "eval_model": os.environ.get("EVAL_MODEL_ID"),
         "ragas_mode": mode,
+        "watch_server": watch_mode,
         "summary": summary,
         "results": results,
     }

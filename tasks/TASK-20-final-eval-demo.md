@@ -28,7 +28,7 @@
 ## 참고
 - SERVICE.md 10.3, 15장 성공 기준
 - 실행 준비 (2026-11-20 확인)
-  - 워치 MCP 서버를 켜고 `HEALTH_MCP_URL`을 지정해 실행한다. 없으면 E03이 실패하고 식사 확정에 `WATCH_SYNC_FAILED`가 남는다.
+  - 워치 MCP 서버는 평가 스크립트가 평가 전용으로 직접 띄운다(임시 DB, 문항마다 초기화). 따로 켜거나 `HEALTH_MCP_URL`을 지정할 필요가 없다.
   - `.venv`에 ragas 0.4.4가 있어야 한다(`pip install --prefer-binary ragas==0.4.4`). 없으면 "RAGAS 방식" 대체 채점이 된다.
 - 현재 결과 (리포트 초안 재료, TASK-09 후속 변경 참고)
   - `run-20261119-234433.json`: 통과 24/24, guardrail 6/6, forbidden 0, 도구 일치 24/24, faithfulness 0.916, answer relevancy 0.837

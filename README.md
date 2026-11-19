@@ -179,7 +179,7 @@ pytest
 
 ### 평가
 
-평가 문항(`evaluation/test_queries.csv`)을 실제 Bedrock으로 실행하고 LLM-as-Judge, 도구 일치, RAGAS(faithfulness, answer relevancy)로 채점합니다. 문항마다 시드로 만든 임시 DB를 쓰므로 `data/` 아래 DB는 바뀌지 않습니다. 워치 MCP 서버를 켜고 실행해야 가족 추천 문항(E03)까지 정상으로 채점됩니다.
+평가 문항(`evaluation/test_queries.csv`)을 실제 Bedrock으로 실행하고 LLM-as-Judge, 도구 일치, RAGAS(faithfulness, answer relevancy)로 채점합니다. 문항마다 시드로 만든 임시 DB를 쓰므로 `data/` 아래 DB는 바뀌지 않습니다. 워치 MCP 서버는 평가 스크립트가 평가 전용으로 직접 띄우고 문항마다 기록을 비우므로 따로 켤 필요가 없고, `data/health.db`도 바뀌지 않습니다(`--no-watch`로 끌 수 있음).
 
 ```bash
 python -m evaluation.run_eval
