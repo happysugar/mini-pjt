@@ -388,6 +388,28 @@ def test_guest_cannot_add_items(make_client, env, monkeypatch):
     assert codes(r) == ["GUEST_READ_ONLY"]
 
 
+# Regression: ISSUE-002 — a guest's JSON form was stored on the thread and sent to the model before refusal
+# Found by /qa on 2026-11-20
+# Report: ~/.gstack/projects/happysugar-mini-pjt/qa-reports/run-20261119T205310Z/qa-report-api-2026-11-20.md
+@pytest.mark.parametrize("kind", ["stock", "meal"])
+def test_guest_form_refused_before_model(make_client, env, monkeypatch, kind):
+    """guest가 보낸 재고·평가 입력 Form은 모델을 부르지 않고 거절하고, Form도 보관하지 않는다(SERVICE.md 8장)."""
+    monkeypatch.delenv("DEFAULT_USER")
+    _, ask = make_client(say("모델을 부르면 안 돼요."))
+    before = counts(env)
+    question = stock_form(item="두부", qty=2, unit="개", status="stored") if kind == "stock" else FORM_OK
+    r = ask({"question": question})
+    assert r["trace"]["user_id"] == "guest" and codes(r) == ["GUEST_READ_ONLY"]
+    assert r["answer"] == tools.GUEST_DENIED and r["trace"]["steps"] == []
+    assert counts(env) == before
+    conn = tools.connect(env)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM inventory_forms").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM meal_forms").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
 # ── 대량 출고 (HITL) ────────────────────────────────────────────
 
 
