@@ -73,3 +73,27 @@
   - 이후 N01에도 `answer=abstain`을 붙였다. 타코 레시피 요청에 대한 정답이 거절("지원하지 않아요")이라, 대안 요리를 함께 제시해도 RAGAS가 회피 답으로 판정해 두 번의 전체 평가에서 모두 relevancy 0.00이 나왔다. 거절과 대안 제시는 Judge가 채점하고 faithfulness는 계속 계산한다.
   - `run_eval.py`: 표시된 문항은 faithfulness만 계산하고 relevancy는 None(`relevancy_skipped`)으로 평균에서 뺀다. 요약에 `faithfulness_n`·`relevancy_n`을 따로 두고 표에는 "제외"로 보인다.
   - 확인: 가짜 점수로 바꿔 넣어 N02만 relevancy가 빠지는 것을 봤다(faithfulness n=3, relevancy n=2). 이 작업 폴더에는 `search_docs`가 아직 없어 실제 실행(`run-20261119-102823.json`)에서는 N02 contexts가 비어 RAGAS 대상에서 빠진다.
+
+## 후속 변경 (2026-11-19~20, `agent-system-prompt` branch)
+- ragas 설치: `.venv`에 ragas가 없어 전체 평가 한 번(`run-20261119-223343.json`)이 대체 채점("RAGAS 방식")으로 계산됐다.
+  이 점수는 ragas 결과와 비교하지 않는다. Windows·Python 3.14에서는 scikit-network 최신판에 미리 빌드된 패키지가 없어
+  `pip install --prefer-binary ragas==0.4.4`로 설치했다(scikit-network 0.12.1). `requirements.txt`는 바꾸지 않았다.
+- 워치 MCP 서버: 서버 없이 돌리면 `get_calorie_budget`이 붙지 않아 E03이 도구 불일치로 실패한다. 전체 평가는
+  `python -m src.health_mcp_server`를 켜고 `HEALTH_MCP_URL=http://127.0.0.1:8765/mcp`로 실행한다(`.env`는 바꾸지 않음).
+- 평가 문항 변경 (`evaluation/test_queries.csv`)
+  - G04 기대 도구: 빈 칸 → `get_recipe; confirm_meal` (다른 가족 계정 요청도 요청자 기록으로 처리하도록 정함)
+  - N03 trait: "어떤 식사를 기록할지 되물음"을 지움 (고정 안내 문구 하나로 답함)
+  - N01 forbidden: "응답에 '타코'라는 단어가 나옴"을 추가. 처음에 쓴 "안내 문장에 사용자가 말한 요리명(타코)을 넣음"은
+    채점 모델이 "멕시코식"까지 요리명으로 읽어 맞는 답을 3회 중 2회 위반으로 판정해서 바꿨다.
+- 결과 (워치 MCP 서버 연결, ragas 0.4.4, 3회 평균)
+
+  | 결과 파일 | 문항 통과 | guardrail | forbidden | 도구 일치 | faithfulness | answer relevancy |
+  |---|---|---|---|---|---|---|
+  | `run-20261119-231528.json` | 23/24 | 6/6 | 0 | 24/24 | 0.963 | 0.849 |
+  | `run-20261119-234433.json` | 24/24 | 6/6 | 0 | 24/24 | 0.916 | 0.837 |
+
+  - 검색 평가 `retrieval-20261119-231732.json`(k=3, LLM 쿼리 확장·리랭킹): Precision@3 0.973, Recall@3 1.0, MRR 1.0,
+    Hit rate 1.0. S10만 Precision 0.333이다(정답 외에 두부·우유 문서도 돌려줌).
+  - N01 수정 뒤 N01 3회(`run-20261120-000501`, `000557`, `000914`): 모두 통과, faithfulness 0.917~0.962.
+- 남은 점: P02 answer relevancy가 0.74로 목표 0.8보다 낮다. 추천 답이 요리 설명·임박 재료·출처를 길게 붙여 RAGAS의 역질문이
+  원래 질문에서 멀어진다. 같은 근거로 답을 짧게 줄이면 0.84가 나온다(측정만 하고 아직 반영하지 않음).

@@ -1400,6 +1400,17 @@ def _fmt_qty(qty: float, unit: str = "") -> str:
     return f"{qty:.2f}".rstrip("0").rstrip(".") + unit
 
 
+def topic_particle(word: str) -> str:
+    """단어 뒤에 붙일 주제 조사 "은"/"는"을 고른다. 마지막 글자에 받침이 있으면 "은"이다.
+
+    한글로 끝나지 않으면(영문·숫자 등) 받침을 알 수 없어 "은(는)"을 돌려준다.
+    """
+    last = word.strip()[-1:] if word.strip() else ""
+    if not ("가" <= last <= "힣"):
+        return "은(는)"
+    return "은" if (ord(last) - ord("가")) % 28 else "는"
+
+
 def _to_json(obj: object) -> str:
     """도구 결과를 한글이 그대로 보이는 JSON 문자열로 바꾼다."""
     return json.dumps(obj, ensure_ascii=False, default=str)
@@ -1724,7 +1735,7 @@ def rank_recipes(runtime: ToolRuntime[FridgeContext], category: str | None = Non
         notes: list[str] = []
         if category is not None and category not in CUISINES:
             notes.append(
-                f"{category}는 지원하지 않아요. {category} 요리의 레시피는 드릴 수 없어요. "
+                f"{category}{topic_particle(category)} 지원하지 않아요. {category} 요리의 레시피는 드릴 수 없어요. "
                 "대신 지금 재고를 활용할 수 있는 요리를 한식·일식·이탈리아식·중식 중에서 골랐어요"
             )
             category = None
