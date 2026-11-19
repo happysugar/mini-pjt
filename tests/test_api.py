@@ -332,3 +332,22 @@ def test_recommendation_contexts(make_client):
     assert [s["tool"] for s in r["trace"]["steps"]] == ["rank_recipes"]
     assert any(c.startswith("[recipes_korean.md#소고기 무국]") for c in r["contexts"])
     assert any(a["sn"] == HANWOO and a["level"] == "imminent" for a in r["trace"]["alerts"])
+
+
+# ── 검색 contexts와 인덱스 (TASK-10) ─────────────────────────────
+
+
+def test_search_contexts_and_no_index_rebuild(make_client):
+    _, ask = make_client(
+        call("search_docs", {"query": "두부 냉장 보관"}),
+        call("get_storage_days", {"item": "두부"}, "call-2"),
+        say("7일이에요."),
+        call("search_recipes", {"query": "규동 레시피"}, "call-3"),
+        say("규동은 이렇게 만들어요."),
+    )
+    first = ask({"question": "두부는 냉장 며칠 보관해?", "thread_id": "dad-t-rag"}, DAD)
+    assert [s["tool"] for s in first["trace"]["steps"]] == ["search_docs", "get_storage_days"]
+    assert any(c.startswith("[storage_guide.md#두부]") for c in first["contexts"])
+    second = ask({"question": "규동 레시피 알려줘", "thread_id": "dad-t-rag"}, DAD)
+    assert second["contexts"][0].startswith("[recipes_japanese.md#규동]")
+    assert second["trace"]["index"] == first["trace"]["index"]

@@ -20,6 +20,8 @@ from langchain.tools import ToolRuntime, tool
 from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
+from src.retriever import KIND_RECIPE, KIND_STORAGE, SearchResult, get_index
+
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 FRIDGE_DB = DATA_DIR / "fridge.db"
 # 체크포인트(AsyncSqliteSaver)와 장기 메모리(AsyncSqliteStore)는 도메인 DB와 파일을 나눈다.
@@ -1491,39 +1493,53 @@ def discard_item(runtime: ToolRuntime[FridgeContext], item: str, sn: str | None 
         conn.close()
 
 
+def _search_meta(result: SearchResult) -> dict:
+    """검색 실행 기록(확장 질의, 후보 수, 리랭킹 여부)을 도구 결과용 사전으로 만든다."""
+    meta = {"queries": result.queries, "candidates": result.candidates, "reranked": result.reranked}
+    if result.notes:
+        meta["notes"] = result.notes
+    return meta
+
+
 @tool
 def search_recipes(query: str) -> str:
-    """레시피 문서에서 요리를 찾아 재료, 1인분 kcal, 조리 순서, 출처를 돌려준다.
+    """레시피 질문("규동 레시피 알려줘", "소고기로 뭐 만들어?")에 쓰는 레시피 검색 도구.
 
-    지원 카테고리는 한식·일식·이탈리아식·중식뿐이다. 찾지 못하면 빈 목록과 안내를 돌려주므로
-    레시피를 지어내지 않는다. (키워드 검색. 하이브리드 RAG는 TASK-10에서 바꾼다)
+    레시피 문서를 하이브리드 검색(BM25 + 벡터, RRF, LLM 리랭킹)해 요리별 재료, 1인분 kcal,
+    조리 순서, 출처(`[파일#요리명]`)를 돌려준다. 지원 카테고리는 한식·일식·이탈리아식·중식뿐이다.
+    찾지 못하면 빈 목록과 안내를 돌려주므로 레시피를 지어내지 않는다.
     """
-    tokens = [t for t in re.split(r"[\s,]+", query) if len(t) >= 2]
-    scored = []
-    for recipe in parse_recipes().values():
-        score = 0
-        for t in tokens:
-            key = item_key(t)
-            if t in recipe.name or recipe.name in t:
-                score += 3
-            if key == item_key(recipe.main):
-                score += 2
-            if any(item_key(i.item) == key for i in recipe.ingredients):
-                score += 1
-            if t in recipe.cuisine:
-                score += 1
-        if score:
-            scored.append((score, recipe.name, recipe))
-    scored.sort(key=lambda x: (-x[0], x[1]))
-    hits = [recipe_text(r) for _, _, r in scored[:3]]
+    result = get_index().search(query, KIND_RECIPE)
+    recipes = parse_recipes()
+    hits = [recipe_text(recipes[h.title]) for h in result.hits if h.title in recipes]
     if not hits:
-        return _to_json({"results": [], "note": "레시피 문서에서 찾지 못했어요. 지원 카테고리: 한식·일식·이탈리아식·중식"})
-    return _to_json({"results": hits})
+        return _to_json({"results": [], "note": "레시피 문서에서 찾지 못했어요. 지원 카테고리: 한식·일식·이탈리아식·중식",
+                         "search": _search_meta(result)})
+    return _to_json({"results": hits, "search": _search_meta(result)})
+
+
+@tool
+def search_docs(query: str) -> str:
+    """식재료 보관 질문("두부는 냉장 며칠 보관해?")에 쓰는 보관 가이드 검색 도구.
+
+    보관 가이드를 하이브리드 검색해 품목별 권장 보관일수·보관 팁과 출처(`[storage_guide.md#품목]`)를
+    돌려준다. 질문 품목이 가이드에 없으면 품목 문서 대신 가이드 범위 안내만 돌아오므로,
+    다른 품목 정보를 그 품목 정보처럼 쓰지 않는다.
+    """
+    result = get_index().search(query, KIND_STORAGE)
+    hits = [h.text for h in result.hits]
+    payload: dict = {"results": hits, "search": _search_meta(result)}
+    if not any(h.title in load_storage_guide() for h in result.hits):
+        payload["note"] = "보관 가이드에서 이 품목을 찾지 못했어요. 유효기간을 직접 알려 달라고 안내하세요"
+    return _to_json(payload)
 
 
 @tool
 def get_recipe(dish: str) -> str:
-    """요리명으로 레시피 한 개를 정확히 찾는다. 레시피에 없는 요리(외식 등)면 그렇다고 알려준다."""
+    """요리명으로 레시피 한 개를 정확히 찾는다. 식사 기록 전에 요리가 레시피에 있는지 확인할 때 쓴다.
+
+    레시피를 알려 달라는 질문에는 search_recipes를 쓴다. 레시피에 없는 요리(외식 등)면 그렇다고 알려준다.
+    """
     recipe = parse_recipes().get(dish.strip())
     if recipe is None:
         return f"레시피에 없는 요리예요: {dish}"
@@ -1573,12 +1589,16 @@ def calc_kcal_tool(servings_eaten: float, dish: str | None = None, kcal_per_serv
     return _to_json({"dish": dish, "servings_eaten": servings_eaten, "kcal_per_serving": per, "kcal": kcal})
 
 
+# 보관 가이드에 없는 품목 안내의 앞부분. API가 이 문구로 시작하는 결과를 근거(contexts)로 담는다
+NOT_IN_GUIDE = "보관 가이드에 없는 품목이에요"
+
+
 @tool
 def get_storage_days(item: str) -> str:
     """보관 가이드에서 품목의 권장 보관일수와 기준 단위를 찾는다. 가이드에 없으면 그렇다고 알려준다."""
     info = guide_info(item)
     if info is None:
-        return f"보관 가이드에 없는 품목이에요: {item}. 유효기간을 직접 알려 주세요"
+        return f"{NOT_IN_GUIDE}: {item}. 유효기간을 직접 알려 주세요"
     return _to_json({"item": item, "guide_item": resolve_item(item), "storage_days": info["storage_days"],
                      "base_unit": info["base_unit"], "source": STORAGE_GUIDE.name})
 
@@ -1680,6 +1700,7 @@ AGENT_TOOLS = [
     withdraw_item,
     discard_item,
     search_recipes,
+    search_docs,
     get_recipe,
     rank_recipes,
     calc_kcal_tool,

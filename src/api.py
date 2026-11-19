@@ -22,9 +22,12 @@ from fastapi import FastAPI, Header
 from langchain_core.callbacks import BaseCallbackHandler
 from pydantic import BaseModel, Field
 
+from src import retriever
 from src.agent import open_agent, pending_interrupt, run_turn
 from src.tools import (
     GUEST_DENIED,
+    NOT_IN_GUIDE,
+    STORAGE_GUIDE,
     GUEST_USER,
     FridgeContext,
     connect,
@@ -43,7 +46,7 @@ MSG_IDENTITY_MISMATCH = "사용자 확인에 실패했어요"
 MSG_AGENT_ERROR = "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요"
 
 # 답변 근거(contexts)를 돌려주는 도구
-CONTEXT_TOOLS = {"search_recipes", "get_recipe", "rank_recipes", "get_storage_days"}
+CONTEXT_TOOLS = {"search_recipes", "search_docs", "get_recipe", "rank_recipes", "get_storage_days"}
 
 
 class QueryRequest(BaseModel):
@@ -175,8 +178,12 @@ def extract_contexts(outputs: list[tuple[str, str]]) -> list[str]:
         except (ValueError, TypeError):
             if output.startswith("["):  # get_recipe: "[recipes_x.md#요리] ..."
                 add(output)
+            elif name == "get_storage_days" and output.startswith(NOT_IN_GUIDE):
+                # 가이드에 없는 품목: "망고는 가이드에 없다"는 답의 근거로 담는다
+                item = output.removeprefix(NOT_IN_GUIDE).lstrip(": ").split(".", 1)[0].strip()
+                add(f"[{STORAGE_GUIDE.name}#{item}] {output}")
             continue
-        if name == "search_recipes":
+        if name in ("search_recipes", "search_docs"):
             for hit in data.get("results", []):
                 add(hit)
         elif name == "rank_recipes":
@@ -223,6 +230,7 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
         "steps": [],
         "rescued_g_week": 0,
         "errors": [],
+        "index": dict(retriever.BUILD_STATS),
     }
 
     def reply(answer: str, contexts: list[str] | None = None) -> QueryResponse:
@@ -268,6 +276,7 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
         trace["errors"].append(_error("GUEST_READ_ONLY", "guest는 조회만 할 수 있어요"))
         answer = GUEST_DENIED
     trace.update(_domain_trace(db_path))
+    trace["index"] = dict(retriever.BUILD_STATS)  # 질문 처리 중에 인덱스를 다시 만들지 않았는지 확인용
     return reply(answer, extract_contexts(recorder.outputs))
 
 
@@ -287,14 +296,15 @@ def ensure_domain_db(db_path: str | None = None) -> None:
 def create_app(model: Any = None, db_path: str | None = None) -> FastAPI:
     """API 앱을 만든다. 테스트에서는 가짜 모델과 임시 도메인 DB 경로를 넣는다.
 
-    서버 시작(lifespan) 때 도메인 DB를 확인하고 체크포인터(`data/checkpoints.db`)를 연 에이전트를
-    한 번 만들어 모든 요청이 같이 쓴다.
+    서버 시작(lifespan) 때 도메인 DB를 확인하고, 검색 인덱스(BM25·Chroma)를 한 번 만들고,
+    체크포인터(`data/checkpoints.db`)를 연 에이전트를 한 번 만들어 모든 요청이 같이 쓴다.
     """
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """체크포인터를 연 에이전트를 서버가 떠 있는 동안 유지한다."""
         ensure_domain_db(db_path)
+        retriever.warm_up()
         async with open_agent(model=model) as agent:
             app.state.agent = agent
             yield

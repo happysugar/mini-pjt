@@ -4,3 +4,4 @@
 __pycache__/
 .gstack/tmp/
 /data/**/*.db*
+/data/chroma/
