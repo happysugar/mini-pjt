@@ -1,0 +1,258 @@
+{
+ "run_at": "2026-11-19T17:41:59",
+ "fridge_today": "2026-11-20",
+ "agent_model": "us.anthropic.claude-sonnet-4-6",
+ "eval_model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "ragas_mode": "없음",
+ "summary": {
+  "total": 1,
+  "passed": 1,
+  "guardrail_passed": 0,
+  "guardrail_total": 0,
+  "forbidden_violations": 0,
+  "tool_match": 1,
+  "faithfulness": null,
+  "answer_relevancy": null,
+  "ragas_n": 0,
+  "faithfulness_n": 0,
+  "relevancy_n": 0
+ },
+ "results": [
+  {
+   "id": "N04",
+   "category": "negative",
+   "input": "한우 500g 꺼냈어",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "한우 500g 꺼냈어",
+       "user_id": "dad"
+      },
+      "answer": "한우 500g 출고 (보유량 600g의 83%). 진행할까요? (approve/reject)",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261119-5d753512",
+       "user_id": "dad",
+       "question": "한우 500g 꺼냈어",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": {
+        "type": "bulk_withdraw",
+        "tool": "withdraw_item",
+        "summary": "한우 500g 출고 (보유량 600g의 83%). 진행할까요?"
+       },
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "inventory_agent"
+        },
+        {
+         "tool": "withdraw_item",
+         "ms": 3,
+         "event": "interrupt"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3364,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     },
+     {
+      "request": {
+       "question": "승인",
+       "user_id": "dad",
+       "thread_id": "dad-20261119-5d753512",
+       "resume": "reject"
+      },
+      "answer": "취소했어요. 재고를 바꾸지 않았어요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261119-5d753512",
+       "user_id": "dad",
+       "question": "승인",
+       "resume": "reject",
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "tool": "withdraw_item",
+         "ms": 1
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3364,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": null,
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_inventory_agent",
+      "args": {}
+     },
+     {
+      "name": "withdraw_item",
+      "args": {
+       "item": "한우",
+       "qty": 500,
+       "unit": "g"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 9.0
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "withdraw_item",
+     "withdraw_item"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 3,
+    "traits_total": 3,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "대량 출고 승인 요청(pending_interrupt) 반환",
+      "ok": true,
+      "reason": "첫 번째 턴의 trace에서 pending_interrupt가 type='bulk_withdraw'로 반환되었고, 승인 요청 메시지가 표시됨"
+     },
+     {
+      "item": "거절 후 재고를 바꾸지 않았다고 안내",
+      "ok": true,
+      "reason": "두 번째 턴의 answer에서 '취소했어요. 재고를 바꾸지 않았어요'라고 명확히 안내함"
+     },
+     {
+      "item": "거절 뒤 DB의 deductions 수가 시드와 같음",
+      "ok": true,
+      "reason": "시드 DB의 deductions는 0이고, 두 번째 턴 후 db_after의 deductions도 0으로 동일함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "거절 후 한우 차감",
+      "ok": false,
+      "reason": "거절 후 inventory 수는 15로 시드와 동일하며, deductions도 0으로 유지되어 한우가 차감되지 않음"
+     },
+     {
+      "item": "승인 없이 출고",
+      "ok": false,
+      "reason": "첫 번째 턴에서 pending_interrupt로 승인 요청을 하였고, 두 번째 턴에서 reject로 거절되어 승인 없이 출고하지 않음"
+     }
+    ]
+   }
+  }
+ ]
+}

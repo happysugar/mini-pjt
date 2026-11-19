@@ -1,0 +1,290 @@
+{
+ "run_at": "2026-11-19T17:37:13",
+ "fridge_today": "2026-11-20",
+ "agent_model": "us.anthropic.claude-sonnet-4-6",
+ "eval_model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "ragas_mode": "없음",
+ "summary": {
+  "total": 1,
+  "passed": 1,
+  "guardrail_passed": 0,
+  "guardrail_total": 0,
+  "forbidden_violations": 0,
+  "tool_match": 1,
+  "faithfulness": null,
+  "answer_relevancy": null,
+  "ragas_n": 0,
+  "faithfulness_n": 0,
+  "relevancy_n": 0
+ },
+ "results": [
+  {
+   "id": "E04",
+   "category": "edge",
+   "input": "감자 뇨끼 혼자 먹었어, 1점",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "감자 뇨끼 혼자 먹었어, 1점",
+       "user_id": "dad"
+      },
+      "answer": "감자 뇨끼 평가 1점 저장, 1인분 기준 감자 2개·파르메산 치즈 15g 차감, dad 식사 1인분 480kcal를 워치에 기록 (버터 재고 없음). 진행할까요? (approve/reject)",
+      "contexts": [
+       "[recipes_italian.md#감자 뇨끼] 감자 뇨끼 (이탈리아식)\n삶은 감자와 밀가루로 빚은 뇨끼를 버터와 파르메산 치즈로 마무리한 요리입니다.\n주재료: 감자 / 1인분 480kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 감자 2개\n- 버터 15g\n- 파르메산 치즈 15g\n조리 순서\n1. 감자를 껍질째 삶아 뜨거울 때 껍질을 벗기고 곱게 으깹니다.\n2. 밀가루와 소금을 넣고 한 덩어리가 될 만큼만 가볍게 반죽합니다.\n3. 반죽을 길게 밀어 2cm 길이로 자르고 포크로 무늬를 냅니다.\n4. 끓는 소금물에 넣어 떠오르면 1분 뒤 건집니다.\n5. 팬에 버터를 녹여 뇨끼를 굴리고 파르메산 치즈를 뿌립니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261119-b627b383",
+       "user_id": "dad",
+       "question": "감자 뇨끼 혼자 먹었어, 1점",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": {
+        "type": "meal_confirm",
+        "tool": "confirm_meal",
+        "summary": "감자 뇨끼 평가 1점 저장, 1인분 기준 감자 2개·파르메산 치즈 15g 차감, dad 식사 1인분 480kcal를 워치에 기록 (버터 재고 없음). 진행할까요?"
+       },
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "rating_health_agent"
+        },
+        {
+         "tool": "get_recipe",
+         "ms": 6
+        },
+        {
+         "tool": "confirm_meal",
+         "ms": 14,
+         "event": "interrupt"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3568,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     },
+     {
+      "request": {
+       "question": "승인",
+       "user_id": "dad",
+       "thread_id": "dad-20261119-b627b383",
+       "resume": "approve"
+      },
+      "answer": "저장했어요. 감자 뇨끼 1점, 감자 2개·파르메산 치즈 15g 차감, dad 식사 1인분 480kcal 기록. (버터 재고 없음) 워치에 기록했어요.",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261119-b627b383",
+       "user_id": "dad",
+       "question": "승인",
+       "resume": "approve",
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "tool": "confirm_meal",
+         "ms": 888
+        },
+        {
+         "tool": "record_meal",
+         "via": "mcp",
+         "caller": "confirm_meal",
+         "meal_id": "dad-20261119-b627b383:tooluse_VWlA2qE23tibjHDKLZ31o9",
+         "event": "recorded",
+         "ms": 870
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3568,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": null,
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 16,
+       "meals": 1,
+       "deductions": 2,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_rating_health_agent",
+      "args": {}
+     },
+     {
+      "name": "get_recipe",
+      "args": {
+       "dish": "감자 뇨끼"
+      }
+     },
+     {
+      "name": "confirm_meal",
+      "args": {
+       "dish": "감자 뇨끼",
+       "score": 1,
+       "servings_made": 1,
+       "servings_eaten": 1
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 15.7
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "get_recipe",
+     "confirm_meal",
+     "confirm_meal"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 5,
+    "traits_total": 5,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "레시피에 있는 요리로 처리",
+      "ok": true,
+      "reason": "contexts에 'recipes_italian.md#감자 뇨끼' 레시피가 포함되어 있고, 해당 레시피 정보를 기반으로 처리됨"
+     },
+     {
+      "item": "재고 차감",
+      "ok": true,
+      "reason": "DB 상태가 deductions 0→2로 증가했고, 응답에서 '감자 2개·파르메산 치즈 15g 차감' 명시"
+     },
+     {
+      "item": "접속한 user 혼자 1인분 먹은 것으로 간주",
+      "ok": true,
+      "reason": "응답에서 'dad 식사 1인분'으로 명시되어 있고, user_id 'dad'가 1인분 섭취한 것으로 처리됨"
+     },
+     {
+      "item": "kcal로 워치 기록",
+      "ok": true,
+      "reason": "응답에서 '480kcal를 워치에 기록'이라고 명시되어 있고, trace에 record_meal 이벤트가 기록됨"
+     },
+     {
+      "item": "승인 요청",
+      "ok": true,
+      "reason": "첫 번째 턴 trace에 pending_interrupt type='meal_confirm'이 있고, 응답에 '진행할까요? (approve/reject)' 승인 요청 포함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "재고 차감 없음",
+      "ok": false,
+      "reason": "DB 상태에서 deductions가 0→2로 증가하여 재고 차감이 정상적으로 이루어짐"
+     },
+     {
+      "item": "임의 kcal로 워치 기록",
+      "ok": false,
+      "reason": "레시피에 명시된 '1인분 480kcal'을 그대로 사용하여 임의 값이 아님"
+     }
+    ]
+   }
+  }
+ ]
+}
