@@ -35,6 +35,7 @@ from src.tools import (
     now_iso,
     rescued_g_week,
     reset_db,
+    resolve_item,
 )
 
 load_dotenv()
@@ -46,7 +47,7 @@ MSG_IDENTITY_MISMATCH = "사용자 확인에 실패했어요"
 MSG_AGENT_ERROR = "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요"
 
 # 답변 근거(contexts)를 돌려주는 도구
-CONTEXT_TOOLS = {"search_recipes", "search_docs", "get_recipe", "rank_recipes", "get_storage_days"}
+CONTEXT_TOOLS = {"list_inventory", "search_recipes", "search_docs", "get_recipe", "rank_recipes", "get_storage_days"}
 
 
 class QueryRequest(BaseModel):
@@ -186,6 +187,21 @@ def recommendation_context(item: dict[str, Any]) -> str:
     return f"[{item['source']}#{item['dish']}] {' / '.join(facts)}\n{item.get('summary', '')}"
 
 
+def inventory_context(row: dict[str, Any]) -> str:
+    """재고 한 건을 근거 문자열로 만든다.
+
+    답은 "한우 D-2"처럼 재고 품목명을 쓰고 추천 결과는 "소고기"처럼 보관 가이드 품목명을 쓰므로,
+    두 이름을 함께 적어 어느 쪽 주장도 근거를 찾을 수 있게 한다. D-day는 도구가 계산한 값이다.
+    """
+    guide = resolve_item(row["item"])
+    name = f"{row['item']}(보관 가이드 품목 {guide})" if guide and guide != row["item"] else row["item"]
+    expiry = row.get("expiry_date") or "미상"
+    d_day = row.get("d_day")
+    d_text = "D-day 미상" if d_day is None else ("D-day" if d_day == 0 else f"D{'-' if d_day > 0 else '+'}{abs(d_day)}")
+    level = {"imminent": " / 임박", "expired": " / 만료"}.get(row.get("level") or "", "")
+    return f"[재고#{row['sn']}] {name} {row['qty']:g}{row['unit']} / 유효기간 {expiry} / {d_text}{level}"
+
+
 def extract_contexts(outputs: list[tuple[str, str]]) -> list[str]:
     """근거 도구 결과에서 `contexts` 문자열 목록을 만든다. 같은 문자열은 한 번만 넣는다."""
     contexts: list[str] = []
@@ -208,7 +224,10 @@ def extract_contexts(outputs: list[tuple[str, str]]) -> list[str]:
                 item = output.removeprefix(NOT_IN_GUIDE).lstrip(": ").split(".", 1)[0].strip()
                 add(f"[{STORAGE_GUIDE.name}#{item}] {output}")
             continue
-        if name in ("search_recipes", "search_docs"):
+        if name == "list_inventory":
+            for row in data:
+                add(inventory_context(row))
+        elif name in ("search_recipes", "search_docs"):
             for hit in data.get("results", []):
                 add(hit)
         elif name == "rank_recipes":

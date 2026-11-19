@@ -345,6 +345,14 @@ def test_recommendation_contexts_carry_answer_facts(make_client):
     assert "신메뉴(평가 없음)" in pasta and "부족 재료 토마토 캔" in pasta
 
 
+def test_inventory_contexts_link_item_to_guide_name(make_client):
+    """재고 조회 결과가 contexts에 들어가고, 재고 품목명(한우)과 가이드 품목명(소고기)을 함께 적는다."""
+    _, ask = make_client(call("list_inventory", {}), say("재고예요."))
+    r = ask({"question": "냉장고에 뭐 있어?"}, DAD)
+    hanwoo = next(c for c in r["contexts"] if c.startswith(f"[재고#{HANWOO}]"))
+    assert "한우(보관 가이드 품목 소고기) 600g" in hanwoo and "D-2 / 임박" in hanwoo
+
+
 # ── 검색 contexts와 인덱스 (TASK-10) ─────────────────────────────
 
 
