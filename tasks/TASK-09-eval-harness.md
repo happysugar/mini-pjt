@@ -55,6 +55,8 @@
   - 두 번 실행한 도구 일치 결과(일치 여부와 호출 도구 목록)가 12문항 모두 같다(`--compare`로 확인).
   - 실패 문항: E01(중복 S/N이라 도구가 저장을 거절해 "어제 날짜로 기록"·"1모→1개" trait 미충족), E03(칼로리 언급 없음, `get_calorie_budget` 미구현, M5 대상), G01(거절은 하지만 본인 기록 조회 제안이 없음).
   - 도구 불일치: P02(`list_inventory`·`search_recipes` 없이 `rank_recipes`만), P03(`search_recipes` 대신 `get_recipe`), P04(`calc_kcal` 없이 `confirm_meal`), E02(`get_recipe` 없이 `confirm_meal`), P05·N02(`search_docs` 미등록, TASK-10), E03(`get_calorie_budget` 미등록).
+  - 이후 P04 기대 도구에서 `calc_kcal`을 뺐다. `confirm_meal`이 안에서 `calc_kcal` 함수로 섭취 kcal을 계산하므로,
+    `calc_kcal` 도구를 따로 부르지 않아도 같은 결정적 계산을 거친다. 기대 도구는 `get_recipe; confirm_meal`이다.
 - 남은 문제
   - answer relevancy는 문항마다 실행 간 흔들린다(P03 0.92 → 0.64). ragas 역질문 생성이 temperature 0이 아니다. 지표 비교는 평균이나 여러 번 실행으로 봐야 한다.
   - N01 relevancy가 0.00: 응답이 "지원하지 않아요"로 시작해 ragas가 noncommittal로 판정한다. 의도된 거절 답이라 지표 정의상 한계로 리포트에 적어야 한다.

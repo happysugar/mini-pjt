@@ -89,9 +89,9 @@ def test_tool_match_ignores_order_and_handoffs(queries):
 def test_tool_match_reports_missing_tool(queries):
     """기대 도구 하나라도 빠지면 불일치이고 이유에 이름을 적는다."""
     registered = run_eval.registered_tool_names()
-    result = run_eval.tool_match(queries["P04"], run_with([["get_recipe", "confirm_meal"]]), registered)
+    result = run_eval.tool_match(queries["P04"], run_with([["get_recipe"]]), registered)
     assert result["match"] is False
-    assert "calc_kcal" in result["reason"]
+    assert "confirm_meal" in result["reason"]
 
 
 def test_tool_match_checks_arguments(queries):
