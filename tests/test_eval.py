@@ -69,12 +69,12 @@ def test_parse_tool_spec_rejects_bad_args():
 def test_unregistered_expected_tool_fails_regardless_of_run(queries):
     """등록되지 않은 기대 도구가 있으면 실행 기록과 상관없이 불일치다.
 
-    `search_docs`는 TASK-10에서 등록됐으므로, 등록 목록에서 빼서 미등록 상황을 만든다.
+    P05의 기대 도구 `get_storage_days`는 등록돼 있으므로, 등록 목록에서 빼서 미등록 상황을 만든다.
     """
-    registered = run_eval.registered_tool_names() - {"search_docs"}
-    result = run_eval.tool_match(queries["P05"], run_with([["search_docs"]]), registered)
+    registered = run_eval.registered_tool_names() - {"get_storage_days"}
+    result = run_eval.tool_match(queries["P05"], run_with([["get_storage_days"]]), registered)
     assert result["match"] is False
-    assert "search_docs" in result["reason"]
+    assert "get_storage_days" in result["reason"]
 
 
 def test_tool_match_ignores_order_and_handoffs(queries):
