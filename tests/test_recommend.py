@@ -62,7 +62,7 @@ def _item(dish, rating=None, count=0, imminent=None):
 
 def test_parse_all_recipes():
     recipes = tools.parse_recipes()
-    assert len(recipes) == 27
+    assert len(recipes) == 36
     for cuisine in tools.CUISINES:
         assert sum(r.cuisine == cuisine for r in recipes.values()) == 9
     for r in recipes.values():
@@ -85,7 +85,9 @@ def test_hero_scenario(conn):
         ("한식", "소고기 무국", 4.5, False),
         ("일식", "규동", 4.0, False),
         ("이탈리아식", "소고기 라구 파스타", None, True),
+        ("중식", "소고기 굴소스볶음", None, True),
     ]
+    assert result.notes == []
     ragu = result.items[2]
     assert ragu.missing_ingredients == ["토마토 캔"]
     assert [(u.item, u.d_day) for u in ragu.imminent_ingredients] == [("소고기", 2)]
@@ -161,27 +163,41 @@ def test_rank_uses_min_d_day():
 
 
 def test_extra_new_when_slots_have_none(conn):
+    _rate(conn, "mom", ["소고기 굴소스볶음"], 4)
     result = tools.recommend(conn, "mom")
     slots = [(i.slot, i.dish, i.is_new) for i in result.items]
-    assert slots[:3] == [
+    assert slots[:4] == [
         ("한식", "소고기 무국", False),
         ("일식", "규동", False),
         ("이탈리아식", "새우 로제 파스타", False),
+        ("중식", "소고기 굴소스볶음", False),
     ]
-    assert slots[3] == ("추가 신메뉴", "소고기 라구 파스타", True)
+    # 슬롯에 신메뉴가 없으면 전체 신메뉴 중 앞선 2개를 추가한다
+    assert slots[4:] == [("추가 신메뉴", "소고기 라구 파스타", True), ("추가 신메뉴", "감자 뇨끼", True)]
 
 
-def test_three_new_slots_keep_two(conn):
+def test_only_one_new_menu_left(conn):
+    _rate(conn, "dad", [d for d in tools.parse_recipes() if d not in ("소고기 무국", "규동", "까르보나라", "감자 뇨끼")], 4)
+    result = tools.recommend(conn, "dad")
+    assert [i.dish for i in result.items if i.is_new] == ["감자 뇨끼"]
+    assert result.notes == ["새로 시도할 수 있는 요리가 1개뿐이에요"]
+
+
+def test_new_slots_over_two_keep_two(conn):
+    # 평가가 없는 guest는 네 슬롯이 모두 신메뉴라 정렬상 앞선 2개만 남긴다
     result = tools.recommend(conn, "guest")
-    assert [(i.slot, i.dish) for i in result.items] == [("일식", "규동"), ("이탈리아식", "소고기 라구 파스타")]
-    assert [(e.slot, e.reason) for e in result.empty_slots] == [("한식", "신메뉴는 한 번에 2개까지만 추천해요")]
+    assert [(i.slot, i.dish) for i in result.items] == [("일식", "규동"), ("중식", "소고기 굴소스볶음")]
+    assert [(e.slot, e.reason) for e in result.empty_slots] == [
+        ("한식", "신메뉴는 한 번에 2개까지만 추천해요"),
+        ("이탈리아식", "신메뉴는 한 번에 2개까지만 추천해요"),
+    ]
 
 
 def test_no_new_menu_left(conn):
     _rate(conn, "dad", [d for d in tools.parse_recipes() if d not in ("소고기 무국", "규동", "까르보나라")], 4)
     result = tools.recommend(conn, "dad")
     assert all(not i.is_new for i in result.items)
-    assert len(result.items) == 3
+    assert len(result.items) == 4
     assert result.notes == ["새로 시도할 수 있는 요리가 없어요"]
 
 
@@ -190,7 +206,7 @@ def test_empty_slot_reasons(conn):
     _rate(conn, "dad", ["두부조림"], 2)
     _rate(conn, "dad", ["된장찌개"], 2)
     result = tools.recommend(conn, "dad")
-    assert [(i.slot, i.dish, i.is_new) for i in result.items] == [("일식", "두부 미소시루", True)]
+    assert [(i.slot, i.dish, i.is_new) for i in result.items] == [("일식", "두부 미소시루", True), ("중식", "마파두부", True)]
     assert [(e.slot, e.reason) for e in result.empty_slots] == [
         ("한식", "재고로 만들 수 있는 한식 요리 중 평점 3점 이상이거나 새로 시도할 요리가 없어요"),
         ("이탈리아식", "재고로 만들 수 있는 이탈리아식 요리가 없어요"),
@@ -203,8 +219,10 @@ def test_category_rated_two_plus_new(conn):
         ("소고기 무국", False),
         ("김치볶음밥", False),
         ("감자조림", True),
+        ("된장찌개", True),
     ]
     assert all(i.slot == "한식" for i in result.items)
+    assert result.notes == []
 
 
 def test_category_without_new(conn):
@@ -216,7 +234,7 @@ def test_category_without_new(conn):
 
 def test_unsupported_category(conn):
     with pytest.raises(ValueError):
-        tools.recommend(conn, "dad", category="중식")
+        tools.recommend(conn, "dad", category="멕시코식")
 
 
 def test_result_is_pydantic(conn):
@@ -233,7 +251,11 @@ def test_family_default(conn):
     assert result.diners == ["dad", "mom", "jimin"]
     picks = [(i.slot, i.dish, i.rating, i.is_new) for i in result.items]
     # 소고기 무국 그룹 평점 = (4.5 + 4.0 + 3.0) / 3 = 3.83
-    assert picks == [("그룹 평점", "소고기 무국", 3.8, False), ("그룹 신메뉴", "소고기 라구 파스타", None, True)]
+    assert picks == [
+        ("그룹 평점", "소고기 무국", 3.8, False),
+        ("그룹 신메뉴", "소고기 굴소스볶음", None, True),
+        ("그룹 신메뉴", "소고기 라구 파스타", None, True),
+    ]
     assert result.within_calorie_budget is None
 
 
@@ -252,7 +274,8 @@ def test_family_calorie_limit(conn):
 def test_family_calorie_fallback_lightest(conn):
     result = tools.recommend_family(conn, "dad", ["mom"], calorie_budgets={"dad": 50, "mom": 900})
     assert result.within_calorie_budget is False
-    assert result.notes == ["모두의 남은 칼로리 안에 드는 요리가 없어 가장 가벼운 요리를 골랐어요"]
+    # 가장 가벼운 요리가 하나뿐이면 신메뉴도 1개만 나온다
+    assert result.notes[0] == "모두의 남은 칼로리 안에 드는 요리가 없어 가장 가벼운 요리를 골랐어요"
     candidates, _ = tools._safe_candidates(conn, [], ["가지 파르미자나", "까르보나라"], 1)
     lightest = min(c.recipe.kcal for c in candidates)
     assert result.items and all(i.kcal_per_serving == lightest for i in result.items)

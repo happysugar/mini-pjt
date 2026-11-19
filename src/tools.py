@@ -32,6 +32,7 @@ RECIPE_FILES = {
     "한식": DATA_DIR / "recipes_korean.md",
     "일식": DATA_DIR / "recipes_japanese.md",
     "이탈리아식": DATA_DIR / "recipes_italian.md",
+    "중식": DATA_DIR / "recipes_chinese.md",
 }
 CUISINES = tuple(RECIPE_FILES)
 
@@ -765,7 +766,7 @@ def _parse_recipe_block(block: str, cuisine: str, source: str) -> Recipe:
 
 @lru_cache(maxsize=1)
 def parse_recipes() -> dict[str, Recipe]:
-    """레시피 문서 3개를 읽어 요리명별 `Recipe` 사전을 돌려준다.
+    """카테고리별 레시피 문서를 읽어 요리명별 `Recipe` 사전을 돌려준다.
 
     형식이 어긋난 레시피나 겹치는 요리명이 있으면 ValueError를 낸다.
     """
@@ -785,7 +786,7 @@ def parse_recipes() -> dict[str, Recipe]:
 # ── 요리 추천 (SERVICE.md 5.2, 5.5) ───────────────────────────────
 
 MIN_GOOD_RATING = 3.0
-MAX_NEW_IN_SLOTS = 2
+NEW_MENU_COUNT = 2  # 추천 한 번에 넣는 신메뉴 수 (단일·카테고리·가족 공통)
 SLOT_EXTRA_NEW = "추가 신메뉴"
 SLOT_GROUP_RATED = "그룹 평점"
 SLOT_GROUP_NEW = "그룹 신메뉴"
@@ -801,9 +802,9 @@ class ImminentUse(BaseModel):
 class RecommendationItem(BaseModel):
     """추천 요리 하나."""
 
-    slot: str = Field(default="", description="한식·일식·이탈리아식 슬롯 또는 '추가 신메뉴'. 가족 추천은 '그룹 평점'·'그룹 신메뉴'")
+    slot: str = Field(default="", description="한식·일식·이탈리아식·중식 슬롯 또는 '추가 신메뉴'. 가족 추천은 '그룹 평점'·'그룹 신메뉴'")
     dish: str = Field(description="요리명")
-    cuisine: str = Field(description="카테고리 (한식·일식·이탈리아식)")
+    cuisine: str = Field(description="카테고리 (한식·일식·이탈리아식·중식)")
     main_ingredient: str = Field(description="주재료")
     missing_ingredients: list[str] = Field(default_factory=list, description="재고에 없거나 모자란 재료")
     rating: float | None = Field(default=None, description="평균 평점(소수 첫째 자리). 미평가면 null. 가족 추천은 그룹 평점")
@@ -1018,6 +1019,13 @@ def _no_dish_reason(cuisine: str, has_any: bool) -> str:
     return f"재고로 만들 수 있는 {cuisine} 요리 중 평점 3점 이상이거나 새로 시도할 요리가 없어요"
 
 
+def _few_new_note(found: int, what: str) -> str:
+    """신메뉴가 2개보다 적을 때 붙일 안내 문구를 만든다."""
+    if found == 0:
+        return f"새로 시도할 수 있는 {what}가 없어요"
+    return f"새로 시도할 수 있는 {what}가 {found}개뿐이에요"
+
+
 def recommend(
     conn: sqlite3.Connection,
     user_id: str,
@@ -1029,11 +1037,11 @@ def recommend(
     """요청자 한 명의 요리 추천을 슬롯 규칙(SERVICE.md 5.2 규칙 1~6)대로 만든다.
 
     알레르기·비선호를 주지 않으면 `seed_profile()`에서 읽는다. 부족 재료는 `servings`
-    인분 기준으로 계산한다. 카테고리를 지정하면 그 안에서 평점 우선 2개와 신메뉴 1개를
-    고른다. 지원하지 않는 카테고리는 ValueError를 낸다.
+    인분 기준으로 계산한다. 신메뉴는 후보가 있는 만큼 2개까지 넣는다. 카테고리를 지정하면
+    그 안에서 평점 우선 2개와 신메뉴 2개를 고른다. 지원하지 않는 카테고리는 ValueError를 낸다.
     """
     if category is not None and category not in CUISINES:
-        raise ValueError(f"지원하지 않는 카테고리예요: {category} (한식·일식·이탈리아식만 지원)")
+        raise ValueError(f"지원하지 않는 카테고리예요: {category} (한식·일식·이탈리아식·중식만 지원)")
     profile = seed_profile(user_id)
     allergies = profile["allergies"] if allergies is None else allergies
     dislikes = profile["dislikes"] if dislikes is None else dislikes
@@ -1048,10 +1056,9 @@ def recommend(
         in_cat = [i for i in pool if i.cuisine == category]
         result.items = [_slot(i, category) for i in _good(in_cat)[:2]]
         new = _new(in_cat)
-        if new:
-            result.items.append(_slot(new[0], category))
-        elif in_cat:
-            result.notes.append(f"새로 시도할 수 있는 {category} 요리가 없어요")
+        result.items += [_slot(i, category) for i in new[:NEW_MENU_COUNT]]
+        if in_cat and len(new) < NEW_MENU_COUNT:
+            result.notes.append(_few_new_note(len(new), f"{category} 요리"))
         if not result.items:
             result.empty_slots.append(EmptySlot(slot=category, reason=_no_dish_reason(category, bool(in_cat))))
         return result
@@ -1067,22 +1074,23 @@ def recommend(
         else:
             empty[cuisine] = _no_dish_reason(cuisine, bool(in_cat))
 
-    # 규칙 4: 슬롯 신메뉴가 3개면 앞선 2개만 남긴다
+    # 규칙 4: 슬롯 신메뉴가 2개보다 많으면 앞선 2개만 남긴다
     new_in_slots = sorted((i for i in slots.values() if i.is_new), key=rank_key)
-    for dropped in new_in_slots[MAX_NEW_IN_SLOTS:]:
+    for dropped in new_in_slots[NEW_MENU_COUNT:]:
         del slots[dropped.cuisine]
-        empty[dropped.cuisine] = f"신메뉴는 한 번에 {MAX_NEW_IN_SLOTS}개까지만 추천해요"
+        empty[dropped.cuisine] = f"신메뉴는 한 번에 {NEW_MENU_COUNT}개까지만 추천해요"
 
     result.items = [_slot(slots[c], c) for c in CUISINES if c in slots]
     result.empty_slots = [EmptySlot(slot=c, reason=empty[c]) for c in CUISINES if c in empty]
 
-    # 규칙 4·5: 슬롯에 신메뉴가 없으면 전체에서 1개 추가, 후보가 없으면 이유만 적는다
-    if not new_in_slots:
-        extra = _new(pool)
-        if extra:
-            result.items.append(_slot(extra[0], SLOT_EXTRA_NEW))
-        else:
-            result.notes.append("새로 시도할 수 있는 요리가 없어요")
+    # 규칙 4·5: 신메뉴가 2개가 되도록 슬롯에 없는 신메뉴를 추가하고, 모자라면 이유를 적는다
+    in_slots = {i.dish for i in new_in_slots}
+    need = NEW_MENU_COUNT - min(len(new_in_slots), NEW_MENU_COUNT)
+    extra = [i for i in _new(pool) if i.dish not in in_slots][:need]
+    result.items += [_slot(i, SLOT_EXTRA_NEW) for i in extra]
+    total_new = min(len(new_in_slots), NEW_MENU_COUNT) + len(extra)
+    if total_new < NEW_MENU_COUNT:
+        result.notes.append(_few_new_note(total_new, "요리"))
     return result
 
 
@@ -1141,9 +1149,10 @@ def recommend_family(
         result.items.append(_slot(good[0], SLOT_GROUP_RATED))
     else:
         result.empty_slots.append(EmptySlot(slot=SLOT_GROUP_RATED, reason="함께 먹는 사람들의 평점이 3점 이상인 요리가 없어요"))
-    if new:
-        result.items.append(_slot(new[0], SLOT_GROUP_NEW))
-    else:
+    result.items += [_slot(i, SLOT_GROUP_NEW) for i in new[:NEW_MENU_COUNT]]
+    if len(new) == 1:
+        result.notes.append(_few_new_note(1, "요리"))
+    if not new:
         result.empty_slots.append(EmptySlot(slot=SLOT_GROUP_NEW, reason="함께 먹는 사람 모두가 이미 평가한 요리뿐이라 새로 시도할 요리가 없어요"))
     return result
 
@@ -1460,7 +1469,7 @@ def discard_item(runtime: ToolRuntime[FridgeContext], item: str, sn: str | None 
 def search_recipes(query: str) -> str:
     """레시피 문서에서 요리를 찾아 재료, 1인분 kcal, 조리 순서, 출처를 돌려준다.
 
-    지원 카테고리는 한식·일식·이탈리아식뿐이다. 찾지 못하면 빈 목록과 안내를 돌려주므로
+    지원 카테고리는 한식·일식·이탈리아식·중식뿐이다. 찾지 못하면 빈 목록과 안내를 돌려주므로
     레시피를 지어내지 않는다. (키워드 검색. 하이브리드 RAG는 TASK-10에서 바꾼다)
     """
     tokens = [t for t in re.split(r"[\s,]+", query) if len(t) >= 2]
@@ -1482,7 +1491,7 @@ def search_recipes(query: str) -> str:
     scored.sort(key=lambda x: (-x[0], x[1]))
     hits = [recipe_text(r) for _, _, r in scored[:3]]
     if not hits:
-        return _to_json({"results": [], "note": "레시피 문서에서 찾지 못했어요. 지원 카테고리: 한식·일식·이탈리아식"})
+        return _to_json({"results": [], "note": "레시피 문서에서 찾지 못했어요. 지원 카테고리: 한식·일식·이탈리아식·중식"})
     return _to_json({"results": hits})
 
 
@@ -1499,16 +1508,16 @@ def get_recipe(dish: str) -> str:
 def rank_recipes(runtime: ToolRuntime[FridgeContext], category: str | None = None, diners: list[str] | None = None) -> str:
     """재고·평점·알레르기·비선호 규칙으로 오늘 만들 요리를 추천한다. 결과를 바꾸지 말고 그대로 설명한다.
 
-    - category: 한식·일식·이탈리아식 중 하나. 지정하지 않으면 세 카테고리 슬롯으로 추천한다.
+    - category: 한식·일식·이탈리아식·중식 중 하나. 지정하지 않으면 네 카테고리 슬롯으로 추천한다.
     - diners: 함께 먹는 가족 이름(예: ["엄마", "지민"]). 요청자는 자동 포함이므로 넣지 않는다.
-      주면 가족 합의 저녁 규칙으로 메뉴 1개와 신메뉴 1개를 고른다.
+      주면 가족 합의 저녁 규칙으로 메뉴 1개와 신메뉴 2개를 고른다.
     """
     ctx = _context(runtime)
     conn = _open(runtime)
     try:
         notes: list[str] = []
         if category is not None and category not in CUISINES:
-            notes.append(f"{category}는 지원하지 않아요. 한식·일식·이탈리아식 중에서 골랐어요")
+            notes.append(f"{category}는 지원하지 않아요. 한식·일식·이탈리아식·중식 중에서 골랐어요")
             category = None
         others: list[str] = []
         if diners:
