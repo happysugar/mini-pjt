@@ -42,6 +42,11 @@
   식사 확정은 요청자 본인 기록만(`confirm_meal`이 `ctx.user_id`로만 저장). 다른 가족 칼로리는 출력 가드레일(TASK-12)도 가린다.
 - 테스트: `tests/test_family_dinner.py` 7개(참여자 칼로리 조회, 워치 꺼짐·다운, 칼로리 안 추천 + 갑각류 제외 + trace에 수치 없음,
   칼로리 부족 시 가장 가벼운 요리, 워치 없을 때 안내, 다른 가족 칼로리 마스킹, 가족 식사 확정은 본인만). pytest 전체 228개 통과.
-- 실제 Bedrock 평가(E03)는 아직 못 했다. 워치 MCP 서버를 띄우고 E03·P02·E05를 돌렸지만, 에이전트 모델 Sonnet 4.6과 대체로 쓴
-  Sonnet 4.5 모두 일일 토큰 한도(`ThrottlingException: Too many tokens per day`)로 첫 호출에서 실패했다(`MODEL_UNAVAILABLE`).
-  한도가 풀리면 워치 서버(`python -m src.health_mcp_server`)를 먼저 띄운 뒤 `--only E03`으로 확인해야 한다.
+- 실제 Bedrock 평가(E03) 2/2 통과 (에이전트 `global.anthropic.claude-sonnet-4-6`, 채점 `global.anthropic.claude-sonnet-4-5-20250929-v1:0`,
+  워치 MCP 서버를 임시 DB로 띄움). 결과 `evaluation/results/run-20261119-171040.json`, `run-20261119-171119.json`.
+  - 두 번 모두 도구 순서 `list_inventory` → `get_calorie_budget` → `rank_recipes(diners=["엄마", "지민"])` → `search_recipes`, 도구 일치.
+  - trace에 코드가 부른 워치 호출 `get_calorie_budget`(caller `rank_recipes`, ok) 1회. 수치는 trace에 남지 않는다.
+  - 추천: 그룹 평점 메뉴 소고기 무국(그룹 평점 3.8) 1개, 그룹 신메뉴 소고기 굴소스볶음·소고기 라구 파스타 2개. 갑각류 요리 없음.
+  - 답변은 "모두의 남은 칼로리 안에 드는 메뉴들입니다"만 말하고, 사람별 평점·남은 칼로리·요리 kcal 수치는 쓰지 않았다. 3/3 충족, forbidden 위반 0.
+  - 처음 시도 때는 Sonnet 4.6·4.5가 일일 토큰 한도(`ThrottlingException`)에 걸려 미뤘다가, 한도가 풀린 뒤 확인했다.
+- 최신 main(승인 도구 직접 호출, 장기 메모리 선호 정리)과 병합한 뒤 pytest 234개 통과.
