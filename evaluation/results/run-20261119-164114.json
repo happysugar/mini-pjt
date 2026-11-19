@@ -1,0 +1,529 @@
+{
+ "run_at": "2026-11-19T16:41:14",
+ "fridge_today": "2026-11-20",
+ "agent_model": "us.anthropic.claude-sonnet-4-6",
+ "eval_model": "us.anthropic.claude-sonnet-4-6",
+ "ragas_mode": "없음",
+ "summary": {
+  "total": 3,
+  "passed": 3,
+  "guardrail_passed": 0,
+  "guardrail_total": 0,
+  "forbidden_violations": 0,
+  "tool_match": 3,
+  "faithfulness": null,
+  "answer_relevancy": null,
+  "ragas_n": 0,
+  "faithfulness_n": 0,
+  "relevancy_n": 0
+ },
+ "results": [
+  {
+   "id": "E02",
+   "category": "edge",
+   "input": "외식으로 김치찌개 먹었어, 3점",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "외식으로 김치찌개 먹었어, 3점",
+       "user_id": "dad"
+      },
+      "answer": "김치찌개 평가 3점 저장, 레시피에 없는 요리라 재고는 차감하지 않음, dad 식사 1인분 기록 (kcal을 몰라 워치 기록은 생략). 진행할까요? (approve/reject)",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261119-22004999",
+       "user_id": "dad",
+       "question": "외식으로 김치찌개 먹었어, 3점",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": {
+        "type": "meal_confirm",
+        "tool": "confirm_meal",
+        "summary": "김치찌개 평가 3점 저장, 레시피에 없는 요리라 재고는 차감하지 않음, dad 식사 1인분 기록 (kcal을 몰라 워치 기록은 생략). 진행할까요?"
+       },
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "rating_health_agent"
+        },
+        {
+         "tool": "confirm_meal",
+         "ms": 5,
+         "event": "interrupt"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 4353,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_rating_health_agent",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 10.2
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "confirm_meal"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 4,
+    "traits_total": 4,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "레시피에 없는 요리로 처리",
+      "ok": true,
+      "reason": "answer 및 trace의 summary에 '레시피에 없는 요리라 재고는 차감하지 않음'이라고 명시되어 있다."
+     },
+     {
+      "item": "재고 차감 없음",
+      "ok": true,
+      "reason": "db_after의 deductions(0)와 inventory(15)가 시드 직후 DB 상태와 동일하여 재고 차감이 없었음을 확인할 수 있다."
+     },
+     {
+      "item": "kcal을 되묻거나 모르면 워치 기록 생략 안내",
+      "ok": true,
+      "reason": "answer에 'kcal을 몰라 워치 기록은 생략'이라고 명시하여 워치 기록 생략을 안내하였다."
+     },
+     {
+      "item": "승인 요청",
+      "ok": true,
+      "reason": "trace의 pending_interrupt에 type='meal_confirm', tool='confirm_meal'이 존재하며 answer 말미에 '진행할까요? (approve/reject)'로 승인 요청을 반환하였다."
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "재고 차감",
+      "ok": false,
+      "reason": "db_after의 deductions와 inventory가 시드 직후와 동일하여 재고 차감이 발생하지 않았다."
+     },
+     {
+      "item": "임의 kcal로 워치 기록",
+      "ok": false,
+      "reason": "answer 및 trace 어디에도 임의 kcal 값을 사용하여 워치에 기록한 흔적이 없으며, 오히려 kcal 불명으로 워치 기록을 생략한다고 안내하였다."
+     }
+    ]
+   }
+  },
+  {
+   "id": "E04",
+   "category": "edge",
+   "input": "감자 뇨끼 혼자 먹었어, 1점",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "감자 뇨끼 혼자 먹었어, 1점",
+       "user_id": "dad"
+      },
+      "answer": "감자 뇨끼 평가 1점 저장, 1인분 기준 감자 2개·파르메산 치즈 15g 차감, dad 식사 1인분 480kcal를 워치에 기록 (버터 재고 없음). 진행할까요? (approve/reject)",
+      "contexts": [
+       "[recipes_italian.md#감자 뇨끼] 감자 뇨끼 (이탈리아식)\n삶은 감자와 밀가루로 빚은 뇨끼를 버터와 파르메산 치즈로 마무리한 요리입니다.\n주재료: 감자 / 1인분 480kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 감자 2개\n- 버터 15g\n- 파르메산 치즈 15g\n조리 순서\n1. 감자를 껍질째 삶아 뜨거울 때 껍질을 벗기고 곱게 으깹니다.\n2. 밀가루와 소금을 넣고 한 덩어리가 될 만큼만 가볍게 반죽합니다.\n3. 반죽을 길게 밀어 2cm 길이로 자르고 포크로 무늬를 냅니다.\n4. 끓는 소금물에 넣어 떠오르면 1분 뒤 건집니다.\n5. 팬에 버터를 녹여 뇨끼를 굴리고 파르메산 치즈를 뿌립니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261119-e84e9bc1",
+       "user_id": "dad",
+       "question": "감자 뇨끼 혼자 먹었어, 1점",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": {
+        "type": "meal_confirm",
+        "tool": "confirm_meal",
+        "summary": "감자 뇨끼 평가 1점 저장, 1인분 기준 감자 2개·파르메산 치즈 15g 차감, dad 식사 1인분 480kcal를 워치에 기록 (버터 재고 없음). 진행할까요?"
+       },
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "rating_health_agent"
+        },
+        {
+         "tool": "get_recipe",
+         "ms": 0
+        },
+        {
+         "tool": "confirm_meal",
+         "ms": 7,
+         "event": "interrupt"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 4353,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_rating_health_agent",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 6.7
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "get_recipe",
+     "confirm_meal"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 5,
+    "traits_total": 5,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "레시피에 있는 요리로 처리",
+      "ok": true,
+      "reason": "contexts에 recipes_italian.md#감자 뇨끼 레시피가 포함되어 있고, trace의 steps에서 get_recipe 툴을 호출하여 레시피 기반으로 처리하였다."
+     },
+     {
+      "item": "재고 차감",
+      "ok": true,
+      "reason": "pending_interrupt summary에 '감자 2개·파르메산 치즈 15g 차감'이 명시되어 있으며, 승인 대기 상태로 차감 예정임을 안내하고 있다."
+     },
+     {
+      "item": "접속한 user 혼자 1인분 먹은 것으로 간주",
+      "ok": true,
+      "reason": "answer 및 pending_interrupt summary에 'dad 식사 1인분', '1인분 기준'으로 명시되어 접속 유저(dad) 혼자 1인분으로 처리하였다."
+     },
+     {
+      "item": "kcal로 워치 기록",
+      "ok": true,
+      "reason": "answer 및 pending_interrupt summary에 '480kcal를 워치에 기록'이 명시되어 있으며, 레시피의 1인분 480kcal 값을 사용하였다."
+     },
+     {
+      "item": "승인 요청",
+      "ok": true,
+      "reason": "trace의 pending_interrupt가 type='meal_confirm'으로 반환되어 있고, answer 말미에 '진행할까요? (approve/reject)'로 승인 요청을 하고 있다."
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "재고 차감 없음",
+      "ok": false,
+      "reason": "승인 대기(pending_interrupt) 상태로 차감 예정 내용이 명시되어 있으므로, 재고 차감 없이 넘어간 것이 아니다. DB는 승인 전이므로 아직 미반영이나 이는 정상 흐름이다."
+     },
+     {
+      "item": "임의 kcal로 워치 기록",
+      "ok": false,
+      "reason": "480kcal는 contexts의 레시피(recipes_italian.md#감자 뇨끼)에 명시된 '1인분 480kcal' 값과 일치하므로 임의 값이 아니다."
+     }
+    ]
+   }
+  },
+  {
+   "id": "E05",
+   "category": "edge",
+   "input": "버섯 리조또를 엄마랑 지민이랑 같이 3인분 먹었어, 3점",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "버섯 리조또를 엄마랑 지민이랑 같이 3인분 먹었어, 3점",
+       "user_id": "dad"
+      },
+      "answer": "버섯 리조또 평가 3점 저장, 3인분 기준 표고버섯 150g·양파 0.75개·파르메산 치즈 45g 차감, dad 식사 1인분 520kcal를 워치에 기록 (표고버섯 90g 부족; 버터 재고 없음). 진행할까요? (approve/reject)",
+      "contexts": [
+       "[recipes_italian.md#버섯 리조또] 버섯 리조또 (이탈리아식)\n표고버섯과 양파를 볶다가 쌀을 넣고 육수를 조금씩 부어 익힌 크리미한 리조또입니다.\n주재료: 표고버섯 / 1인분 520kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 표고버섯 80g\n- 양파 0.25개\n- 버터 15g\n- 파르메산 치즈 15g\n조리 순서\n1. 표고버섯은 얇게 썰고, 양파는 곱게 다집니다.\n2. 팬에 올리브유를 두르고 양파를 볶다가 버섯을 넣어 3분 볶습니다.\n3. 씻지 않은 쌀을 넣어 투명해질 때까지 볶고 화이트와인을 부어 날립니다.\n4. 뜨거운 스톡을 한 국자씩 부으며 18분 저어 가며 익힙니다.\n5. 불을 끄고 버터와 파르메산 치즈를 넣어 섞은 뒤 소금, 후추로 간합니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261119-fd5aa2fa",
+       "user_id": "dad",
+       "question": "버섯 리조또를 엄마랑 지민이랑 같이 3인분 먹었어, 3점",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": {
+        "type": "meal_confirm",
+        "tool": "confirm_meal",
+        "summary": "버섯 리조또 평가 3점 저장, 3인분 기준 표고버섯 150g·양파 0.75개·파르메산 치즈 45g 차감, dad 식사 1인분 520kcal를 워치에 기록 (표고버섯 90g 부족; 버터 재고 없음). 진행할까요?"
+       },
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "rating_health_agent"
+        },
+        {
+         "tool": "get_recipe",
+         "ms": 0
+        },
+        {
+         "tool": "confirm_meal",
+         "ms": 13,
+         "event": "interrupt"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 4353,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_rating_health_agent",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 7.1
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "get_recipe",
+     "confirm_meal"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 4,
+    "traits_total": 4,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "레시피에 있는 요리로 처리",
+      "ok": true,
+      "reason": "contexts에 recipes_italian.md#버섯 리조또 레시피가 포함되어 있고, trace의 steps에서 get_recipe 툴을 호출하여 레시피 기반으로 처리하였다."
+     },
+     {
+      "item": "3인분으로 계산해서 재고 차감",
+      "ok": true,
+      "reason": "answer 및 pending_interrupt summary에서 표고버섯 150g(80g×3인분 미만이나 실제 150g), 양파 0.75개(0.25개×3), 파르메산 치즈 45g(15g×3) 등 3인분 기준으로 차감 계획이 수립되었다."
+     },
+     {
+      "item": "본인만 kcal로 워치 기록",
+      "ok": true,
+      "reason": "answer 및 pending_interrupt summary에서 'dad 식사 1인분 520kcal를 워치에 기록'으로 본인(dad) 1인분만 워치 기록 대상으로 명시하였다."
+     },
+     {
+      "item": "승인 요청",
+      "ok": true,
+      "reason": "trace의 pending_interrupt가 type: meal_confirm으로 반환되어 있고, answer 말미에 '진행할까요? (approve/reject)'로 승인 요청을 하였다."
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "재고 차감 없음",
+      "ok": false,
+      "reason": "3인분 기준 표고버섯·양파·파르메산 치즈 차감 계획이 pending_interrupt에 명시되어 있으므로 재고 차감 없음 위반에 해당하지 않는다."
+     },
+     {
+      "item": "1인분으로 재고 차감",
+      "ok": false,
+      "reason": "answer 및 pending_interrupt summary에서 3인분 기준(표고버섯 150g, 양파 0.75개, 파르메산 치즈 45g)으로 차감 계획이 수립되어 1인분 차감 위반에 해당하지 않는다."
+     },
+     {
+      "item": "임의 kcal로 워치 기록",
+      "ok": false,
+      "reason": "워치 기록 kcal 520kcal는 레시피(1인분 520kcal)에 명시된 값과 일치하므로 임의 kcal 기록 위반에 해당하지 않는다."
+     }
+    ]
+   }
+  }
+ ]
+}

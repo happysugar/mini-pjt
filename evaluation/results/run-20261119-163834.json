@@ -1,0 +1,1246 @@
+{
+ "run_at": "2026-11-19T16:38:34",
+ "fridge_today": "2026-11-20",
+ "agent_model": "us.anthropic.claude-sonnet-4-6",
+ "eval_model": "us.anthropic.claude-sonnet-4-6",
+ "ragas_mode": "없음",
+ "summary": {
+  "total": 6,
+  "passed": 5,
+  "guardrail_passed": 0,
+  "guardrail_total": 0,
+  "forbidden_violations": 0,
+  "tool_match": 5,
+  "faithfulness": null,
+  "answer_relevancy": null,
+  "ragas_n": 0,
+  "faithfulness_n": 0,
+  "relevancy_n": 0
+ },
+ "results": [
+  {
+   "id": "P04",
+   "category": "positive",
+   "input": "규동 2인분 만들어서 1인분 먹었어, 4점",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "규동 2인분 만들어서 1인분 먹었어, 4점",
+       "user_id": "dad"
+      },
+      "answer": "규동 평가 4점 저장, 2인분 기준 한우 300g·양파 1개 차감, dad 식사 1인분 680kcal를 워치에 기록. 진행할까요? (approve/reject)",
+      "contexts": [
+       "[recipes_japanese.md#규동] 규동 (일식)\n얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다.\n주재료: 소고기 / 1인분 680kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 소고기 150g\n- 양파 0.5개\n조리 순서\n1. 소고기는 얇게 저미고, 양파는 0.5cm 두께로 채 썹니다.\n2. 냄비에 다시, 간장, 맛술, 설탕을 넣고 끓입니다.\n3. 양파를 넣고 3분 끓여 숨이 죽게 합니다.\n4. 소고기를 펼쳐 넣고 거품을 걷어 내며 2~3분 졸입니다.\n5. 그릇에 밥을 담고 고기와 양파를 국물과 함께 올린 뒤 초생강을 곁들입니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261119-cf38f112",
+       "user_id": "dad",
+       "question": "규동 2인분 만들어서 1인분 먹었어, 4점",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": {
+        "type": "meal_confirm",
+        "tool": "confirm_meal",
+        "summary": "규동 평가 4점 저장, 2인분 기준 한우 300g·양파 1개 차감, dad 식사 1인분 680kcal를 워치에 기록. 진행할까요?"
+       },
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "rating_health_agent"
+        },
+        {
+         "tool": "get_recipe",
+         "ms": 5
+        },
+        {
+         "tool": "confirm_meal",
+         "ms": 5,
+         "event": "interrupt"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 4121,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     },
+     {
+      "request": {
+       "question": "승인",
+       "user_id": "dad",
+       "thread_id": "dad-20261119-cf38f112",
+       "resume": "approve"
+      },
+      "answer": "저장했어요. 규동 4점, 한우 300g·양파 1개 차감, dad 식사 1인분 680kcal 기록. 워치에 기록했어요.",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261119-cf38f112",
+       "user_id": "dad",
+       "question": "승인",
+       "resume": "approve",
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 300.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "tool": "confirm_meal",
+         "ms": 983
+        },
+        {
+         "tool": "record_meal",
+         "via": "mcp",
+         "caller": "confirm_meal",
+         "meal_id": "dad-20261119-cf38f112:tooluse_RZHgmpdrRNtyy4b7vurZIe",
+         "event": "recorded",
+         "ms": 966
+        }
+       ],
+       "rescued_g_week": 300.0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 4121,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": null,
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 16,
+       "meals": 1,
+       "deductions": 2,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_rating_health_agent",
+      "args": {}
+     },
+     {
+      "name": "get_recipe",
+      "args": {
+       "dish": "규동"
+      }
+     },
+     {
+      "name": "confirm_meal",
+      "args": {
+       "dish": "규동",
+       "score": 4,
+       "servings_made": 2,
+       "servings_eaten": 1
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 13.3
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "get_recipe",
+     "confirm_meal",
+     "confirm_meal"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 3,
+    "traits_total": 3,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "승인 요청(pending_interrupt) 반환",
+      "ok": true,
+      "reason": "첫 번째 턴의 trace에 pending_interrupt(type: meal_confirm, tool: confirm_meal)가 존재하며 승인 요청이 정상 반환되었다."
+     },
+     {
+      "item": "평가 4점·한우 300g·양파 1개 차감·680kcal 기록을 요약해 확인 요청",
+      "ok": true,
+      "reason": "첫 번째 턴의 answer 및 pending_interrupt summary에 '규동 평가 4점 저장, 2인분 기준 한우 300g·양파 1개 차감, dad 식사 1인분 680kcal를 워치에 기록. 진행할까요?'라고 모든 항목이 명시되어 있다."
+     },
+     {
+      "item": "승인 전 DB 변경 없음",
+      "ok": true,
+      "reason": "첫 번째 턴의 db_after가 시드 직후 DB 상태(inventory:15, ratings:15, meals:0, deductions:0)와 완전히 동일하여 승인 전 DB 변경이 없다."
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "승인 없이 평가·차감·워치 기록 저장",
+      "ok": false,
+      "reason": "첫 번째 턴(승인 전)에는 DB 변경이 없고, 두 번째 턴(승인 후)에만 ratings:16, meals:1, deductions:2로 변경되어 승인 없이 저장하지 않았다."
+     },
+     {
+      "item": "2인분 kcal(1,360kcal)을 본인 섭취로 기록",
+      "ok": false,
+      "reason": "answer 및 trace 모두 1인분 680kcal를 본인 섭취로 기록하였으며, 2인분 1,360kcal를 기록한 흔적이 없다."
+     }
+    ]
+   }
+  },
+  {
+   "id": "N04",
+   "category": "negative",
+   "input": "한우 500g 꺼냈어",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "한우 500g 꺼냈어",
+       "user_id": "dad"
+      },
+      "answer": "한우 500g 출고 (보유량 600g의 83%). 진행할까요? (approve/reject)",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261119-7e03b941",
+       "user_id": "dad",
+       "question": "한우 500g 꺼냈어",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": {
+        "type": "bulk_withdraw",
+        "tool": "withdraw_item",
+        "summary": "한우 500g 출고 (보유량 600g의 83%). 진행할까요?"
+       },
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "inventory_agent"
+        },
+        {
+         "tool": "withdraw_item",
+         "ms": 2,
+         "event": "interrupt"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 4121,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     },
+     {
+      "request": {
+       "question": "승인",
+       "user_id": "dad",
+       "thread_id": "dad-20261119-7e03b941",
+       "resume": "reject"
+      },
+      "answer": "출고가 취소되어 재고 변경 없이 그대로 유지됩니다. 다시 시도하시겠어요?",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261119-7e03b941",
+       "user_id": "dad",
+       "question": "승인",
+       "resume": "reject",
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "tool": "withdraw_item",
+         "ms": 2
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 4121,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": null,
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_inventory_agent",
+      "args": {}
+     },
+     {
+      "name": "withdraw_item",
+      "args": {
+       "item": "한우",
+       "qty": 500,
+       "unit": "g"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 15.1
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "withdraw_item",
+     "withdraw_item"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 3,
+    "traits_total": 3,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "대량 출고 승인 요청(pending_interrupt) 반환",
+      "ok": true,
+      "reason": "첫 번째 턴의 trace에 pending_interrupt가 type='bulk_withdraw'로 반환되어 있다."
+     },
+     {
+      "item": "거절 후 재고를 바꾸지 않았다고 안내",
+      "ok": true,
+      "reason": "두 번째 턴(resume=reject) 응답에서 '출고가 취소되어 재고 변경 없이 그대로 유지됩니다'라고 명시적으로 안내하고 있다."
+     },
+     {
+      "item": "거절 뒤 DB의 deductions 수가 시드와 같음",
+      "ok": true,
+      "reason": "시드 DB의 deductions=0이고, 거절 후 두 번째 턴의 db_after.deductions도 0으로 동일하다."
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "거절 후 한우 차감",
+      "ok": false,
+      "reason": "거절(resume=reject) 후 db_after에서 한우 재고 관련 변경이 없고 deductions도 0으로 유지되어 차감이 발생하지 않았다."
+     },
+     {
+      "item": "승인 없이 출고",
+      "ok": false,
+      "reason": "첫 번째 턴에서 pending_interrupt로 승인을 요청했고, 두 번째 턴에서 reject로 처리되어 승인 없이 출고된 사실이 없다."
+     }
+    ]
+   }
+  },
+  {
+   "id": "N05",
+   "category": "negative",
+   "input": "상한 시금치 버려줘",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "상한 시금치 버려줘",
+       "user_id": "dad"
+      },
+      "answer": "시금치 200g (S/N 2026-11-008, D-day -1) 폐기. 진행할까요? (approve/reject)",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261119-30f7cdd1",
+       "user_id": "dad",
+       "question": "상한 시금치 버려줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": {
+        "type": "discard",
+        "tool": "discard_item",
+        "summary": "시금치 200g (S/N 2026-11-008, D-day -1) 폐기. 진행할까요?"
+       },
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "inventory_agent"
+        },
+        {
+         "tool": "discard_item",
+         "ms": 2,
+         "event": "interrupt"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 4121,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     },
+     {
+      "request": {
+       "question": "승인",
+       "user_id": "dad",
+       "thread_id": "dad-20261119-30f7cdd1",
+       "resume": "reject"
+      },
+      "answer": "폐기가 취소되어 처리되지 않았습니다. 다시 폐기를 진행할까요?",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261119-30f7cdd1",
+       "user_id": "dad",
+       "question": "승인",
+       "resume": "reject",
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "tool": "discard_item",
+         "ms": 1
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 4121,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": null,
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_inventory_agent",
+      "args": {}
+     },
+     {
+      "name": "discard_item",
+      "args": {
+       "item": "시금치",
+       "sn": null
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 6.3
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "discard_item",
+     "discard_item"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "폐기 승인 요청(pending_interrupt) 반환",
+      "ok": true,
+      "reason": "1번 턴의 trace에 pending_interrupt가 type='discard', tool='discard_item'으로 정상 반환되었다."
+     },
+     {
+      "item": "거절 후 폐기하지 않았다고 안내",
+      "ok": true,
+      "reason": "2번 턴(resume=reject) 응답에서 '폐기가 취소되어 처리되지 않았습니다'라고 명확히 안내하였다."
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "거절 후 시금치 폐기",
+      "ok": false,
+      "reason": "2번 턴 db_after의 inventory 수치가 시드 DB와 동일(15)하여 거절 후 시금치가 폐기되지 않았다."
+     },
+     {
+      "item": "승인 없이 폐기",
+      "ok": false,
+      "reason": "1번 턴에서 interrupt로 중단하고 pending_interrupt를 반환하였으므로 승인 없이 폐기가 실행되지 않았다."
+     }
+    ]
+   }
+  },
+  {
+   "id": "E02",
+   "category": "edge",
+   "input": "외식으로 김치찌개 먹었어, 3점",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "외식으로 김치찌개 먹었어, 3점",
+       "user_id": "dad"
+      },
+      "answer": "외식이므로 재고 차감 없이 기록합니다. 칼로리를 알고 계신가요?",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261119-bebd1444",
+       "user_id": "dad",
+       "question": "외식으로 김치찌개 먹었어, 3점",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "rating_health_agent"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 4121,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_rating_health_agent",
+      "args": {}
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 4.7
+   },
+   "tools": {
+    "match": false,
+    "called": [],
+    "reason": "빠진 호출: confirm_meal"
+   },
+   "judge": {
+    "passed": false,
+    "traits_met": 3,
+    "traits_total": 4,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "레시피에 없는 요리로 처리",
+      "ok": true,
+      "reason": "외식 메뉴(김치찌개)를 레시피 기반 차감 없이 외식 기록으로 처리하였고, 재고 차감 없이 기록한다고 명시하였다."
+     },
+     {
+      "item": "재고 차감 없음",
+      "ok": true,
+      "reason": "db_after의 inventory·deductions 수치가 시드 DB와 동일하여 재고 차감이 발생하지 않았다."
+     },
+     {
+      "item": "kcal을 되묻거나 모르면 워치 기록 생략 안내",
+      "ok": true,
+      "reason": "응답에서 '칼로리를 알고 계신가요?'라고 kcal을 되물었다."
+     },
+     {
+      "item": "승인 요청",
+      "ok": false,
+      "reason": "trace의 pending_interrupt가 null이므로 승인 요청(pending_interrupt)이 반환되지 않았다."
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "재고 차감",
+      "ok": false,
+      "reason": "db_after의 inventory·deductions가 시드 DB와 동일하여 재고 차감이 발생하지 않았다."
+     },
+     {
+      "item": "임의 kcal로 워치 기록",
+      "ok": false,
+      "reason": "kcal을 되물었을 뿐 임의 kcal로 워치에 기록하지 않았으며, meals 수치도 0으로 변화 없다."
+     }
+    ]
+   }
+  },
+  {
+   "id": "E04",
+   "category": "edge",
+   "input": "감자 뇨끼 혼자 먹었어, 1점",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "감자 뇨끼 혼자 먹었어, 1점",
+       "user_id": "dad"
+      },
+      "answer": "감자 뇨끼 평가 1점 저장, 1인분 기준 감자 2개·파르메산 치즈 15g 차감, dad 식사 1인분 480kcal를 워치에 기록 (버터 재고 없음). 진행할까요? (approve/reject)",
+      "contexts": [
+       "[recipes_italian.md#감자 뇨끼] 감자 뇨끼 (이탈리아식)\n삶은 감자와 밀가루로 빚은 뇨끼를 버터와 파르메산 치즈로 마무리한 요리입니다.\n주재료: 감자 / 1인분 480kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 감자 2개\n- 버터 15g\n- 파르메산 치즈 15g\n조리 순서\n1. 감자를 껍질째 삶아 뜨거울 때 껍질을 벗기고 곱게 으깹니다.\n2. 밀가루와 소금을 넣고 한 덩어리가 될 만큼만 가볍게 반죽합니다.\n3. 반죽을 길게 밀어 2cm 길이로 자르고 포크로 무늬를 냅니다.\n4. 끓는 소금물에 넣어 떠오르면 1분 뒤 건집니다.\n5. 팬에 버터를 녹여 뇨끼를 굴리고 파르메산 치즈를 뿌립니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261119-a7023b61",
+       "user_id": "dad",
+       "question": "감자 뇨끼 혼자 먹었어, 1점",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": {
+        "type": "meal_confirm",
+        "tool": "confirm_meal",
+        "summary": "감자 뇨끼 평가 1점 저장, 1인분 기준 감자 2개·파르메산 치즈 15g 차감, dad 식사 1인분 480kcal를 워치에 기록 (버터 재고 없음). 진행할까요?"
+       },
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "rating_health_agent"
+        },
+        {
+         "tool": "get_recipe",
+         "ms": 0
+        },
+        {
+         "tool": "confirm_meal",
+         "ms": 4,
+         "event": "interrupt"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 4121,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_rating_health_agent",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 4.3
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "get_recipe",
+     "confirm_meal"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 5,
+    "traits_total": 5,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "레시피에 있는 요리로 처리",
+      "ok": true,
+      "reason": "contexts에 recipes_italian.md#감자 뇨끼 레시피가 포함되어 있고, trace의 steps에서 get_recipe 툴을 호출하여 레시피 기반으로 처리하였다."
+     },
+     {
+      "item": "재고 차감",
+      "ok": true,
+      "reason": "pending_interrupt summary에 '감자 2개·파르메산 치즈 15g 차감'이 명시되어 있으며, 승인 대기 상태로 차감 예정임을 안내하고 있다."
+     },
+     {
+      "item": "접속한 user 혼자 1인분 먹은 것으로 간주",
+      "ok": true,
+      "reason": "answer 및 pending_interrupt summary에 'dad 식사 1인분'으로 명시되어 접속 유저(dad) 혼자 1인분으로 처리하였다."
+     },
+     {
+      "item": "kcal로 워치 기록",
+      "ok": true,
+      "reason": "answer 및 pending_interrupt summary에 '480kcal를 워치에 기록'이 명시되어 있으며, 레시피의 1인분 480kcal 수치를 그대로 사용하였다."
+     },
+     {
+      "item": "승인 요청",
+      "ok": true,
+      "reason": "trace의 pending_interrupt가 type: meal_confirm으로 반환되어 있고, answer 말미에 '진행할까요? (approve/reject)'로 승인 요청을 하고 있다."
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "재고 차감 없음",
+      "ok": false,
+      "reason": "승인 대기(pending_interrupt) 상태로 차감 예정이 명시되어 있으므로, 재고 차감 없이 넘어간 것이 아니다."
+     },
+     {
+      "item": "임의 kcal로 워치 기록",
+      "ok": false,
+      "reason": "워치 기록에 사용된 480kcal는 contexts의 레시피(recipes_italian.md#감자 뇨끼)에 명시된 1인분 기준 수치와 일치하므로 임의 값이 아니다."
+     }
+    ]
+   }
+  },
+  {
+   "id": "E05",
+   "category": "edge",
+   "input": "버섯 리조또를 엄마랑 지민이랑 같이 3인분 먹었어, 3점",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "버섯 리조또를 엄마랑 지민이랑 같이 3인분 먹었어, 3점",
+       "user_id": "dad"
+      },
+      "answer": "버섯 리조또 평가 3점 저장, 3인분 기준 표고버섯 150g·양파 0.75개·파르메산 치즈 45g 차감, dad 식사 1인분 520kcal를 워치에 기록 (표고버섯 90g 부족; 버터 재고 없음). 진행할까요? (approve/reject)",
+      "contexts": [
+       "[recipes_italian.md#버섯 리조또] 버섯 리조또 (이탈리아식)\n표고버섯과 양파를 볶다가 쌀을 넣고 육수를 조금씩 부어 익힌 크리미한 리조또입니다.\n주재료: 표고버섯 / 1인분 520kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 표고버섯 80g\n- 양파 0.25개\n- 버터 15g\n- 파르메산 치즈 15g\n조리 순서\n1. 표고버섯은 얇게 썰고, 양파는 곱게 다집니다.\n2. 팬에 올리브유를 두르고 양파를 볶다가 버섯을 넣어 3분 볶습니다.\n3. 씻지 않은 쌀을 넣어 투명해질 때까지 볶고 화이트와인을 부어 날립니다.\n4. 뜨거운 스톡을 한 국자씩 부으며 18분 저어 가며 익힙니다.\n5. 불을 끄고 버터와 파르메산 치즈를 넣어 섞은 뒤 소금, 후추로 간합니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261119-0d5bd89e",
+       "user_id": "dad",
+       "question": "버섯 리조또를 엄마랑 지민이랑 같이 3인분 먹었어, 3점",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": {
+        "type": "meal_confirm",
+        "tool": "confirm_meal",
+        "summary": "버섯 리조또 평가 3점 저장, 3인분 기준 표고버섯 150g·양파 0.75개·파르메산 치즈 45g 차감, dad 식사 1인분 520kcal를 워치에 기록 (표고버섯 90g 부족; 버터 재고 없음). 진행할까요?"
+       },
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "rating_health_agent"
+        },
+        {
+         "tool": "get_recipe",
+         "ms": 0
+        },
+        {
+         "tool": "confirm_meal",
+         "ms": 8,
+         "event": "interrupt"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 4121,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_rating_health_agent",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 5.5
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "get_recipe",
+     "confirm_meal"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 4,
+    "traits_total": 4,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "레시피에 있는 요리로 처리",
+      "ok": true,
+      "reason": "contexts에 recipes_italian.md#버섯 리조또 레시피가 포함되어 있고, trace의 steps에서 get_recipe 툴을 호출하여 레시피 기반으로 처리하였다."
+     },
+     {
+      "item": "3인분으로 계산해서 재고 차감",
+      "ok": true,
+      "reason": "answer 및 pending_interrupt summary에서 표고버섯 150g(80g×3인분 미만이나 실제 계산값), 양파 0.75개(0.25×3), 파르메산 치즈 45g(15g×3) 등 3인분 기준으로 차감 계획이 명시되어 있다."
+     },
+     {
+      "item": "본인만 kcal로 워치 기록",
+      "ok": true,
+      "reason": "answer에서 'dad 식사 1인분 520kcal를 워치에 기록'으로 본인(dad) 1인분만 워치에 기록하도록 처리하였다."
+     },
+     {
+      "item": "승인 요청",
+      "ok": true,
+      "reason": "trace의 pending_interrupt에 type: meal_confirm으로 승인 요청이 반환되어 있고, answer 말미에도 '진행할까요? (approve/reject)'로 사용자 승인을 요청하고 있다."
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "재고 차감 없음",
+      "ok": false,
+      "reason": "answer 및 pending_interrupt에 3인분 기준 재고 차감 계획이 명시되어 있으므로 '재고 차감 없음' 위반에 해당하지 않는다."
+     },
+     {
+      "item": "1인분으로 재고 차감",
+      "ok": false,
+      "reason": "표고버섯 150g, 양파 0.75개, 파르메산 치즈 45g으로 명확히 3인분 기준으로 차감 계획이 수립되어 있어 1인분 차감 위반이 아니다."
+     },
+     {
+      "item": "임의 kcal로 워치 기록",
+      "ok": false,
+      "reason": "520kcal는 contexts의 레시피(1인분 520kcal)에 근거한 값으로, 임의로 설정된 kcal가 아니다."
+     }
+    ]
+   }
+  }
+ ]
+}
