@@ -1196,14 +1196,15 @@ class FridgeContext:
 
 
 class InventoryInput(BaseModel):
-    """입고할 재고 한 건."""
+    """입고할 재고 한 건. LCEL 파싱 체인(`src.chains`)의 구조화 출력 단위다."""
 
     item: str = Field(description="품목명. 사용자가 말한 이름 그대로 (예: 한우, 두부)")
-    qty: float = Field(description="수량")
+    qty: float = Field(description="수량. 사용자가 말한 숫자 그대로")
     unit: str = Field(description="단위. 사용자가 말한 그대로 (g, kg, L, ml, 개, 모, 팩, 봉, 알 등)")
     input_date: str | None = Field(
         default=None,
-        description="투입일자. '오늘', '어제', '-1' 같은 상대 표현이나 YYYY-MM-DD. 말하지 않았으면 비운다",
+        description="투입일자의 상대 일수 토큰(오늘 '0', 어제 '-1', 그제 '-2'). 계산하지 않는다. "
+        "연-월-일을 모두 말했을 때만 YYYY-MM-DD. 말하지 않았으면 비운다",
     )
     expiry_date: str | None = Field(default=None, description="사용자가 말한 유효기간(YYYY-MM-DD). 말하지 않았으면 비운다")
     sn: str | None = Field(default=None, description="사용자가 직접 준 S/N(YYYY-MM-NNN). 말하지 않았으면 비운다")
@@ -1327,28 +1328,54 @@ def _resolve_diners(conn: sqlite3.Connection, family_id: str, names: list[str]) 
     return found, unknown
 
 
-@tool
-def add_items_from_text(runtime: ToolRuntime[FridgeContext], items: list[InventoryInput]) -> str:
-    """사용자가 말한 식재료를 냉장고 재고로 입고한다.
+NO_ITEMS_FOUND = "입고할 품목을 찾지 못했어요. 품목과 양을 다시 말씀해 주세요"
 
-    문장에 나온 품목마다 하나씩 넣는다. 날짜·S/N·유효기간·단위 환산은 도구가 계산하므로
-    직접 계산하지 말고 사용자가 말한 값을 그대로 넘긴다. 결과의 status가
-    `sn_invalid`면 중복·형식 오류를 알리고 suggested_sn을 제안하고,
-    `unit_mismatch`면 기준 단위로 다시 물어본다. expiry_source가 `unknown`이면
-    유효기간 미상으로 저장됐다고 알린다.
+
+def add_parsed_items(conn: sqlite3.Connection, items: list[InventoryInput]) -> list[dict]:
+    """파싱된 입고 목록을 `add_inventory`로 한 건씩 입고한다. 커밋은 호출한 쪽이 한다.
+
+    사용자가 준 S/N이 중복이거나 형식이 틀리면 그 S/N은 쓰지 않고 자동 발번 S/N으로 저장한다
+    (SERVICE.md 5.1: S/N은 유일한 식별자이고, 쓸 수 있는 값이 없으면 자동 발번).
+    이때 결과에 `sn_replaced=True`, 요청한 `requested_sn`, 거절 이유 `sn_reason`을 남긴다.
     """
+    results = []
+    for it in items:
+        try:
+            result = add_inventory(conn, it.item, it.qty, it.unit, it.input_date, it.expiry_date, it.sn)
+            if result["status"] == "sn_invalid":
+                rejected = result
+                result = add_inventory(conn, it.item, it.qty, it.unit, it.input_date, it.expiry_date, None)
+                if result["status"] == "added":
+                    result.update(sn_replaced=True, requested_sn=rejected["sn"], sn_reason=rejected["reason"])
+            results.append(result)
+        except ValueError as e:
+            results.append({"status": "invalid", "item": it.item, "message": str(e)})
+    return results
+
+
+@tool
+def add_items_from_text(runtime: ToolRuntime[FridgeContext], text: str) -> str:
+    """사용자가 말한 입고 문장을 그대로 받아 식재료를 냉장고 재고로 입고한다.
+
+    text에는 사용자의 입고 문장을 고치지 말고 그대로 넣는다(예: "어제 두부 1모 샀어").
+    도구가 문장을 품목 목록으로 파싱하고, 날짜·S/N·유효기간·단위 환산을 직접 계산한다.
+    결과 항목마다 input_date, qty·unit(기준 단위), sn, expiry_date를 그대로 안내한다.
+    `sn_replaced`가 true면 요청한 S/N(requested_sn)이 쓸 수 없어(sn_reason) 자동 발번 S/N으로
+    저장했다고 알리고, 다른 번호를 원하면 말해 달라고 한다. status가 `unit_mismatch`면
+    기준 단위로 다시 물어본다. expiry_source가 `unknown`이면 유효기간 미상으로 저장됐다고 알린다.
+    """
+    from src.chains import parse_inventory_text
+
     ctx = _context(runtime)
     if ctx.user_id == GUEST_USER:
         return GUEST_DENIED
+    items = parse_inventory_text(text)
+    if not items:
+        return NO_ITEMS_FOUND
     conn = _open(runtime)
     try:
-        results = []
         with conn:
-            for it in items:
-                try:
-                    results.append(add_inventory(conn, it.item, it.qty, it.unit, it.input_date, it.expiry_date, it.sn))
-                except ValueError as e:
-                    results.append({"status": "invalid", "item": it.item, "message": str(e)})
+            results = add_parsed_items(conn, items)
         return _to_json(results)
     finally:
         conn.close()
