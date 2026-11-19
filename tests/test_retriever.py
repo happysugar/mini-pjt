@@ -119,6 +119,12 @@ def test_unknown_item_returns_guide_scope_only(offline_index, monkeypatch):
     assert extract_contexts([("search_docs", json.dumps(data, ensure_ascii=False))]) == data["results"]
 
 
+def test_unknown_item_storage_days_is_context():
+    output = tools.get_storage_days.invoke({"item": "망고"})
+    assert extract_contexts([("get_storage_days", output)]) == [f"[storage_guide.md#망고] {output}"]
+    assert extract_contexts([("list_inventory", output)]) == []
+
+
 # ── 검색 도구와 인덱스 수명 ───────────────────────────────────────
 
 

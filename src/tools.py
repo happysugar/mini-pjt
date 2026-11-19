@@ -1563,12 +1563,16 @@ def calc_kcal_tool(servings_eaten: float, dish: str | None = None, kcal_per_serv
     return _to_json({"dish": dish, "servings_eaten": servings_eaten, "kcal_per_serving": per, "kcal": kcal})
 
 
+# 보관 가이드에 없는 품목 안내의 앞부분. API가 이 문구로 시작하는 결과를 근거(contexts)로 담는다
+NOT_IN_GUIDE = "보관 가이드에 없는 품목이에요"
+
+
 @tool
 def get_storage_days(item: str) -> str:
     """보관 가이드에서 품목의 권장 보관일수와 기준 단위를 찾는다. 가이드에 없으면 그렇다고 알려준다."""
     info = guide_info(item)
     if info is None:
-        return f"보관 가이드에 없는 품목이에요: {item}. 유효기간을 직접 알려 주세요"
+        return f"{NOT_IN_GUIDE}: {item}. 유효기간을 직접 알려 주세요"
     return _to_json({"item": item, "guide_item": resolve_item(item), "storage_days": info["storage_days"],
                      "base_unit": info["base_unit"], "source": STORAGE_GUIDE.name})
 

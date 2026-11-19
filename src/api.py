@@ -26,6 +26,8 @@ from src import retriever
 from src.agent import open_agent, pending_interrupt, run_turn
 from src.tools import (
     GUEST_DENIED,
+    NOT_IN_GUIDE,
+    STORAGE_GUIDE,
     GUEST_USER,
     FridgeContext,
     connect,
@@ -176,6 +178,10 @@ def extract_contexts(outputs: list[tuple[str, str]]) -> list[str]:
         except (ValueError, TypeError):
             if output.startswith("["):  # get_recipe: "[recipes_x.md#요리] ..."
                 add(output)
+            elif name == "get_storage_days" and output.startswith(NOT_IN_GUIDE):
+                # 가이드에 없는 품목: "망고는 가이드에 없다"는 답의 근거로 담는다
+                item = output.removeprefix(NOT_IN_GUIDE).lstrip(": ").split(".", 1)[0].strip()
+                add(f"[{STORAGE_GUIDE.name}#{item}] {output}")
             continue
         if name in ("search_recipes", "search_docs"):
             for hit in data.get("results", []):
