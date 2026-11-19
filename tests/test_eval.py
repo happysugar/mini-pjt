@@ -124,3 +124,20 @@ def test_empty_expected_tools_means_no_calls(queries):
     registered = run_eval.registered_tool_names()
     assert run_eval.tool_match(queries["G01"], run_with([[]]), registered)["match"] is True
     assert run_eval.tool_match(queries["G01"], run_with([["list_inventory"]]), registered)["match"] is False
+
+
+def test_average_runs_groups_repeats_per_query():
+    """`samples * 반복` 순서의 채점을 문항별 평균으로 묶고, NaN은 평균에서 빼며 회차 값을 남긴다."""
+    nan = float("nan")
+    raw = [
+        {"faithfulness": 1.0, "answer_relevancy": 0.9},  # 문항0 1회
+        {"faithfulness": 0.5, "answer_relevancy": nan},  # 문항1 1회
+        {"faithfulness": 1.0, "answer_relevancy": 0.7},  # 문항0 2회
+        {"faithfulness": 0.7, "answer_relevancy": nan},  # 문항1 2회
+    ]
+    first, second = run_eval.average_runs(raw, 2)
+    assert first["faithfulness"] == 1.0 and first["answer_relevancy"] == 0.8
+    assert first["answer_relevancy_runs"] == [0.9, 0.7]
+    assert second["faithfulness"] == 0.6
+    assert second["answer_relevancy"] != second["answer_relevancy"]  # 모두 NaN이면 평균도 NaN
+    assert second["answer_relevancy_runs"] == [None, None]

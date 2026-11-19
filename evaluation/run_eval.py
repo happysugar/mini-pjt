@@ -51,6 +51,9 @@ QUERIES_CSV = EVAL_DIR / "test_queries.csv"
 RESULTS_DIR = EVAL_DIR / "results"
 # contexts로 RAGAS 지표를 계산하는 문항 (SERVICE.md 10.2)
 RAGAS_IDS = ("P02", "P03", "P05", "N01", "N02")
+# RAGAS 지표를 문항마다 몇 번 채점해 평균 낼지. 같은 답도 채점마다 relevancy가 ±0.1 흔들려
+# 한 번의 점수로 0.8 기준을 판단하기 어렵다. 채점 호출은 이 배수만큼 늘어난다(평가 모델만 사용).
+RAGAS_REPEATS = 3
 HANDOFF_PREFIX = "transfer_to_"
 TOOL_SPEC = re.compile(r"^(?P<name>[A-Za-z_][\w]*)\s*(?:\((?P<args>.*)\))?$")
 
@@ -418,11 +421,31 @@ def _num(value: Any) -> float:
         return math.nan
 
 
+def average_runs(raw: list[dict[str, float]], count: int) -> list[dict[str, Any]]:
+    """`samples * 반복 횟수` 순서로 채점한 결과를 문항별 평균으로 묶는다.
+
+    raw[i + k*count]가 i번째 문항의 k번째 채점이다. 평균은 NaN을 뺀 값으로 내고(없으면 NaN),
+    회차별 값은 `faithfulness_runs`, `answer_relevancy_runs`에 남긴다.
+    """
+    averaged = []
+    for i in range(count):
+        runs = raw[i::count]
+        row: dict[str, Any] = {}
+        for key in ("faithfulness", "answer_relevancy"):
+            values = [run[key] for run in runs]
+            mean = _mean(values)
+            row[key] = math.nan if mean is None else mean
+            row[f"{key}_runs"] = [round(v, 3) if _is_score(v) else None for v in values]
+        averaged.append(row)
+    return averaged
+
+
 def compute_ragas(results: list[dict[str, Any]]) -> str:
     """대상 문항 중 contexts가 있는 문항의 RAGAS 지표를 결과에 채우고 계산 방식 표기를 돌려준다.
 
     note에 `answer=abstain`인 문항(거절이 정답)은 회피 답이면 relevancy가 0이 되는 지표라
     answer relevancy를 None으로 두고 평균에서 뺀다. faithfulness는 그대로 계산한다.
+    문항마다 RAGAS_REPEATS번 채점해 평균을 내고, 회차별 값은 `*_runs`에 남긴다.
     """
     targets = [r for r in results if r["id"] in RAGAS_IDS]
     samples, owners = [], []
@@ -435,11 +458,14 @@ def compute_ragas(results: list[dict[str, Any]]) -> str:
         owners.append(r)
     if not samples:
         return "없음"
+    repeated = samples * RAGAS_REPEATS
     try:
-        scores, mode = ragas_scores(samples)
+        raw, mode = ragas_scores(repeated)
     except Exception as exc:  # noqa: BLE001 - 설치·호환 문제면 같은 정의의 대체 계산으로
         print(f"[ragas] 라이브러리 계산 실패, RAGAS 방식으로 대체: {type(exc).__name__}: {exc}"[:300])
-        scores, mode = fallback_scores(samples)
+        raw, mode = fallback_scores(repeated)
+    scores = average_runs(raw, len(samples))
+    mode = f"{mode}, {RAGAS_REPEATS}회 평균"
     for r, score in zip(owners, scores):
         if r.get("abstain"):
             score = {**score, "answer_relevancy": None, "relevancy_skipped": "거절이 정답인 문항"}
