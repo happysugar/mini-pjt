@@ -258,7 +258,7 @@ Mode: Builder (Learning, 교육 과정 개인 미니 프로젝트)
 | 위치 | 내용 |
 |---|---|
 | `data/recipes_korean.md`, `recipes_japanese.md`, `recipes_italian.md`, `recipes_chinese.md` | 카테고리별 레시피 8~10개. 각 레시피에 주재료, 부재료(인분당 양), 1인분 kcal, 조리 순서 |
-| `data/storage_guide.md` | 품목별 표(품목, 별칭, 기준 단위, 권장 보관일수, 개당 평균 무게 g)와 보관 팁. 표는 도구가 결정적으로 읽고, 본문은 RAG로 검색 |
+| `data/storage_guide.md` | 품목별 표(품목, 별칭, 기준 단위, 권장 보관일수, 개당 평균 무게 g)와 보관 팁. 표는 도구가 결정적으로 읽고, 본문은 RAG로 검색. 보관 기간·유효기간 질문은 `get_storage_days`(표)로만, 보관 방법 질문은 `search_docs`(본문)로만 답하고 문서에 없는 내용은 덧붙이지 않음 |
 | `data/seed_inventory.json` | 시연용 초기 재고. 날짜는 절대값이 아니라 `today()` 기준 상대 일수(`input_offset_days`, `expiry_offset_days`)로 적습니다. 예: 한우 `expiry_offset_days: 2` |
 | `data/seed_users.json` | 가족 구성원, 초기 평점, 선호·비선호·알레르기 |
 | `data/fridge.db` | SQLite. 실행 시 생성 |

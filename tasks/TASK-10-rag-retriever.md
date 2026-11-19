@@ -71,3 +71,9 @@
     에이전트 모델은 실행할 때만 `BEDROCK_MODEL_ID=global.anthropic.claude-sonnet-4-6`으로 덮어써 P03·P05·N02를 돌렸다.
     3/3 통과, 도구 일치 3/3, forbidden 위반 0. N02 contexts에 `[storage_guide.md#망고]`가 들어가 faithfulness 0.33 → 1.00.
     RAGAS faithfulness / relevancy: P03 1.00 / 0.87, P05 1.00 / 0.71, N02 1.00 / 0.00. 평균 faithfulness 1.00, relevancy 0.525.
+- 보관 규칙 변경 (같은 날, 사용자 요청, 커밋 a1a56cb·d3a86e5): 에이전트 프롬프트의 보관 규칙을 두 줄로 줄였다.
+  보관 기간·유효기간 질문은 `get_storage_days`로만, 보관 방법 질문은 `search_docs`로만 답하고 문서에 없는 내용은 덧붙이지 않는다.
+  그래서 위 P05·N02 결과의 `search_docs` → `get_storage_days` 순서와 P05의 보관 팁은 이제 기대 동작이 아니다.
+  평가 문항도 맞췄다: P05 기대 도구 `get_storage_days`, "보관 팁 한 가지" 기준 삭제. N02 기대 도구 `get_storage_days`.
+  - 재평가 (실제 Bedrock, `BEDROCK_MODEL_ID=global.anthropic.claude-sonnet-4-6`, `run-20261119-143145.json`): P05·N02 2/2 통과, 도구 일치 2/2(`get_storage_days`만), forbidden 위반 0.
+    P05 "두부의 냉장 권장 보관일수는 7일입니다. 출처: storage_guide.md"(faithfulness 1.00, relevancy 0.76). N02 가이드에 없다고 안내하고 유효기간을 직접 요청(faithfulness 0.50).
