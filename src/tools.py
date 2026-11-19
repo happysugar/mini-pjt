@@ -7,10 +7,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
 import sqlite3
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from functools import lru_cache
@@ -86,7 +89,8 @@ CREATE TABLE meals (
     servings     REAL NOT NULL,
     kcal         REAL,
     eaten_at     TEXT NOT NULL,
-    watch_synced INTEGER NOT NULL DEFAULT 0 CHECK (watch_synced IN (0, 1))
+    watch_synced INTEGER NOT NULL DEFAULT 0 CHECK (watch_synced IN (0, 1)),
+    meal_id      TEXT  -- 워치 record_meal 멱등 키 (confirm_meal의 thread_id:tool_call_id)
 );
 
 CREATE TABLE threads (
@@ -113,6 +117,7 @@ CREATE INDEX idx_inventory_item ON inventory(item, status);
 CREATE INDEX idx_deductions_created ON deductions(created_at);
 CREATE INDEX idx_ratings_user_dish ON ratings(user_id, dish);
 CREATE INDEX idx_meals_user_synced ON meals(user_id, watch_synced);
+CREATE UNIQUE INDEX idx_meals_meal_id ON meals(meal_id);
 """
 
 TABLES = ("applied_actions", "deductions", "ratings", "meals", "threads", "item_units", "inventory", "users")
@@ -146,7 +151,17 @@ def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    _migrate_meal_id(conn)
     return conn
+
+
+def _migrate_meal_id(conn: sqlite3.Connection) -> None:
+    """TASK-14 이전에 만든 DB의 meals 테이블에 `meal_id` 열과 고유 인덱스를 더한다."""
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(meals)")]
+    if cols and "meal_id" not in cols:
+        with conn:
+            conn.execute("ALTER TABLE meals ADD COLUMN meal_id TEXT")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_meals_meal_id ON meals(meal_id)")
 
 
 def create_schema(conn: sqlite3.Connection) -> None:
@@ -1181,6 +1196,102 @@ REJECT_WITHDRAW = "취소했어요. 재고를 바꾸지 않았어요"
 GUEST_DENIED = "평가와 재고 변경은 로그인한 가족만 할 수 있어요"
 ASK_SERVINGS = "몇 인분 만들었고, 본인은 몇 인분 드셨나요?"
 WATCH_PENDING = "워치 기록은 아직 연결 전이라 대기 중이에요"
+WATCH_OK = "워치에 기록했어요"
+WATCH_FAILED = "워치 기록 실패, 다음 요청 때 다시 시도할게요"
+WATCH_TIMEOUT_S = 10
+
+# 테스트에서 MCP 서버 객체(FastMCP)를 직접 넣을 때 쓴다. None이면 `HEALTH_MCP_URL`을 쓴다.
+_HEALTH_TARGET_OVERRIDE: object | None = None
+
+
+def set_health_target(target: object | None) -> None:
+    """워치 MCP 연결 대상을 바꾼다(테스트용: 같은 프로세스의 FastMCP 서버 객체). None이면 환경변수로 돌아간다."""
+    global _HEALTH_TARGET_OVERRIDE
+    _HEALTH_TARGET_OVERRIDE = target
+
+
+def health_target() -> object | None:
+    """워치 MCP 연결 대상. `HEALTH_MCP_URL`이 비어 있으면 None(워치 연동 꺼짐)."""
+    if _HEALTH_TARGET_OVERRIDE is not None:
+        return _HEALTH_TARGET_OVERRIDE
+    return os.environ.get("HEALTH_MCP_URL", "").strip() or None
+
+
+async def _record_meal_mcp(target: object, payload: dict) -> str:
+    """MCP 클라이언트로 `record_meal`을 부르고 서버 응답의 status(recorded/duplicate)를 돌려준다."""
+    from fastmcp import Client  # 서버를 쓰지 않는 테스트에서 import 비용을 피한다
+
+    async def call() -> str:
+        async with Client(target) as client:
+            result = await client.call_tool("record_meal", payload)
+        data = result.structured_content or {}
+        return str(data.get("status", "recorded"))
+
+    return await asyncio.wait_for(call(), timeout=WATCH_TIMEOUT_S)
+
+
+def _run_coro(coro):
+    """동기 코드에서 코루틴을 실행한다. 이 스레드에 이벤트 루프가 돌고 있으면 새 스레드에서 실행한다."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
+
+
+def _meal_payload(row: sqlite3.Row) -> dict:
+    """meals 행을 `record_meal` 인자로 바꾼다."""
+    return {"meal_id": row["meal_id"], "user_id": row["user_id"], "dish": row["dish"],
+            "kcal": row["kcal"], "eaten_at": row["eaten_at"]}
+
+
+def _call_record(target: object, row: sqlite3.Row, caller: str) -> tuple[bool, dict]:
+    """한 식사를 워치에 보내고 (성공 여부, trace 기록)을 돌려준다. 예외는 실패로 바꾼다."""
+    started = time.perf_counter()
+    step = {"tool": "record_meal", "via": "mcp", "caller": caller, "meal_id": row["meal_id"]}
+    try:
+        status = _run_coro(_record_meal_mcp(target, _meal_payload(row)))
+        ok, step["event"] = True, status
+    except Exception as exc:  # noqa: BLE001 - 서버 꺼짐·시간 초과 등은 모두 재시도 대상
+        ok, step["event"], step["error"] = False, "error", f"{type(exc).__name__}: {exc}"[:200]
+    step["ms"] = int((time.perf_counter() - started) * 1000)
+    return ok, step
+
+
+def sync_meals_to_watch(conn: sqlite3.Connection, user_id: str, caller: str, meal_id: str | None = None) -> list[dict]:
+    """`watch_synced = 0`이고 kcal이 있는 식사를 워치 MCP `record_meal`로 보낸다 (SERVICE.md 5.3).
+
+    - `meal_id`를 주면 그 식사만, 없으면 사용자의 미동기화 식사 전부를 같은 멱등 키로 보낸다.
+    - 성공(recorded/duplicate)하면 `watch_synced = 1`로 바꾼다. 실패하면 0으로 두어 다음 요청 때 다시 보낸다.
+    - 워치 연동이 꺼져 있으면(`HEALTH_MCP_URL` 없음) 아무것도 보내지 않는다.
+    호출마다 trace용 기록(`tool`, `via`, `caller`, `meal_id`, `event`, `ms`)을 돌려준다.
+    """
+    target = health_target()
+    if target is None:
+        return []
+    sql = "SELECT * FROM meals WHERE user_id = ? AND watch_synced = 0 AND kcal IS NOT NULL AND meal_id IS NOT NULL"
+    args: tuple = (user_id,)
+    if meal_id is not None:
+        sql += " AND meal_id = ?"
+        args += (meal_id,)
+    steps = []
+    for row in conn.execute(sql + " ORDER BY id", args).fetchall():
+        ok, step = _call_record(target, row, caller)
+        steps.append(step)
+        if ok:
+            with conn:
+                conn.execute("UPDATE meals SET watch_synced = 1 WHERE id = ?", (row["id"],))
+    return steps
+
+
+def resend_unsynced_meals(db_path: str | None, user_id: str) -> list[dict]:
+    """요청 시작 때 API가 부른다. 사용자의 미동기화 식사를 같은 멱등 키로 다시 보낸다."""
+    conn = connect(db_path)
+    try:
+        return sync_meals_to_watch(conn, user_id, caller="resend")
+    finally:
+        conn.close()
 
 
 @dataclass
@@ -1193,6 +1304,8 @@ class FridgeContext:
     user_id: str
     family_id: str = "family-1"
     db_path: str | None = None
+    # 이 요청에서 코드가 직접 부른 MCP 호출 기록. API가 trace.steps에 옮긴다.
+    mcp_calls: list[dict] = field(default_factory=list)
 
 
 class InventoryInput(BaseModel):
@@ -1679,8 +1792,9 @@ def confirm_meal(
                 (ctx.user_id, dish.strip(), recipe.cuisine if recipe else None, int(score), comment, now),
             )
             conn.execute(
-                "INSERT INTO meals (user_id, dish, servings, kcal, eaten_at, watch_synced) VALUES (?, ?, ?, ?, ?, 0)",
-                (ctx.user_id, dish.strip(), servings_eaten, kcal, now),
+                "INSERT INTO meals (user_id, dish, servings, kcal, eaten_at, watch_synced, meal_id) "
+                "VALUES (?, ?, ?, ?, ?, 0, ?)",
+                (ctx.user_id, dish.strip(), servings_eaten, kcal, now, key),
             )
             applied = plan_meal_deductions(conn, recipe, servings_made) if recipe else []
             deducted, notes = describe_deductions(applied)
@@ -1691,10 +1805,16 @@ def confirm_meal(
             message += f" {_fmt_qty(kcal)}kcal 기록." if kcal is not None else " 기록 (kcal 미상)."
             if notes:
                 message += f" ({'; '.join(notes)})"
-            if kcal is not None:
-                message += f" {WATCH_PENDING}."
             _record_applied(conn, key, "confirm_meal", ctx.user_id, message)
-        return message
+
+        # 4) 커밋 뒤 코드에서 워치 MCP record_meal을 부른다. 에이전트는 이 도구를 갖지 않는다.
+        if kcal is None:
+            return message
+        steps = sync_meals_to_watch(conn, ctx.user_id, caller="confirm_meal", meal_id=key)
+        ctx.mcp_calls.extend(steps)
+        if not steps:
+            return f"{message} {WATCH_PENDING}."
+        return f"{message} {WATCH_OK if steps[-1]['event'] != 'error' else WATCH_FAILED}."
     finally:
         conn.close()
 
