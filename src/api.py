@@ -244,6 +244,36 @@ def _error(code: str, message: str) -> dict[str, str]:
     return {"code": code, "message": message}
 
 
+def unsupported_category_note(outputs: list[tuple[str, str]]) -> str | None:
+    """이번 턴의 `rank_recipes` 결과 notes에서 지원하지 않는 카테고리 안내 문장을 찾는다. 없으면 None."""
+    for name, output in outputs:
+        if name != "rank_recipes":
+            continue
+        try:
+            notes = json.loads(output).get("notes", [])
+        except (ValueError, TypeError, AttributeError):
+            continue
+        for note in notes:
+            if "지원하지 않아요" in note:
+                note = note.strip()
+                return note if note.endswith((".", "!", "?")) else f"{note}."
+    return None
+
+
+def lead_with_note(answer: str, note: str) -> str:
+    """답의 첫 문단을 도구 안내 문장으로 고정한다.
+
+    모델이 안내를 바꿔 쓴 첫 문단("멕시코식 타코 레시피는 지원하지 않아요 …")은 안내 문장으로 바꾸고,
+    첫 문단에 지원 안내가 없으면 안내 문장을 맨 앞에 붙인다. 나머지(대안 요리 설명)는 그대로 둔다.
+    """
+    head, sep, rest = answer.strip().partition("\n")
+    if head.strip() == note:
+        return answer
+    if "지원하지 않" in head or "드릴 수 없" in head or "제공해 드리기 어렵" in head:
+        return f"{note}{sep}{rest}" if sep else note
+    return f"{note}\n\n{answer.strip()}"
+
+
 async def _pending(agent: Any, thread_id: str) -> dict | None:
     """스레드에 대기 중인 승인 요청이 있으면 그 값(type, summary)을 돌려준다."""
     snapshot = await agent.aget_state({"configurable": {"thread_id": thread_id}})
@@ -375,6 +405,10 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
     rejected = next((o.strip() for _, o in tracer.outputs if o.strip() in REJECT_ANSWERS), None)
     if req.resume and rejected and not turn["pending_interrupt"]:
         answer = rejected
+    # 지원하지 않는 카테고리 요청이면, 모델이 바꿔 쓴 안내 대신 rank_recipes 안내 문장을 첫 문단에 그대로 쓴다
+    note = unsupported_category_note(tracer.outputs)
+    if note and not turn["pending_interrupt"]:
+        answer = lead_with_note(answer, note)
     trace.update(_domain_trace(db_path))
     trace["index"] = dict(retriever.BUILD_STATS)  # 질문 처리 중에 인덱스를 다시 만들지 않았는지 확인용
     return reply(answer, extract_contexts(tracer.outputs))

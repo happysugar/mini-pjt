@@ -488,3 +488,32 @@ def test_normal_question_skips_llm_classifier_and_masks_answer(make_client):
         "blocked": False, "code": "", "message": "", "reasons": [], "llm_checked": False
     }
     assert "010-****-5432" in r["answer"] and r["trace"]["guardrail"]["output"] == ["phone"]
+
+
+# ── 지원하지 않는 카테고리 안내 (N01) ─────────────────────────────
+
+NOTE_MX = (
+    "멕시코식은 지원하지 않아요. 멕시코식 요리의 레시피는 드릴 수 없어요. "
+    "대신 지금 재고를 활용할 수 있는 요리를 한식·일식·이탈리아식·중식 중에서 골랐어요."
+)
+
+
+def test_unsupported_note_replaces_rewritten_first_line(make_client):
+    """모델이 안내를 바꿔 써도(요리명 추가) 첫 문단은 rank_recipes 안내 문장 그대로다."""
+    rewritten = "멕시코식 타코 레시피는 지원하지 않아요. 대신 골랐어요.\n\n| 한식 | 소고기 무국 |"
+    _, ask = make_client(call("rank_recipes", {"category": "멕시코식"}), say(rewritten))
+    r = ask({"question": "멕시코식 타코 레시피 알려줘"}, DAD)
+    assert r["answer"] == f"{NOTE_MX}\n\n| 한식 | 소고기 무국 |"
+    assert "타코" not in r["answer"]
+
+
+def test_unsupported_note_added_when_missing(make_client):
+    _, ask = make_client(call("rank_recipes", {"category": "멕시코식"}), say("이 요리들을 추천해요."))
+    r = ask({"question": "멕시코식 타코 레시피 알려줘"}, DAD)
+    assert r["answer"] == f"{NOTE_MX}\n\n이 요리들을 추천해요."
+
+
+def test_supported_recommendation_keeps_answer(make_client):
+    _, ask = make_client(call("rank_recipes", {}), say("오늘은 소고기 무국 어때요?"))
+    r = ask({"question": "오늘 저녁 뭐 먹지?"}, DAD)
+    assert r["answer"] == "오늘은 소고기 무국 어때요?"

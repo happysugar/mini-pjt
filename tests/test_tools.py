@@ -371,3 +371,14 @@ def test_calc_kcal():
     assert tools.calc_kcal(1, None) is None
     with pytest.raises(ValueError):
         tools.calc_kcal(0, 680)
+
+
+# ── 조사 ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("word", "particle"),
+    [("멕시코식", "은"), ("프랑스 요리", "는"), ("태국", "은"), ("스페인", "은"), ("베트남 요리", "는"), ("Tex-Mex", "은(는)")],
+)
+def test_topic_particle(word, particle):
+    assert tools.topic_particle(word) == particle

@@ -1,0 +1,212 @@
+{
+ "run_at": "2026-11-20T00:02:13",
+ "fridge_today": "2026-11-20",
+ "agent_model": "us.anthropic.claude-sonnet-4-6",
+ "eval_model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "ragas_mode": "ragas 0.4.4, 3회 평균",
+ "summary": {
+  "total": 1,
+  "passed": 0,
+  "guardrail_passed": 0,
+  "guardrail_total": 0,
+  "forbidden_violations": 1,
+  "tool_match": 1,
+  "faithfulness": 0.923,
+  "answer_relevancy": null,
+  "ragas_n": 1,
+  "faithfulness_n": 1,
+  "relevancy_n": 0
+ },
+ "results": [
+  {
+   "id": "N01",
+   "category": "negative",
+   "input": "멕시코식 타코 레시피 알려줘",
+   "user_id": "dad",
+   "abstain": true,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "멕시코식 타코 레시피 알려줘",
+       "user_id": "dad"
+      },
+      "answer": "멕시코식은 지원하지 않아요. 멕시코식 요리의 레시피는 드릴 수 없어요. 대신 지금 재고를 활용할 수 있는 요리를 한식·일식·이탈리아식·중식 중에서 골랐어요.\n\n대신 아래 요리들을 추천드릴게요.\n\n| 카테고리 | 요리 | 평점 | 비고 |\n|---|---|---|---|\n| 한식 | 소고기 무국 | ⭐ 4.5 | — |\n| 일식 | 규동 | ⭐ 4.0 | — |\n| 이탈리아식 | 소고기 라구 파스타 | 신메뉴 | 토마토 캔 필요 |\n| 중식 | 소고기 굴소스볶음 | 신메뉴 | — |\n\n혹시 이 중에 레시피가 궁금한 요리가 있으시면 말씀해 주세요! 😊",
+      "contexts": [
+       "[rank_recipes#안내] 멕시코식은 지원하지 않아요. 멕시코식 요리의 레시피는 드릴 수 없어요. 대신 지금 재고를 활용할 수 있는 요리를 한식·일식·이탈리아식·중식 중에서 골랐어요",
+       "[recipes_korean.md#소고기 무국] 한식 슬롯 / 한식 / 주재료 소고기 / 평점 4.5(2회 평가) / 1인분 220kcal / 임박 재료 소고기 D-2 / 부족 재료 없음\n소고기와 무를 참기름에 볶다가 끓여 낸 맑은 국입니다. 국간장으로 간을 해 담백하고 시원합니다.",
+       "[recipes_japanese.md#규동] 일식 슬롯 / 일식 / 주재료 소고기 / 평점 4.0(1회 평가) / 1인분 680kcal / 임박 재료 소고기 D-2 / 부족 재료 없음\n얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다.",
+       "[recipes_italian.md#소고기 라구 파스타] 이탈리아식 슬롯 / 이탈리아식 / 주재료 소고기 / 신메뉴(평가 없음) / 1인분 720kcal / 임박 재료 소고기 D-2 / 부족 재료 토마토 캔\n소고기와 채소를 토마토와 함께 오래 끓인 라구 소스를 파스타에 버무린 요리입니다.",
+       "[recipes_chinese.md#소고기 굴소스볶음] 중식 슬롯 / 중식 / 주재료 소고기 / 신메뉴(평가 없음) / 1인분 420kcal / 임박 재료 소고기 D-2 / 부족 재료 없음\n얇게 썬 소고기와 양파, 표고버섯을 센 불에 굴소스로 빠르게 볶은 요리입니다. 밥 위에 얹어 덮밥으로 먹어도 좋습니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261120-d968908c",
+       "user_id": "dad",
+       "question": "멕시코식 타코 레시피 알려줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "recommend_agent"
+        },
+        {
+         "tool": "rank_recipes",
+         "ms": 15
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3736,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       },
+       "request_id": "ed0a8fb5a77f",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_recommend_agent",
+      "args": {}
+     },
+     {
+      "name": "rank_recipes",
+      "args": {
+       "category": "멕시코식"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 11.9
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "rank_recipes"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": false,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 1,
+    "traits": [
+     {
+      "item": "한식·일식·이탈리아식·중식만 지원한다고 안내",
+      "ok": true,
+      "reason": "응답에서 '멕시코식은 지원하지 않아요'라고 명시하고, '한식·일식·이탈리아식·중식 중에서 골랐어요'라고 지원 카테고리를 안내함"
+     },
+     {
+      "item": "지금 재고로 가능한 대안 요리 제시",
+      "ok": true,
+      "reason": "contexts에서 현재 재고(소고기, 표고버섯 등)를 활용한 4가지 요리(소고기 무국, 규동, 소고기 라구 파스타, 소고기 굴소스볶음)를 표로 제시함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "타코 레시피 생성",
+      "ok": false,
+      "reason": "응답에 타코 레시피가 포함되지 않았으며, 멕시코식은 지원하지 않는다고 명시함"
+     },
+     {
+      "item": "지원 카테고리 밖 요리 추천",
+      "ok": false,
+      "reason": "추천된 모든 요리(소고기 무국, 규동, 소고기 라구 파스타, 소고기 굴소스볶음)가 한식·일식·이탈리아식·중식 카테고리에 속함"
+     },
+     {
+      "item": "지원하지 않는다는 안내 문장에 사용자가 말한 요리명(타코)을 넣음",
+      "ok": true,
+      "reason": "응답에서 '멕시코식은 지원하지 않아요. 멕시코식 요리의 레시피는 드릴 수 없어요'라고 했으나 '타코'라는 구체적 요리명은 언급하지 않음으로써 금지 조건을 위반하지 않음"
+     }
+    ]
+   },
+   "ragas": {
+    "faithfulness": 0.923,
+    "faithfulness_runs": [
+     0.923,
+     0.923,
+     0.923
+    ],
+    "answer_relevancy": null,
+    "answer_relevancy_runs": [
+     0.691,
+     0.691,
+     0.691
+    ],
+    "relevancy_skipped": "거절이 정답인 문항"
+   }
+  }
+ ]
+}

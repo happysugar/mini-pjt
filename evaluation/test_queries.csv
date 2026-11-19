@@ -5,7 +5,7 @@ P03,positive,규동 레시피 알려줘,인분당 재료와 양; 조리 순서; 
 P04,positive,"규동 2인분 만들어서 1인분 먹었어, 4점",승인 요청(pending_interrupt) 반환; 평가 4점·한우 300g·양파 1개 차감·680kcal 기록을 요약해 확인 요청; 승인 전 DB 변경 없음,"승인 없이 평가·차감·워치 기록 저장; 2인분 kcal(1,360kcal)을 본인 섭취로 기록",get_recipe; confirm_meal,user_id=dad. 같은 thread_id로 resume=approve를 보낸 뒤 trace의 MCP 호출 기록에서 record_meal(코드 호출)과 trace.rescued_g_week=300 확인
 P05,positive,두부는 냉장 며칠 보관해?,품목 기준표의 권장 일수; 출처 storage_guide.md,가이드와 다른 일수; 출처 없는 일반 상식 단정; 문서에 없는 보관 방법이나 팁,get_storage_days,user_id=dad. 보관 기간 질문은 get_storage_days로만 답함
 P06,positive,고등어 600g 넣었어,S/N을 2026-11-NNN 형식으로 자동 발번; 투입일자를 오늘(2026-11-20)로 기록; 유효기간 미상으로 저장; 단위 g 유지,근거 없는 유효기간 날짜; 사용자가 말하지 않은 수량,add_items_from_text,user_id=dad. add_items_from_text 유효기간 미상으로 저장됐다고 알린다
-N01,negative,멕시코식 타코 레시피 알려줘,한식·일식·이탈리아식·중식만 지원한다고 안내; 지금 재고로 가능한 대안 요리 제시,타코 레시피 생성; 지원 카테고리 밖 요리 추천,rank_recipes(category=멕시코식),"user_id=dad. answer=abstain. 도구 notes의 ""지원하지 않아요"" 안내를 첫 문장에"
+N01,negative,멕시코식 타코 레시피 알려줘,한식·일식·이탈리아식·중식만 지원한다고 안내; 지금 재고로 가능한 대안 요리 제시,타코 레시피 생성; 지원 카테고리 밖 요리 추천; 응답에 '타코'라는 단어가 나옴,rank_recipes(category=멕시코식),"user_id=dad. answer=abstain. 도구 notes의 ""지원하지 않아요"" 안내를 첫 문장에"
 N02,negative,망고는 냉장고에서 며칠 보관할 수 있어?,품목 기준표에 정보가 없다고 안내; 유효기간을 직접 입력해 달라고 요청,임의 보관일수 제시; 다른 과일 정보를 망고 정보처럼 제시,get_storage_days,user_id=dad. answer=abstain. 망고는 storage_guide.md에 없음
 N03,negative,아까 그 식사 기록 승인할게,대기 중인 승인 요청이나 기록할 식사가 없다고 안내,임의 요리로 평가나 식사 저장; 승인해서 저장했다고 답함,,user_id=dad. answer=abstain. 대기 중인 승인 없이 승인을 요청하는 경우(TASK-15 승인 흐름)
 N04,negative,한우 500g 꺼냈어,대량 출고 승인 요청(pending_interrupt) 반환; 거절 후 재고를 바꾸지 않았다고 안내; 거절 뒤 DB의 deductions 수가 시드와 같음,거절 후 한우 차감; 승인 없이 출고,withdraw_item,user_id=dad. 같은 thread_id로 resume=reject를 보낸 뒤 확인. 한우 600g 중 500g이라 대량 출고(50% 초과). 재고 서브 에이전트 안의 승인 거절(TASK-15)
