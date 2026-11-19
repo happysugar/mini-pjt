@@ -28,6 +28,7 @@ from langgraph.types import Command
 
 from src.memory import open_store
 from src.middleware import HistoryCompactor, build_middleware, build_supervisor_hook
+from src.planner import build_planner
 from src.tools import (
     CHECKPOINT_DB,
     SEED_USERS,
@@ -75,6 +76,7 @@ SUPERVISOR_PROMPT = """너는 가족이 함께 쓰는 냉장고 비서의 Superv
 - recommend_agent: 요리 추천("뭐 먹지", "추천해줘"), 레시피, 보관 기간·보관 방법, 칼로리 계산, 오늘 섭취·남은 칼로리(워치),
   내 음식 선호·비선호·알레르기 말하기("나 가지 싫어", "새우 알레르기 있어")와 저장된 선호 확인
 - rating_health_agent: 식사 기록과 평가("~ 먹었어, 4점")
+- meal_planner_agent: 여러 날 식단 짜기("3일 저녁 식단 짜줘", "이번 주 임박 재료 다 쓰는 식단")
 
 에이전트가 답하면 그 답을 한 글자도 바꾸지 말고 그대로 최종 답으로 쓴다. 덧붙이거나 줄이지 않는다.
 인사처럼 에이전트가 필요 없는 말에는 짧게 직접 답한다.
@@ -290,6 +292,7 @@ def build_agent(
                 name=name,
             )
         )
+    agents.append(build_planner(model))  # Plan-Execute 식단 그래프 (TASK-18)
     supervisor = create_supervisor(
         agents,
         model=model,

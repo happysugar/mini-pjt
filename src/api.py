@@ -172,6 +172,11 @@ class StepRecorder(BaseCallbackHandler):
         event = "interrupt" if type(error).__name__ == "GraphInterrupt" else "error"
         self.steps.append({"tool": name, "ms": ms, "event": event})
 
+    def on_custom_event(self, name: str, data: Any, *, run_id: Any, **kwargs: Any) -> None:
+        """식단 Plan-Execute 그래프의 계획(`plan`)·실행 단계(`plan_step`)를 남긴다."""
+        if name in ("plan", "plan_step"):
+            self.steps.append({"agent": "meal_planner_agent", "event": name, **(data or {})})
+
     def on_chat_model_start(self, serialized: dict, messages: Any, *, run_id: Any, metadata: dict | None = None,
                             **kwargs: Any) -> None:
         """대화 이력 요약 미들웨어가 요약 모델을 부르면 `summary` 이벤트를 남긴다."""
