@@ -1,6 +1,7 @@
 """레시피·보관 가이드 RAG 파이프라인 (SERVICE.md 6장 #3, 7장 검색 인덱스).
 
-- 청킹: 레시피는 요리 하나, 보관 가이드는 품목 하나(기준표 행 + 보관 팁)와 문서 규칙 한 덩어리.
+- 청킹: 레시피는 요리 하나, 보관 가이드는 품목 하나(`storage_items.csv` 기준표 행 + `storage_guide.md` 보관 팁)와
+  문서 규칙 한 덩어리. 품목 기준표를 읽는 함수(`load_storage_items`)는 여기 하나만 두고 `src/tools.py`도 이것을 쓴다.
   메타데이터에 `source`(파일명), `title`(요리명·품목명), `kind`(recipe·storage)를 담는다.
 - 하이브리드 검색: Chroma 벡터(Bedrock 임베딩) + kiwipiepy 형태소 BM25(`rank-bm25`)를
   RRF(Reciprocal Rank Fusion)로 합친다. RRF는 직접 구현한다.
@@ -13,6 +14,7 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import os
@@ -36,6 +38,10 @@ load_dotenv()
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 STORAGE_GUIDE = DATA_DIR / "storage_guide.md"
+# 품목 기준표: 품목, 별칭(쉼표 구분, 없으면 -), 기준 단위, 권장 보관일수, 개당 평균 무게 g(없으면 -)
+STORAGE_ITEMS = DATA_DIR / "storage_items.csv"
+ITEM_COLUMNS = ("품목", "별칭", "기준 단위", "권장 보관일수", "개당 평균 무게 g")
+BASE_UNITS = ("g", "L", "개")
 # 임베딩을 저장해 두는 Chroma 폴더. 문서나 임베딩 모델이 바뀌면 지문이 달라져 다시 만든다
 CHROMA_DIR = DATA_DIR / "chroma"
 COLLECTION = "fridge-docs"
@@ -82,28 +88,68 @@ def _recipe_chunks(path: Path) -> list[Document]:
     return docs
 
 
-def _guide_rows(text: str) -> dict[str, str]:
-    """보관 가이드 품목 기준표를 `{품목: "별칭 ... / 권장 보관일수 N일 ..."}` 문장으로 바꾼다."""
-    table = text.split("## 품목 기준표", 1)[1].split("\n## ", 1)[0]
+def load_storage_items(path: Path | str = STORAGE_ITEMS) -> dict[str, dict]:
+    """품목 기준표 CSV를 읽는다. 품목명을 키로 별칭 목록·기준 단위·권장 보관일수·개당 평균 무게 g(없으면 None)를 돌려준다.
+
+    열 이름이 다르거나, 품목명이 비거나 겹치거나, 기준 단위가 g·L·개가 아니거나, 숫자가 양수가 아니면
+    몇 번째 줄인지 밝혀 ValueError를 낸다. 표가 조용히 잘못 읽혀 유효기간·단위 환산이 틀어지지 않게 하려는 것이다.
+    """
+    path = Path(path)
+    with path.open(encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        if tuple(reader.fieldnames or ()) != ITEM_COLUMNS:
+            raise ValueError(f"{path.name}: 열 이름은 {', '.join(ITEM_COLUMNS)} 순서여야 해요 (지금: {reader.fieldnames})")
+        items: dict[str, dict] = {}
+        for line_no, row in enumerate(reader, start=2):
+            where = f"{path.name} {line_no}번째 줄"
+            name = (row["품목"] or "").strip()
+            if not name or name in items:
+                raise ValueError(f"{where}: 품목명이 비었거나 겹쳐요 ({name!r})")
+            unit = (row["기준 단위"] or "").strip()
+            if unit not in BASE_UNITS:
+                raise ValueError(f"{where}: 기준 단위는 {'·'.join(BASE_UNITS)} 중 하나여야 해요 ({unit!r})")
+            days_text = (row["권장 보관일수"] or "").strip()
+            if not days_text.isdigit() or int(days_text) <= 0:
+                raise ValueError(f"{where}: 권장 보관일수는 양의 정수여야 해요 ({days_text!r})")
+            weight_text = (row["개당 평균 무게 g"] or "").strip()
+            try:
+                weight = None if weight_text == "-" else float(weight_text)
+            except ValueError:
+                weight = 0.0
+            if weight is not None and weight <= 0:
+                raise ValueError(f"{where}: 개당 평균 무게는 양수나 -여야 해요 ({weight_text!r})")
+            aliases = (row["별칭"] or "").strip()
+            items[name] = {
+                "aliases": [] if aliases in ("", "-") else [a.strip() for a in aliases.split(",") if a.strip()],
+                "base_unit": unit,
+                "storage_days": int(days_text),
+                "avg_weight_g": weight,
+            }
+    return items
+
+
+def _guide_rows(items: dict[str, dict]) -> dict[str, str]:
+    """품목 기준표를 검색 청크에 붙일 `{품목: "별칭 ... / 권장 보관일수 N일 ..."}` 문장으로 바꾼다."""
     rows: dict[str, str] = {}
-    for line in table.splitlines():
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) != 5 or cells[0] == "품목" or set(cells[0]) <= set("-: "):
-            continue
-        name, aliases, unit, days, weight = cells
+    for name, item in items.items():
+        weight = item["avg_weight_g"]
         rows[name] = (
-            f"별칭: {aliases if aliases != '-' else '없음'} / 기준 단위: {unit} / 권장 보관일수: {days}일"
-            + (f" / 개당 평균 무게: {weight}g" if weight != "-" else "")
+            f"별칭: {', '.join(item['aliases']) or '없음'} / 기준 단위: {item['base_unit']}"
+            f" / 권장 보관일수: {item['storage_days']}일"
+            + (f" / 개당 평균 무게: {weight:g}g" if weight is not None else "")
         )
     return rows
 
 
-def _storage_chunks(path: Path) -> list[Document]:
-    """보관 가이드를 품목 단위(기준표 행 + 보관 팁) 청크와 문서 규칙 청크로 나눈다."""
+def _storage_chunks(path: Path, items_path: Path = STORAGE_ITEMS) -> list[Document]:
+    """보관 가이드를 품목 단위(기준표 행 + 보관 팁) 청크와 문서 규칙 청크로 나눈다.
+
+    보관 팁은 `storage_guide.md`, 기준표 행은 `storage_items.csv`에서 읽는다. 청크 출처(`source`)는 보관 팁 문서다.
+    """
     text = path.read_text(encoding="utf-8")
-    rows = _guide_rows(text)
+    rows = _guide_rows(load_storage_items(items_path))
     meta = {"source": path.name, "kind": KIND_STORAGE}
-    head = text.split("## 품목 기준표", 1)[0]
+    head = text.split("## 품목별 보관 팁", 1)[0]
     docs = [Document(page_content=head.strip(), metadata={**meta, "title": SCOPE_TITLE})]
     tips = text.split("## 품목별 보관 팁", 1)[1]
     for block in _split_sections(tips, "### "):
@@ -121,21 +167,19 @@ def load_chunks(data_dir: Path = DATA_DIR) -> list[Document]:
     docs: list[Document] = []
     for path in sorted(data_dir.glob(RECIPE_GLOB)):
         docs.extend(_recipe_chunks(path))
-    docs.extend(_storage_chunks(data_dir / STORAGE_GUIDE.name))
+    docs.extend(_storage_chunks(data_dir / STORAGE_GUIDE.name, data_dir / STORAGE_ITEMS.name))
     return docs
 
 
-def alias_table(path: Path = STORAGE_GUIDE) -> dict[str, list[str]]:
-    """보관 가이드 기준표에서 쿼리 확장용 별칭 표를 만든다.
+def alias_table(path: Path = STORAGE_ITEMS) -> dict[str, list[str]]:
+    """품목 기준표에서 쿼리 확장용 별칭 표를 만든다.
 
     품목명과 별칭 어느 쪽으로 찾아도 같은 묶음(품목명 + 별칭들)을 돌려준다.
     예: "소고기" → ["소고기", "한우", "우둔", "차돌", ...], "한우" → 같은 목록.
     """
-    rows = _guide_rows(path.read_text(encoding="utf-8"))
     table: dict[str, list[str]] = {}
-    for name, desc in rows.items():
-        aliases = desc.split(" / ", 1)[0].removeprefix("별칭: ")
-        group = [name] + ([a.strip() for a in aliases.split(",")] if aliases != "없음" else [])
+    for name, item in load_storage_items(path).items():
+        group = [name] + item["aliases"]
         for word in group:
             table.setdefault(word, group)
     return table
@@ -269,7 +313,7 @@ class HybridIndex:
         self.docs = load_chunks(data_dir)
         self.ids = [f"{d.metadata['kind']}:{d.metadata['source']}#{d.metadata['title']}" for d in self.docs]
         self.by_id = dict(zip(self.ids, self.docs))
-        self.aliases = alias_table(data_dir / STORAGE_GUIDE.name)
+        self.aliases = alias_table(data_dir / STORAGE_ITEMS.name)
         self.kiwi = Kiwi()
         self.bm25: dict[str, tuple[BM25Okapi, list[str]]] = {}
         for kind in (KIND_RECIPE, KIND_STORAGE):

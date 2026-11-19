@@ -30,7 +30,7 @@ from src.tools import (
     GUEST_DENIED,
     NOT_IN_GUIDE,
     REJECT_ANSWERS,
-    STORAGE_GUIDE,
+    STORAGE_ITEMS,
     GUEST_USER,
     FridgeContext,
     connect,
@@ -200,7 +200,7 @@ def extract_contexts(outputs: list[tuple[str, str]]) -> list[str]:
             elif name == "get_storage_days" and output.startswith(NOT_IN_GUIDE):
                 # 가이드에 없는 품목: "망고는 가이드에 없다"는 답의 근거로 담는다
                 item = output.removeprefix(NOT_IN_GUIDE).lstrip(": ").split(".", 1)[0].strip()
-                add(f"[{STORAGE_GUIDE.name}#{item}] {output}")
+                add(f"[{STORAGE_ITEMS.name}#{item}] {output}")
             continue
         if name == "list_inventory":
             for row in data:

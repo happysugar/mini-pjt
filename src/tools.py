@@ -25,7 +25,7 @@ from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
 from src import memory
-from src.retriever import KIND_RECIPE, KIND_STORAGE, SearchResult, get_index
+from src.retriever import KIND_RECIPE, KIND_STORAGE, STORAGE_ITEMS, SearchResult, get_index, load_storage_items
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 FRIDGE_DB = DATA_DIR / "fridge.db"
@@ -33,7 +33,7 @@ FRIDGE_DB = DATA_DIR / "fridge.db"
 CHECKPOINT_DB = DATA_DIR / "checkpoints.db"
 SEED_INVENTORY = DATA_DIR / "seed_inventory.json"
 SEED_USERS = DATA_DIR / "seed_users.json"
-STORAGE_GUIDE = DATA_DIR / "storage_guide.md"
+# 보관 팁 문서(`storage_guide.md`)는 검색 인덱스가, 품목 기준표(`STORAGE_ITEMS`, `storage_items.csv`)는 아래 도구가 읽는다.
 # 카테고리 순서가 곧 추천 슬롯 순서다.
 RECIPE_FILES = {
     "한식": DATA_DIR / "recipes_korean.md",
@@ -269,34 +269,17 @@ def _name_key(name: str) -> str:
 
 
 @lru_cache(maxsize=4)
-def load_storage_guide(path: str = str(STORAGE_GUIDE)) -> dict[str, dict]:
-    """`storage_guide.md`의 품목 기준표를 읽는다.
+def load_storage_guide(path: str = str(STORAGE_ITEMS)) -> dict[str, dict]:
+    """품목 기준표(`storage_items.csv`)를 읽는다. 결과를 캐시한다.
 
     품목명을 키로, 별칭 목록·기준 단위·권장 보관일수·개당 평균 무게 g(없으면 None)를
-    값으로 하는 사전을 돌려준다.
+    값으로 하는 사전을 돌려준다. 읽기와 형식 검사는 검색 인덱스와 같은 `retriever.load_storage_items`가 맡는다.
     """
-    text = Path(path).read_text(encoding="utf-8")
-    table = text.split("## 품목 기준표", 1)[1].split("\n## ", 1)[0]
-    guide: dict[str, dict] = {}
-    for line in table.splitlines():
-        line = line.strip()
-        if not line.startswith("|") or re.match(r"^\|\s*-", line):
-            continue
-        cells = [c.strip() for c in line.strip("|").split("|")]
-        if cells[0] == "품목":
-            continue
-        name, aliases, unit, days, weight = cells
-        guide[name] = {
-            "aliases": [] if aliases == "-" else [a.strip() for a in aliases.split(",")],
-            "base_unit": unit,
-            "storage_days": int(days),
-            "avg_weight_g": None if weight == "-" else float(weight),
-        }
-    return guide
+    return load_storage_items(path)
 
 
 @lru_cache(maxsize=4)
-def _alias_index(path: str = str(STORAGE_GUIDE)) -> dict[str, str]:
+def _alias_index(path: str = str(STORAGE_ITEMS)) -> dict[str, str]:
     """품목명과 별칭을 품목명으로 잇는 색인을 만든다. 품목명이 별칭보다 우선한다."""
     guide = load_storage_guide(path)
     index: dict[str, str] = {}
@@ -1779,7 +1762,7 @@ def calc_kcal_tool(servings_eaten: float, dish: str | None = None, kcal_per_serv
 
 # 보관 가이드에 없는 품목 안내의 앞부분. API가 이 문구로 시작하는 결과를 근거(contexts)로 담는다
 NOT_IN_GUIDE = "보관 가이드에 없는 품목이에요"
-# 권장 보관일수의 보관 조건. 가이드 표는 따로 적지 않으면 냉장 기준이다(storage_guide.md 단위 규칙)
+# 권장 보관일수의 보관 조건. 품목 기준표는 따로 적지 않으면 냉장 기준이다(storage_guide.md 단위 규칙)
 STORAGE_BASIS = "냉장 보관 기준"
 
 
@@ -1790,7 +1773,7 @@ def get_storage_days(item: str) -> str:
     if info is None:
         return f"{NOT_IN_GUIDE}: {item}. 권장 보관일수를 알 수 없어요. 유효기간을 직접 알려 주세요"
     return _to_json({"item": item, "guide_item": resolve_item(item), "storage_days": info["storage_days"],
-                     "basis": STORAGE_BASIS, "base_unit": info["base_unit"], "source": STORAGE_GUIDE.name})
+                     "basis": STORAGE_BASIS, "base_unit": info["base_unit"], "source": STORAGE_ITEMS.name})
 
 
 @tool

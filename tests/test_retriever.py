@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from langchain_core.embeddings import DeterministicFakeEmbedding
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -76,6 +77,57 @@ def test_alias_table_both_ways():
     assert table["한우"] == table["소고기"]
 
 
+# ── 품목 기준표 (storage_items.csv) ───────────────────────────────
+
+
+def test_storage_items_file_is_valid_and_shared():
+    """기준표는 형식 검사를 통과하고, 도구와 검색 인덱스가 같은 결과를 쓴다."""
+    items = retriever.load_storage_items()
+    assert items == tools.load_storage_guide()
+    assert items["두부"] == {"aliases": ["부침두부", "찌개두부"], "base_unit": "개", "storage_days": 7, "avg_weight_g": 300.0}
+    assert items["베이컨"]["aliases"] == [] and items["소고기"]["avg_weight_g"] is None
+    assert all(i["base_unit"] in retriever.BASE_UNITS and i["storage_days"] > 0 for i in items.values())
+
+
+def test_every_storage_item_has_a_tip_section():
+    """기준표의 품목마다 storage_guide.md에 보관 팁 절이 있다(두 파일이 어긋나지 않게)."""
+    titles = {d.metadata["title"] for d in retriever.load_chunks() if d.metadata["kind"] == KIND_STORAGE}
+    assert set(retriever.load_storage_items()) <= titles
+    assert "## 품목 기준표" not in retriever.STORAGE_GUIDE.read_text(encoding="utf-8")
+
+
+def _write_items(tmp_path, *rows: str) -> Path:
+    """임시 기준표 CSV를 만든다."""
+    path = tmp_path / "storage_items.csv"
+    path.write_text("\n".join([",".join(retriever.ITEM_COLUMNS), *rows]) + "\n", encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        ("두부,-,모,7,300", "기준 단위"),
+        ("두부,-,개,0,300", "권장 보관일수"),
+        ("두부,-,개,일주일,300", "권장 보관일수"),
+        ("두부,-,개,7,무거움", "개당 평균 무게"),
+        (",-,개,7,300", "품목명"),
+    ],
+)
+def test_storage_items_rejects_bad_rows(tmp_path, row, message):
+    with pytest.raises(ValueError, match=message) as error:
+        retriever.load_storage_items(_write_items(tmp_path, row))
+    assert "2번째 줄" in str(error.value)
+
+
+def test_storage_items_rejects_duplicate_and_bad_header(tmp_path):
+    with pytest.raises(ValueError, match="3번째 줄"):
+        retriever.load_storage_items(_write_items(tmp_path, "두부,-,개,7,300", "두부,-,개,5,300"))
+    path = tmp_path / "bad.csv"
+    path.write_text("품목,별칭,단위,보관일수,무게\n두부,-,개,7,300\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="열 이름"):
+        retriever.load_storage_items(path)
+
+
 def test_rrf_sums_reciprocal_ranks():
     fused = dict(rrf([["a", "b"], ["b", "c"]], k=60))
     assert fused["b"] == 1 / 62 + 1 / 61
@@ -132,7 +184,7 @@ def test_unknown_item_returns_guide_scope_only(offline_index, monkeypatch):
 
 def test_unknown_item_storage_days_is_context():
     output = tools.get_storage_days.invoke({"item": "망고"})
-    assert extract_contexts([("get_storage_days", output)]) == [f"[storage_guide.md#망고] {output}"]
+    assert extract_contexts([("get_storage_days", output)]) == [f"[storage_items.csv#망고] {output}"]
     assert extract_contexts([("list_inventory", output)]) == []
 
 

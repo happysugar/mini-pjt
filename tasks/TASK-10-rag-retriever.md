@@ -77,3 +77,19 @@
   평가 문항도 맞췄다: P05 기대 도구 `get_storage_days`, "보관 팁 한 가지" 기준 삭제. N02 기대 도구 `get_storage_days`.
   - 재평가 (실제 Bedrock, `BEDROCK_MODEL_ID=global.anthropic.claude-sonnet-4-6`, `run-20261119-143145.json`): P05·N02 2/2 통과, 도구 일치 2/2(`get_storage_days`만), forbidden 위반 0.
     P05 "두부의 냉장 권장 보관일수는 7일입니다. 출처: storage_guide.md"(faithfulness 1.00, relevancy 0.76). N02 가이드에 없다고 안내하고 유효기간을 직접 요청(faithfulness 0.50).
+
+## 후속 변경: 품목 기준표 분리 (2026-11-20, `design-review` branch)
+- `storage_guide.md`의 `## 품목 기준표`를 `data/storage_items.csv`로 옮겼다. `storage_guide.md`에는 머리말, 단위 규칙, 품목별 보관 팁만 남는다.
+- 기준표를 읽는 함수를 `retriever.load_storage_items()` 하나로 합쳤다. 전에는 `tools.load_storage_guide()`(사전)와
+  `retriever._guide_rows()`(문자열)가 같은 표를 따로 읽었고, `alias_table()`은 그 문자열을 다시 잘라 별칭을 꺼냈다.
+  `tools.py`가 `retriever.py`를 import하므로 함수를 retriever 쪽에 두어 순환 import를 피했다. `tools.load_storage_guide()`는 캐시만 하고 이 함수를 부른다.
+- 형식 검사: 열 이름·순서, 품목명 빈칸·중복, 기준 단위(g·L·개), 권장 보관일수(양의 정수), 개당 평균 무게(양수 또는 `-`)가 어긋나면
+  몇 번째 줄인지 밝혀 `ValueError`를 낸다. 전에는 제목 문자열("## 품목 기준표")로 표를 잘라 읽어 절 구성이 바뀌면 조용히 틀어질 수 있었다.
+- 검색 청크: 품목 청크 27개는 분리 전과 내용이 같다(기준표 행 + 보관 팁, 출처 `storage_guide.md`). 머리말 문장이 바뀐 "보관 가이드 범위와 단위 규칙" 청크만 달라져 Chroma 인덱스를 한 번 다시 만든다.
+- 출처: `get_storage_days`의 `source`와 가이드에 없는 품목 contexts는 `storage_items.csv`가 됐다. 요리추천 프롬프트의 답 예시, 평가 문항 P05 trait과 N02 note를 함께 바꿨다.
+- 확인
+  - 분리 전 결과와 비교: 기준표 사전, 별칭 표, 품목 청크 27개가 모두 같다.
+  - pytest 344개 통과(기준표 형식 검사, 품목마다 보관 팁 절 존재, 도구와 인덱스가 같은 표를 쓰는지 등 8개 추가).
+  - 검색 평가 `--no-llm`(`retrieval-20261120-003258.json`): 분리 전(`retrieval-20261119-155407.json`)과 같다(Precision@3 0.387, Recall@3 0.96, MRR 0.933).
+  - 검색 평가 LLM 모드 2회(`retrieval-20261120-003036`, `003236`): Recall@3·Hit 1.0, MRR 0.973 / 1.0. S10 순위가 실행마다 1위·3위로 달라지는 건 LLM 리랭킹 편차다.
+  - 실제 Bedrock P01·P05·N02·E01(`run-20261120-003515.json`): 4/4 통과, P05 답의 출처가 `storage_items.csv`, faithfulness 1.0.
