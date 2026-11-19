@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import os
@@ -22,7 +23,7 @@ from fastapi import FastAPI, Header
 from langchain_core.callbacks import BaseCallbackHandler
 from pydantic import BaseModel, Field
 
-from src import retriever
+from src import guardrails, retriever
 from src.agent import open_agent, pending_interrupt, run_turn
 from src.middleware import ModelUnavailableError
 from src.tools import (
@@ -36,7 +37,9 @@ from src.tools import (
     now_iso,
     rescued_g_week,
     reset_db,
+    resend_unsynced_meals,
     resolve_item,
+    WATCH_FAILED,
 )
 
 load_dotenv()
@@ -260,6 +263,11 @@ def _domain_trace(db_path: str | None) -> dict[str, Any]:
         conn.close()
 
 
+def _watch_failed(steps: list[dict]) -> bool:
+    """MCP `record_meal` 호출 기록 중 실패가 있는지 본다."""
+    return any(s.get("tool") == "record_meal" and s.get("event") == "error" for s in steps)
+
+
 def _error(code: str, message: str) -> dict[str, str]:
     """`trace.errors` 항목을 만든다."""
     return {"code": code, "message": message}
@@ -276,11 +284,14 @@ async def _pending(agent: Any, thread_id: str) -> dict | None:
 
 
 async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path: str | None) -> QueryResponse:
-    """`/query` 한 건을 처리한다. 신원 → 스레드 소유권 → 승인 상태 → 에이전트 실행 순서다."""
+    """`/query` 한 건을 처리한다. 신원 → 스레드 소유권 → 승인 상태 → 입력 가드레일 → 에이전트 실행 순서다.
+
+    모든 응답은 출력 가드레일(개인정보·다른 가족 칼로리 마스킹)을 거친다. trace의 질문도 같은 방식으로 가린다.
+    """
     trace: dict[str, Any] = {
         "thread_id": req.thread_id,
         "user_id": None,
-        "question": req.question,
+        "question": guardrails.mask_output(req.question, "")[0],
         "resume": req.resume,
         "alerts": [],
         "pending_interrupt": None,
@@ -288,11 +299,14 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
         "rescued_g_week": 0,
         "errors": [],
         "index": dict(retriever.BUILD_STATS),
+        "guardrail": {"input": None, "output": []},
     }
 
     def reply(answer: str, contexts: list[str] | None = None) -> QueryResponse:
-        """현재 trace로 응답을 만든다."""
-        return QueryResponse(answer=answer, contexts=contexts or [], trace=trace)
+        """현재 trace로 응답을 만든다. 답은 출력 가드레일로 개인정보를 가린 뒤 돌려준다."""
+        masked, kinds = guardrails.mask_output(answer, trace["user_id"] or "")
+        trace["guardrail"]["output"] = kinds
+        return QueryResponse(answer=masked, contexts=contexts or [], trace=trace)
 
     try:
         user_id = resolve_identity(token, req.user_id)
@@ -307,6 +321,12 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
         trace["errors"].append(_error("THREAD_OWNER_MISMATCH", "다른 사용자의 thread_id예요"))
         return reply(MSG_THREAD_MISMATCH)
 
+    # 지난 요청에서 워치 기록에 실패한 식사를 같은 멱등 키로 다시 보낸다 (SERVICE.md 5.3 4단계).
+    resend_steps = await asyncio.to_thread(resend_unsynced_meals, db_path, user_id)
+    trace["steps"] = list(resend_steps)
+    if _watch_failed(resend_steps):
+        trace["errors"].append(_error("WATCH_SYNC_FAILED", "지난 식사의 워치 재전송에 실패했어요. 다음 요청 때 다시 시도해요"))
+
     trace.update(_domain_trace(db_path))
     pending = await _pending(agent, thread_id)
     if req.resume and not pending:
@@ -317,6 +337,13 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
         trace["errors"].append(_error("INTERRUPT_PENDING", "승인 또는 거절 후 다시 질문해 주세요"))
         return reply(f"{pending['summary']} (approve/reject)")
 
+    if not req.resume:
+        verdict = guardrails.check_input(req.question, user_id)
+        trace["guardrail"]["input"] = verdict.as_trace()
+        if verdict.blocked:
+            trace["errors"].append(_error(verdict.code, "입력 가드레일에서 막은 요청이에요"))
+            return reply(verdict.message)
+
     recorder = StepRecorder()
     context = FridgeContext(user_id=user_id, db_path=db_path)
     try:
@@ -326,12 +353,17 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
         trace["errors"].append(_error("MODEL_UNAVAILABLE", str(exc)[:300]))
         return reply(MSG_MODEL_UNAVAILABLE)
     except Exception as exc:  # noqa: BLE001 - 어떤 실패든 세 키 형식으로 돌려준다
-        trace["steps"] = recorder.steps
+        trace["steps"] = resend_steps + recorder.steps + context.mcp_calls
         trace["errors"].append(_error("AGENT_ERROR", f"{type(exc).__name__}: {exc}"[:300]))
         return reply(MSG_AGENT_ERROR)
 
     answer = turn["answer"]
-    trace["steps"] = recorder.steps
+    # 도구 호출 기록 뒤에, 식사 확정 도구가 코드에서 부른 MCP record_meal 기록을 붙인다.
+    trace["steps"] = resend_steps + recorder.steps + context.mcp_calls
+    if _watch_failed(context.mcp_calls):
+        trace["errors"].append(_error("WATCH_SYNC_FAILED", "워치 기록에 실패했어요. 다음 요청 때 같은 키로 다시 보내요"))
+        if not ("워치" in answer and "실패" in answer):  # 모델이 안내를 빼먹어도 답변에 남긴다 (SERVICE.md 5.3 3단계)
+            answer = f"{answer}\n{WATCH_FAILED}"
     trace["pending_interrupt"] = turn["pending_interrupt"]
     if any(output.strip() == GUEST_DENIED for _, output in recorder.outputs):
         trace["errors"].append(_error("GUEST_READ_ONLY", "guest는 조회만 할 수 있어요"))

@@ -52,4 +52,11 @@ langchain 1.x 내장 미들웨어를 조립해 에이전트에 붙인다. 직접
 - 12문항 평가(`run-20261119-141228.json`): 통과 9/12, 금지 위반 0, 도구 일치 10/12, faithfulness 0.911, answer relevancy 0.788.
   - E02 실패(confirm_meal을 부르지 않고 칼로리를 먼저 물음)는 미들웨어를 끈 상태로 두 번 더 돌려도 같아서 TASK-13 때문이 아니다. 이전 12문항 실행(`run-20261119-095251.json`) 뒤 main에 들어온 변경의 영향으로 보이며 따로 살펴봐야 한다.
   - E03(`get_calorie_budget` 미구현, M5 대상), G01은 이전 실행과 같은 실패다.
-- `.venv/Scripts/python -m pytest` 167개 통과.
+- `.venv/Scripts/python -m pytest` 167개 통과(병합 전).
+
+### main(TASK-12, TASK-14) 병합 뒤
+- `src/agent.py` 충돌: `build_agent`가 TASK-14의 `extra_tools`와 이 작업의 `middleware`를 함께 받게 합쳤다. pytest 198개 통과.
+- 병합 뒤 12문항 평가(`run-20261119-142210.json`): P01~P04, G01, G02는 통과. P05부터 E03까지 6문항은 Bedrock 하루 토큰 한도
+  (`ThrottlingException: Too many tokens per day`)에 걸려 재시도 2번 뒤 `trace.errors`에 `MODEL_UNAVAILABLE`로 끝났다.
+  코드 문제가 아니며, 실제 Bedrock 장애에서도 재시도와 `MODEL_UNAVAILABLE`이 의도대로 동작함을 보여 준다. 한도가 풀린 뒤 다시 돌려야 한다.
+  재시도 간격(1초, 2초)으로는 하루 한도가 풀리지 않으므로, 이런 오류는 재시도에서 빼는 것도 검토할 만하다.
