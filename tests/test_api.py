@@ -241,6 +241,7 @@ def test_meal_reject_saves_nothing(make_client, env):
     assert not codes(r2) and r2["trace"]["pending_interrupt"] is None
     assert counts(env) == before
     assert tools.REJECT_MEAL in tool_outputs(client, tid)
+    assert r2["answer"] == tools.REJECT_MEAL  # 모델이 바꿔 쓴 "취소했어요." 대신 도구 문장 그대로
 
 
 def test_new_question_while_pending(make_client, env):

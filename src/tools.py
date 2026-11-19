@@ -1199,6 +1199,7 @@ GUEST_USER = "guest"
 REJECT_MEAL = "취소했어요. 평가도 저장하지 않았어요"
 REJECT_DISCARD = "취소했어요. 폐기하지 않았어요"
 REJECT_WITHDRAW = "취소했어요. 재고를 바꾸지 않았어요"
+REJECT_ANSWERS = frozenset({REJECT_MEAL, REJECT_DISCARD, REJECT_WITHDRAW})  # 거절 재개 턴의 최종 답으로 그대로 쓴다
 GUEST_DENIED = "평가와 재고 변경은 로그인한 가족만 할 수 있어요"
 ASK_SERVINGS = "몇 인분 만들었고, 본인은 몇 인분 드셨나요?"
 WATCH_PENDING = "워치 기록은 아직 연결 전이라 대기 중이에요"

@@ -29,6 +29,7 @@ from src.middleware import is_model_unavailable
 from src.tools import (
     GUEST_DENIED,
     NOT_IN_GUIDE,
+    REJECT_ANSWERS,
     STORAGE_GUIDE,
     GUEST_USER,
     FridgeContext,
@@ -377,6 +378,10 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
     if any(output.strip() == GUEST_DENIED for _, output in recorder.outputs):
         trace["errors"].append(_error("GUEST_READ_ONLY", "guest는 조회만 할 수 있어요"))
         answer = GUEST_DENIED
+    # 거절로 재개해 승인 도구가 취소 문장을 돌려줬으면, 모델이 바꿔 쓴 답 대신 그 문장을 그대로 쓴다
+    rejected = next((o.strip() for _, o in recorder.outputs if o.strip() in REJECT_ANSWERS), None)
+    if req.resume and rejected and not turn["pending_interrupt"]:
+        answer = rejected
     trace.update(_domain_trace(db_path))
     trace["index"] = dict(retriever.BUILD_STATS)  # 질문 처리 중에 인덱스를 다시 만들지 않았는지 확인용
     return reply(answer, extract_contexts(recorder.outputs))
