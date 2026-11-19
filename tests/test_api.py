@@ -334,6 +334,17 @@ def test_recommendation_contexts(make_client):
     assert any(a["sn"] == HANWOO and a["level"] == "imminent" for a in r["trace"]["alerts"])
 
 
+def test_recommendation_contexts_carry_answer_facts(make_client):
+    """답에 쓰는 평점·신메뉴·kcal·임박·부족 재료와 도구 안내가 contexts에 근거로 들어간다."""
+    _, ask = make_client(call("rank_recipes", {"category": "멕시코식"}), say("지원하지 않아요."))
+    r = ask({"question": "멕시코식 타코 레시피 알려줘"}, DAD)
+    assert any(c.startswith("[rank_recipes#안내]") and "지원하지 않아요" in c for c in r["contexts"])
+    soup = next(c for c in r["contexts"] if c.startswith("[recipes_korean.md#소고기 무국]"))
+    assert "평점 4.5(2회 평가)" in soup and "1인분 220kcal" in soup and "임박 재료 소고기 D-2" in soup
+    pasta = next(c for c in r["contexts"] if c.startswith("[recipes_italian.md#소고기 라구 파스타]"))
+    assert "신메뉴(평가 없음)" in pasta and "부족 재료 토마토 캔" in pasta
+
+
 # ── 검색 contexts와 인덱스 (TASK-10) ─────────────────────────────
 
 

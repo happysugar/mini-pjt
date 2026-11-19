@@ -161,6 +161,31 @@ class StepRecorder(BaseCallbackHandler):
         return name, int((time.perf_counter() - start) * 1000)
 
 
+def recommendation_context(item: dict[str, Any]) -> str:
+    """추천 요리 한 개를 근거 문자열로 만든다.
+
+    요약뿐 아니라 슬롯, 카테고리, 주재료, 평점 또는 신메뉴 여부, 1인분 kcal, 임박 재료(D-day),
+    부족 재료까지 담는다. 모두 `rank_recipes`가 계산한 값이라 답의 주장을 그대로 뒷받침한다.
+    가족 추천의 평점은 그룹 평점이라 다른 가족의 개별 기록은 들어가지 않는다.
+    """
+    if item.get("is_new"):
+        rating = "신메뉴(평가 없음)"
+    else:
+        rating = f"평점 {item.get('rating')}({item.get('rating_count', 0)}회 평가)"
+    imminent = ", ".join(f"{u['item']} D-{u['d_day']}" for u in item.get("imminent_ingredients", [])) or "없음"
+    missing = ", ".join(item.get("missing_ingredients", [])) or "없음"
+    facts = [
+        f"{item.get('slot') or item['cuisine']} 슬롯",
+        item["cuisine"],
+        f"주재료 {item['main_ingredient']}",
+        rating,
+        f"1인분 {item['kcal_per_serving']:g}kcal",
+        f"임박 재료 {imminent}",
+        f"부족 재료 {missing}",
+    ]
+    return f"[{item['source']}#{item['dish']}] {' / '.join(facts)}\n{item.get('summary', '')}"
+
+
 def extract_contexts(outputs: list[tuple[str, str]]) -> list[str]:
     """근거 도구 결과에서 `contexts` 문자열 목록을 만든다. 같은 문자열은 한 번만 넣는다."""
     contexts: list[str] = []
@@ -187,8 +212,13 @@ def extract_contexts(outputs: list[tuple[str, str]]) -> list[str]:
             for hit in data.get("results", []):
                 add(hit)
         elif name == "rank_recipes":
+            # 답에 쓰이는 도구 안내·빈 슬롯·요리별 결정적 값을 모두 근거로 담는다
+            for note in data.get("notes", []):
+                add(f"[rank_recipes#안내] {note}")
+            for empty in data.get("empty_slots", []):
+                add(f"[rank_recipes#{empty['slot']}] 추천 없음: {empty['reason']}")
             for item in data.get("items", []):
-                add(f"[{item['source']}#{item['dish']}] {item['summary']}")
+                add(recommendation_context(item))
         elif name == "get_storage_days" and data.get("source"):
             add(f"[{data['source']}#{data.get('item', '')}] {json.dumps(data, ensure_ascii=False)}")
     return contexts
