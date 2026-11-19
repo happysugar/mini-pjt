@@ -18,11 +18,13 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from langchain.tools import ToolRuntime, tool
 from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
+from src import memory
 from src.retriever import KIND_RECIPE, KIND_STORAGE, SearchResult, get_index
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -940,15 +942,19 @@ def has_allergen(recipe: Recipe, allergies: list[str] | tuple[str, ...]) -> bool
 def _safe_candidates(
     conn: sqlite3.Connection, allergies: list[str], dislikes: list[str], servings: float
 ) -> tuple[list[_Candidate], _Exclusions]:
-    """안전 필터(알레르기 → 비선호)를 먼저 적용하고, 재고 조건을 통과한 후보를 돌려준다."""
+    """안전 필터(알레르기 → 비선호)를 먼저 적용하고, 재고 조건을 통과한 후보를 돌려준다.
+
+    비선호는 요리명(예: 가지 파르미자나)이면 그 요리를, 재료명(예: 가지)이면 그 재료가 든 요리를 뺀다.
+    """
     stock = usable_stock(conn)
     excluded = _Exclusions()
     dislike_set = {d.strip() for d in dislikes}
+    dislike_items = {item_key(d) for d in dislike_set if d}
     candidates: list[_Candidate] = []
     for recipe in parse_recipes().values():
         if has_allergen(recipe, allergies):
             excluded.allergy += 1
-        elif recipe.name in dislike_set:
+        elif recipe.name in dislike_set or dislike_items & {item_key(ing.item) for ing in recipe.ingredients}:
             excluded.dislike += 1
         elif (candidate := _check_recipe(recipe, stock, servings)) is None:
             excluded.no_stock += 1
@@ -969,7 +975,7 @@ def user_ratings(conn: sqlite3.Connection, user_id: str) -> dict[str, tuple[floa
 def seed_profile(user_id: str) -> dict:
     """시드 JSON에서 사용자의 선호·비선호·알레르기를 읽는다.
 
-    장기 메모리 Store(TASK-16)가 생기기 전까지 쓰는 임시 출처다. 없는 사용자면 빈 목록.
+    장기 메모리 Store(`src.memory`)가 없을 때의 대체 출처다. 없는 사용자면 빈 목록.
     """
     for user in _load_json(SEED_USERS)["users"]:
         if user["user_id"] == user_id:
@@ -1685,10 +1691,15 @@ def rank_recipes(runtime: ToolRuntime[FridgeContext], category: str | None = Non
             others = [d for d in found if d != ctx.user_id]
             if unknown:
                 notes.append(f"가족 목록에 없는 이름은 빼고 골랐어요: {', '.join(unknown)}")
+        # 안전 필터의 알레르기·비선호는 장기 메모리(Store)에서 읽고, 없으면 시드 정보를 쓴다.
+        store = getattr(runtime, "store", None)
         if others:
-            result = recommend_family(conn, ctx.user_id, others)
+            profiles = memory.filter_profiles(store, [ctx.user_id, *others]) if store is not None else None
+            result = recommend_family(conn, ctx.user_id, others, profiles=profiles)
         else:
-            result = recommend(conn, ctx.user_id, category=category)
+            profile = memory.profile_or(store, ctx.user_id, seed_profile(ctx.user_id))
+            result = recommend(conn, ctx.user_id, category=category,
+                               allergies=profile["allergies"], dislikes=profile["dislikes"])
         result.notes = notes + result.notes
         return result.model_dump_json()
     finally:
@@ -1819,6 +1830,60 @@ def confirm_meal(
         conn.close()
 
 
+def _preference_target(kind: str, value: str) -> str | None:
+    """선호 값이 추천 필터에 쓰이는 대상인지 본다: "요리", "재료", "알레르기 분류" 또는 None(자유 메모)."""
+    recipes = parse_recipes().values()
+    if value in parse_recipes():
+        return "요리"
+    if item_key(value) in {item_key(ing.item) for r in recipes for ing in r.ingredients}:
+        return "재료"
+    if kind == "allergy" and any(value in r.allergens for r in recipes):
+        return "알레르기 분류"
+    return None
+
+
+@tool
+def remember_preference(runtime: ToolRuntime[FridgeContext], kind: Literal["like", "dislike", "allergy"], value: str) -> str:
+    """요청자의 선호를 장기 메모리에 저장한다. 다음 대화(새 thread)의 추천에도 반영된다.
+
+    - kind: "like"(좋아함), "dislike"(싫어함), "allergy"(알레르기).
+    - value: 사용자가 말한 대상 그대로 (예: "가지", "가지 파르미자나", "갑각류", "매운 거").
+    누구의 선호인지는 서버가 확인한 요청자로 정해진다. 다른 가족의 선호는 저장할 수 없다.
+    요리명·재료명·알레르기 분류가 아니면 추천 필터에는 쓰지 않는 메모로 저장한다(알레르기는 안전을 위해 그대로 저장).
+    """
+    ctx = _context(runtime)
+    if ctx.user_id == GUEST_USER:
+        return GUEST_DENIED
+    store = getattr(runtime, "store", None)
+    if store is None:
+        return "장기 메모리가 연결되지 않아 저장하지 못했어요"
+    value = value.strip()
+    if kind not in memory.KIND_FIELDS or not value:
+        return "kind는 like·dislike·allergy 중 하나, value는 비어 있지 않아야 해요"
+    target = _preference_target(kind, value)
+    field = memory.KIND_FIELDS[kind] if target or kind == "allergy" else "notes"
+    _, added = memory.add_preference(store, ctx.user_id, field, value if field != "notes" else f"{kind}: {value}")
+    if field == "notes":
+        applied = "요리명이나 재료명이 아니라 추천 필터에는 쓰지 않고 메모로 기억해요"
+    elif kind == "like":
+        applied = "좋아하는 것으로 기억해요"
+    elif target is None:
+        applied = "레시피에서 찾을 수 없는 이름이지만 알레르기로 기억해요. 재료명이나 알레르기 분류(예: 갑각류)로 알려 주시면 추천에서 확실히 뺄 수 있어요"
+    else:
+        applied = f"{target}로 확인돼 다음 추천부터 빼요"
+    return _to_json({"user_id": ctx.user_id, "kind": kind, "value": value, "saved_as": field,
+                     "already_saved": not added, "applied": applied})
+
+
+@tool
+def get_my_preferences(runtime: ToolRuntime[FridgeContext]) -> str:
+    """요청자 본인의 장기 메모리(좋아함·싫어함·알레르기·메모)를 돌려준다. 다른 가족의 기록은 읽지 않는다."""
+    ctx = _context(runtime)
+    store = getattr(runtime, "store", None)
+    profile = memory.read_profile(store, ctx.user_id) if store is not None else seed_profile(ctx.user_id)
+    return _to_json({"user_id": ctx.user_id, **profile})
+
+
 AGENT_TOOLS = [
     add_items_from_text,
     list_inventory,
@@ -1831,4 +1896,6 @@ AGENT_TOOLS = [
     calc_kcal_tool,
     get_storage_days,
     confirm_meal,
+    remember_preference,
+    get_my_preferences,
 ]
