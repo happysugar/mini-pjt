@@ -1,11 +1,13 @@
 """입력·권한·출력 가드레일 (SERVICE.md 6장 #6).
 
-- 입력 검사: 정규식·키워드로 먼저 검사한다. 확실한 인젝션, 다른 가족의 개인 기록 요청, 개인정보 저장 요청은
+- 입력 검사: 정규식·키워드로 먼저 검사한다. 확실한 인젝션, 다른 가족 구성원의 개인 기록 요청, 개인정보 저장 요청은
   LLM 없이 바로 막는다. 인젝션은 단어 하나가 아니라 [동작] × [대상] 조합으로 보고(`injection_rule`),
   띄어 쓴 글자·숫자 치환 같은 우회를 판정용 사본에서 풀어 검사한다. 키워드가 애매하게 걸린 "의심" 질문만 LLM 인젝션 분류를 부른다.
   정상 질문은 LLM을 부르지 않는다(`llm_checked=False`로 trace에 남는다).
-- 권한: 다른 가족의 평가 원문·점수·칼로리·건강 수치 조회는 거절하고, 가족 평균·그룹 평점 같은 집계는 허용한다.
-- 출력 마스킹: 전화번호, 이메일, 주민등록번호, 다른 가족 이름 바로 뒤의 칼로리 수치를 가린다.
+- 권한: 다른 가족 구성원의 평가 원문·점수·칼로리·건강 수치 조회는 거절하고, 가족 평균·그룹 평점 같은 집계는 허용한다.
+- 형식 검사: 재고 입고·출고·폐기와 recipe 평가(식사 기록·점수)는 화면의 JSON 입력 Form으로만 받는다. 자연어로 온
+  쓰기 요청은 모델을 부르지 않고 Form을 쓰라고 안내한다(`check_free_text_write`, SERVICE.md 5.6).
+- 출력 마스킹: 전화번호, 이메일, 주민등록번호, 다른 가족 구성원 이름 바로 뒤의 칼로리 수치를 가린다.
   S/N(YYYY-MM-NNN)이나 날짜(YYYY-MM-DD)와 겹치지 않는 정규식을 쓴다.
 
 레시피 메모·품목명 같은 도구 결과에 숨긴 지시는 에이전트 프롬프트에서 데이터로만 다루게 한다.
@@ -18,6 +20,7 @@ import os
 import re
 import unicodedata
 from dataclasses import asdict, dataclass, field
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
@@ -34,7 +37,7 @@ MSG_INJECTION = (
     "냉장고 재고, 레시피, 보관 방법, 식사 기록에 대해 물어봐 주세요."
 )
 MSG_OTHER_FAMILY = (
-    "다른 가족의 평가 점수나 칼로리 같은 개인 기록은 보여 드릴 수 없어요. 본인 기록만 확인할 수 있어요. "
+    "다른 가족 구성원의 평가 점수나 칼로리 같은 개인 기록은 보여 드릴 수 없어요. 본인 기록만 확인할 수 있어요. "
     "대신 내 평가 기록이나 오늘 내 섭취 칼로리를 확인해 드릴까요?"
 )
 MSG_NO_PENDING_MEAL = "대기 중인 승인 요청이나 기록할 식사가 없어요"
@@ -394,7 +397,7 @@ def other_family_names(user_id: str) -> list[str]:
 
 
 def asks_other_family_record(question: str, user_id: str) -> bool:
-    """다른 가족의 개인 기록(평가·칼로리·건강 수치)을 보려는 질문인지 본다. 집계 요청은 제외한다."""
+    """다른 가족 구성원의 개인 기록(평가·칼로리·건강 수치)을 보려는 질문인지 본다. 집계 요청은 제외한다."""
     if AGGREGATE.search(question) or not PERSONAL_RECORD.search(question) or not SHOW_VERB.search(question):
         return False
     return any(re.search(rf"{re.escape(name)}(?:가|이|의|는|은|도|랑|이랑|하고)?", question) for name in other_family_names(user_id))
@@ -432,6 +435,301 @@ def is_bare_approval(question: str) -> bool:
     return all(_BARE_TOKEN.fullmatch(t) for t in tokens)
 
 
+# ── recipe 평가 결과 입력 Form (JSON, SERVICE.md 5.6) ─────────────
+# 화면은 {"recipe", "cooked", "ratings": [{"evaluator", "eaten", "score"}]} JSON을 `question`에 담아 보낸다.
+# API가 모델을 부르기 전에 형식과 값을 검사하고, 통과한 값은 스레드에 보관한 뒤 확정 요청 문장으로 에이전트에 넘긴다.
+
+MSG_FORM_INVALID = "평가 입력을 저장하지 않았어요. 입력 Form을 다시 확인해 주세요"
+FORM_CONFIRM_REQUEST = "평가 입력 Form을 확정해줘"  # src/tools.py의 같은 이름 상수와 같은 문구
+_SERVINGS = re.compile(r"^(\d+(?:\.\d+)?) 인분$")  # 숫자 + 공백 하나 + 인분
+
+
+@dataclass
+class FormVerdict:
+    """평가 입력 Form 검사 결과. `is_form`이 False면 Form이 아닌 일반 질문이다.
+
+    `code`(FORM_INVALID)가 있으면 저장하지 않고 `message`로 답한다.
+    통과하면 `form`에 보관할 값(`recipe`, `cooked`, 평가자별 `entries`)이, `question`에 에이전트에 넘길
+    확정 요청 문장이 들어 있다.
+    """
+
+    is_form: bool = False
+    code: str = ""
+    problems: list[str] = field(default_factory=list)
+    message: str = ""
+    question: str = ""
+    form: dict[str, Any] = field(default_factory=dict)
+
+    def as_trace(self) -> dict[str, Any]:
+        """trace에 넣을 사전."""
+        return asdict(self)
+
+
+def _servings(value: Any) -> float | None:
+    """"2 인분" 형식이면 숫자를, 아니면 None을 돌려준다."""
+    match = _SERVINGS.match(value) if isinstance(value, str) else None
+    return float(match.group(1)) if match else None
+
+
+def _fmt(number: float) -> str:
+    """2.0 → "2", 0.5 → "0.5"."""
+    return f"{number:g}"
+
+
+def check_rating_form(question: str, user_id: str) -> FormVerdict:
+    """`question`이 recipe 평가 결과 입력 JSON이면 형식과 값을 검사한다. LLM을 부르지 않는다.
+
+    검사: recipe 명, 요리한 양과 평가자별 식사량("숫자 인분", 0보다 큼), 평가자가 가족 구성원인지와 중복,
+    점수(1~5 정수), 빠진 값, 평가자별 식사량 합계가 요리한 양을 넘지 않는지.
+    가족은 하나뿐이므로 평가자는 모두 그 가족의 구성원이어야 한다. 평가자는 여러 명일 수 있고 요청자가 아니어도 된다
+    (요청자 한 사람의 승인으로 평가자마다 저장한다, SERVICE.md 5.6).
+    """
+    text = question.strip()
+    if not text.startswith("{"):
+        return FormVerdict()
+    try:
+        data = json.loads(text)
+    except ValueError:
+        if '"ratings"' in text or '"recipe"' in text:  # Form처럼 보이지만 JSON이 깨진 요청
+            return FormVerdict(True, "FORM_INVALID", ["JSON 형식이 아니에요"], f"{MSG_FORM_INVALID}: JSON 형식이 아니에요")
+        return FormVerdict()
+    if not isinstance(data, dict) or not {"recipe", "ratings"} <= set(data):
+        return FormVerdict()
+
+    problems: list[str] = []
+    recipe = data.get("recipe")
+    if not isinstance(recipe, str) or not recipe.strip():
+        problems.append("recipe 명이 비었어요")
+    cooked = _servings(data.get("cooked"))
+    if cooked is None:
+        problems.append("요리한 양은 '숫자 인분' 형식이어야 해요(예: 2 인분)")
+    elif cooked <= 0:
+        problems.append("요리한 양은 0보다 커야 해요")
+
+    members = {name: uid for uid, names in family_names().items() for name in names}
+    ratings = data.get("ratings")
+    entries: list[tuple[str, float, int]] = []
+    if not isinstance(ratings, list) or not ratings:
+        problems.append("평가자별 항목이 비었어요")
+        ratings = []
+    seen: set[str] = set()
+    for i, item in enumerate(ratings, 1):
+        if not isinstance(item, dict):
+            problems.append(f"{i}번째 평가자 항목 형식이 틀렸어요")
+            continue
+        who = str(item.get("evaluator", "")).strip()
+        label = who or f"{i}번째 평가자"
+        uid = members.get(who)
+        if not who:
+            problems.append(f"{i}번째 평가자가 비었어요")
+        elif uid is None:
+            problems.append(f"평가자 '{who}'는 가족 구성원이 아니에요")
+        elif uid in seen:
+            problems.append(f"평가자 '{who}'가 두 번 들어 있어요")
+        else:
+            seen.add(uid)
+        eaten = _servings(item.get("eaten"))
+        if "eaten" not in item:
+            problems.append(f"{label}의 식사량이 빠졌어요")
+        elif eaten is None:
+            problems.append(f"{label}의 식사량은 '숫자 인분' 형식이어야 해요(예: 1 인분)")
+        elif eaten <= 0:
+            problems.append(f"{label}의 식사량은 0보다 커야 해요")
+        score = item.get("score")
+        if "score" not in item:
+            problems.append(f"{label}의 점수가 빠졌어요")
+        elif isinstance(score, bool) or not isinstance(score, int) or not 1 <= score <= 5:
+            problems.append(f"{label}의 점수는 1~5 사이 숫자여야 해요")
+        if uid and eaten and eaten > 0 and isinstance(score, int) and not isinstance(score, bool) and 1 <= score <= 5:
+            entries.append((uid, eaten, score))
+    if cooked and cooked > 0 and len(entries) == len(ratings) and entries:
+        total = sum(e for _, e, _ in entries)
+        if total > cooked:
+            problems.append(f"평가자별 식사량 합계({_fmt(total)} 인분)가 요리한 양({_fmt(cooked)} 인분)보다 많아요")
+
+    if problems:
+        return FormVerdict(True, "FORM_INVALID", problems, f"{MSG_FORM_INVALID}: " + "; ".join(problems))
+    form = {
+        "recipe": recipe.strip(),
+        "cooked": cooked,
+        "entries": [{"user_id": uid, "eaten": eaten, "score": score} for uid, eaten, score in entries],
+    }
+    detail = ", ".join(f"{uid} {_fmt(eaten)}인분 {score}점" for uid, eaten, score in entries)
+    question = f"{FORM_CONFIRM_REQUEST}: {form['recipe']} {_fmt(cooked)}인분, {detail}"
+    return FormVerdict(True, question=question, form=form)
+
+
+# ── 재고 입력 Form (JSON, SERVICE.md 5.1) ─────────────────────────
+# 화면은 {"item", "aliases", "sn", "qty", "unit", "avgWeight", "expiryDate", "inputDate", "storageDays", "status"}
+# JSON을 `question`에 담아 보낸다(비운 칸은 null). 요청 종류는 status(stored 입고, consumed 출고, discarded 폐기)로 정한다.
+# 여기서는 형식만 검사하고, 지금 재고와 맞춰 보는 검사(S/N 중복, 보유량 등)는 `tools.check_inventory_form_stock`이 한다.
+
+MSG_INVENTORY_FORM_INVALID = "재고 입력을 저장하지 않았어요. 입력 Form을 다시 확인해 주세요"
+INVENTORY_FORM_REQUEST = "재고 입력 Form을 확정해줘"  # src/tools.py의 같은 이름 상수와 같은 문구
+INVENTORY_FORM_KEYS = ("item", "aliases", "sn", "qty", "unit", "avgWeight", "expiryDate", "inputDate", "storageDays", "status")
+INVENTORY_UNITS = ("g", "L", "개")
+INVENTORY_ACTIONS = {"stored": "입고", "consumed": "출고", "discarded": "폐기"}
+_SN = re.compile(r"^\d{4}-(0[1-9]|1[0-2])-(?!000)\d{3}$")
+
+
+def _number(value: Any) -> float | None:
+    """숫자(bool 제외)면 float로, 아니면 None."""
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _iso_date(value: Any) -> date | None:
+    """"YYYY-MM-DD" 문자열이면 날짜로, 아니면 None."""
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def check_inventory_form(question: str) -> FormVerdict:
+    """`question`이 재고 입력 JSON이면 형식과 값을 검사한다. LLM과 DB를 쓰지 않는다.
+
+    검사: 알 수 없는 키, 상태 값, 품목, 별칭(문자열 배열), S/N 형식, 입고·출고의 양(0보다 큰 숫자)과 단위(g·L·개),
+    개당 평균 무게(0보다 큼), 권장 보관일수(1 이상 정수), 날짜 형식, 투입일자가 오늘보다 늦지 않은지,
+    유효기간이 투입일자보다 빠르지 않은지. 통과하면 보관할 값(`form`)과 확정 요청 문장(`question`)을 담는다.
+    """
+    from src.tools import today
+
+    text = question.strip()
+    if not text.startswith("{"):
+        return FormVerdict()
+    try:
+        data = json.loads(text)
+    except ValueError:
+        if '"item"' in text and '"recipe"' not in text:  # 재고 Form처럼 보이지만 JSON이 깨진 요청
+            return FormVerdict(True, "FORM_INVALID", ["JSON 형식이 아니에요"],
+                               f"{MSG_INVENTORY_FORM_INVALID}: JSON 형식이 아니에요")
+        return FormVerdict()
+    if not isinstance(data, dict) or "item" not in data or "recipe" in data:
+        return FormVerdict()
+
+    problems: list[str] = []
+    unknown = [k for k in data if k not in INVENTORY_FORM_KEYS]
+    if unknown:
+        problems.append(f"알 수 없는 항목이 있어요: {', '.join(map(str, unknown))}")
+    status = data.get("status") or "stored"
+    if status not in INVENTORY_ACTIONS:
+        problems.append("상태는 stored, consumed, discarded 중 하나여야 해요")
+    item = data.get("item")
+    if not isinstance(item, str) or not item.strip():
+        problems.append("품목이 비었어요")
+    aliases = data.get("aliases")
+    if aliases is not None and (not isinstance(aliases, list)
+                                or not all(isinstance(a, str) and a.strip() for a in aliases)):
+        problems.append("별칭은 글자 목록이어야 해요")
+    elif aliases and any("," in a for a in aliases):
+        problems.append("별칭에는 쉼표를 쓸 수 없어요(별칭을 하나씩 나눠 넣어 주세요)")
+    sn = data.get("sn")
+    if sn is not None and (not isinstance(sn, str) or not _SN.match(sn.strip())):
+        problems.append("S/N은 YYYY-MM-NNN 형식이어야 해요(예: 2026-11-014)")
+    qty, unit = _number(data.get("qty")), data.get("unit")
+    qty = abs(qty) if qty is not None else None  # 양은 절대값으로 바꿔 양수로만 다룬다(SERVICE.md 5.1)
+    if status in ("stored", "consumed"):
+        if data.get("qty") is None:
+            problems.append("양이 비었어요")
+        elif qty is None or qty <= 0:
+            problems.append("양은 0보다 큰 숫자여야 해요")
+        if unit is None:
+            problems.append("단위가 비었어요")
+        elif unit not in INVENTORY_UNITS:
+            problems.append("단위는 g, L, 개 중 하나여야 해요")
+    weight = data.get("avgWeight")
+    if weight is not None and not (_number(weight) and _number(weight) > 0):
+        problems.append("개당 평균 무게는 0보다 큰 숫자(g)여야 해요")
+    days = data.get("storageDays")
+    if days is not None and (isinstance(days, bool) or not isinstance(days, int) or days < 1):
+        problems.append("권장 보관일수는 1 이상의 정수여야 해요")
+    expiry, input_date = _iso_date(data.get("expiryDate")), _iso_date(data.get("inputDate"))
+    if data.get("expiryDate") is not None and expiry is None:
+        problems.append("유효기간은 YYYY-MM-DD 형식이어야 해요")
+    if data.get("inputDate") is not None and input_date is None:
+        problems.append("투입일자는 YYYY-MM-DD 형식이어야 해요")
+    if status == "stored":
+        if input_date and input_date > today():
+            problems.append("투입일자가 오늘보다 늦어요")
+        if expiry and expiry < (input_date or today()):
+            problems.append("유효기간이 투입일자보다 빨라요")
+
+    if problems:
+        return FormVerdict(True, "FORM_INVALID", problems, f"{MSG_INVENTORY_FORM_INVALID}: " + "; ".join(problems))
+    form = {
+        "action": status,
+        "item": item.strip(),
+        "aliases": [a.strip() for a in aliases] if aliases else [],
+        "sn": sn.strip() if sn else None,
+        "qty": qty,
+        "unit": unit,
+        "avg_weight_g": _number(weight),
+        "expiry_date": expiry.isoformat() if expiry else None,
+        "input_date": input_date.isoformat() if input_date else None,
+        "storage_days": days,
+    }
+    amount = f" {_fmt(qty)}{unit}" if status != "discarded" else ""
+    where = f" (S/N {form['sn']})" if form["sn"] else ""
+    question = f"{INVENTORY_FORM_REQUEST}: {INVENTORY_ACTIONS[status]} {form['item']}{amount}{where}"
+    return FormVerdict(True, question=question, form=form)
+
+
+# ── 자연어 쓰기 요청 차단 (재고 입고·출고·폐기, recipe 평가는 JSON Form으로만) ─────────────
+
+FORM_REQUIRED = "FORM_REQUIRED"
+MSG_INVENTORY_FORM_REQUIRED = (
+    "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. 화면의 재고 입력 Form으로 다시 보내 주세요"
+)
+MSG_RATING_FORM_REQUIRED = (
+    "recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. "
+    "화면의 평가 입력 Form으로 다시 보내 주세요"
+)
+# 재고를 바꾸는 말: 입고(넣었어, 샀어), 출고(꺼냈어, 썼어), 폐기(버려줘, 폐기)
+_INVENTORY_WRITE = re.compile(
+    r"넣었|넣어\s*(?:줘|둘|뒀|놨)|넣을게|샀어|샀다|샀는데|사\s*왔|구매했|입고"
+    r"|꺼냈|꺼내\s*(?:줘|쓸|썼)|꺼낼게|출고|썼어|사용했|뺐어|빼\s*줘"
+    r"|버렸|버려\s*줘|버릴게|버려(?!도|야)|폐기"
+)
+# 식사 기록·평가를 남기는 말: "먹었어", "4점", "평점 3", "평가 남겨"
+_RATING_WRITE = re.compile(
+    r"먹었|만들어\s*먹|\d+(?:\.\d+)?\s*점(?![가-힣])|평점\s*\d|식사\s*기록\s*(?:해|남겨|저장)|평가\s*(?:남겨|기록|저장)"
+)
+# 정보를 묻는 말이면 쓰기 요청이 아니다(예: "폐기 알람 언제 와?", "버려도 돼?", "오늘 뭐 먹었어?")
+_INFO_ASK = re.compile(
+    r"방법|어떻게|언제|며칠|얼마나|몇|보여|알려|조회|목록|남았|추천|레시피|검색"
+    r"|해야\s*(?:해|돼|할까|하나)|돼\s*\?|될까|나요|까요|\?\s*$"
+)
+
+
+def free_text_write_kind(question: str) -> str | None:
+    """자연어 쓰기 요청 종류를 판정한다. 재고 입고·출고·폐기면 "inventory", 식사 기록·평가면 "rating", 아니면 None.
+
+    JSON(`{`로 시작)과 정보를 묻는 질문은 쓰기 요청으로 보지 않는다. 결정적 정규식만 쓴다.
+    """
+    text = _normalize(question).strip()
+    if not text or text.startswith("{") or _INFO_ASK.search(text):
+        return None
+    if _RATING_WRITE.search(text):
+        return "rating"
+    if _INVENTORY_WRITE.search(text):
+        return "inventory"
+    return None
+
+
+def check_free_text_write(question: str) -> FormVerdict:
+    """재고·평가 쓰기를 자연어로 보낸 요청이면 막는다(SERVICE.md 5.6 "JSON Form으로만").
+
+    걸리면 `code`가 `FORM_REQUIRED`이고 `message`에 쓸 Form을 안내하는 고정 문구가 있다. 아니면 빈 결과.
+    """
+    kind = free_text_write_kind(question)
+    if kind is None:
+        return FormVerdict()
+    message = MSG_RATING_FORM_REQUIRED if kind == "rating" else MSG_INVENTORY_FORM_REQUIRED
+    return FormVerdict(False, FORM_REQUIRED, [f"{kind}_free_text"], message)
+
+
 def default_classifier(question: str) -> bool:
     """Bedrock 채팅 모델(`BEDROCK_MODEL_ID`)로 프롬프트 인젝션 여부를 판정한다. 인젝션이면 True."""
     from langchain_aws import ChatBedrockConverse
@@ -456,7 +754,7 @@ def default_classifier(question: str) -> bool:
 def check_input(question: str, user_id: str, classifier: Callable[[str], bool] | None = None) -> InputVerdict:
     """입력 가드레일. 정규식으로 먼저 보고, 애매할 때만 LLM 분류(`classifier`)를 부른다.
 
-    순서: 확실한 인젝션 → 다른 가족 개인 기록 → 개인정보 저장 → 애매한 신호(LLM 분류).
+    순서: 확실한 인젝션 → 다른 가족 구성원 개인 기록 → 개인정보 저장 → 애매한 신호(LLM 분류).
     """
     verdict = InputVerdict()
     rule = injection_rule(question)
@@ -497,7 +795,7 @@ def _mask_phone(match: re.Match) -> str:
 
 
 def mask_output(text: str, user_id: str) -> tuple[str, list[str]]:
-    """응답에서 개인정보와 다른 가족의 칼로리 수치를 가린다. `(가린 문장, 가린 종류 목록)`을 돌려준다."""
+    """응답에서 개인정보와 다른 가족 구성원의 칼로리 수치를 가린다. `(가린 문장, 가린 종류 목록)`을 돌려준다."""
     kinds: list[str] = []
 
     def sub(pattern: re.Pattern, repl: Any, kind: str, value: str) -> str:

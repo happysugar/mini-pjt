@@ -9,6 +9,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
@@ -34,6 +36,7 @@ def test_sub_agents_have_separate_tools():
     assert "confirm_meal" not in names["inventory_agent"] | names["recommend_agent"]
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_meal_approval_inside_sub_agent_resumes_once(make_client, env):
     _, ask = make_client(call("confirm_meal", MEAL), say("저장했어요."))
     r1 = ask({"question": "규동 2인분 만들어서 1인분 먹었어, 4점"}, DAD)
@@ -82,6 +85,7 @@ def test_parent_history_is_summarized_once_without_duplicates(tmp_path, monkeypa
     assert questions == ["질문 3 재고 알려줘"]  # 앞선 질문은 요약으로 대체됐다
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_pending_approval_is_not_summarized(make_client, env):
     # 승인 대기 중에는 임계값을 넘어도 이력을 건드리지 않는다(재개할 체크포인트 보호).
     client, ask = make_client(call("confirm_meal", MEAL), say("저장했어요."))
@@ -93,3 +97,85 @@ def test_pending_approval_is_not_summarized(make_client, env):
     before = client.portal.call(agent.aget_state, config).values["messages"]
     assert client.portal.call(compactor.compact, agent, config) is False
     assert client.portal.call(agent.aget_state, config).values["messages"] == before
+
+
+# ── 평가 입력 Form 확정은 confirm_meal_form 호출을 강제한다 ──────────
+
+
+def test_form_confirm_request_forces_confirm_meal_form():
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    from src.agent import form_confirm_tool_choice
+
+    ask = HumanMessage(f"{tools.FORM_CONFIRM_REQUEST}: 규동 2인분, dad 1인분 4점, mom 1인분 5점")
+    assert form_confirm_tool_choice([ask]) == "confirm_meal_form"
+    # 이미 불렀으면 강제를 풀어 결과 요약은 평소대로 답하게 한다
+    done = [ask, call("confirm_meal_form", {}), ToolMessage("저장했어요", tool_call_id="call-1")]
+    assert form_confirm_tool_choice(done) is None
+    # 다른 요청이나 이전 턴의 Form 요청은 강제하지 않는다
+    assert form_confirm_tool_choice([HumanMessage("규동 먹었어, 4점")]) is None
+    assert form_confirm_tool_choice([ask, say("확정했어요."), HumanMessage("재고 알려줘")]) is None
+
+
+def test_form_confirm_middleware_overrides_tool_choice():
+    from langchain_core.messages import HumanMessage
+
+    from src.agent import FormConfirmToolChoice
+
+    class Req:
+        """tool_choice를 바꾼 복사본만 확인하는 최소 요청 객체."""
+
+        def __init__(self, messages, tool_choice=None):
+            self.messages, self.tool_choice = messages, tool_choice
+
+        def override(self, **kw):
+            return Req(self.messages, kw.get("tool_choice"))
+
+    mw = FormConfirmToolChoice()
+    seen = []
+    form = Req([HumanMessage(f"{tools.FORM_CONFIRM_REQUEST}: 규동 2인분, dad 1인분 4점")])
+    mw.wrap_model_call(form, lambda r: seen.append(r.tool_choice))
+    asyncio.run(mw.awrap_model_call(Req([HumanMessage("규동 먹었어")]), _async_seen(seen)))
+    assert seen == ["confirm_meal_form", None]
+
+
+def _async_seen(seen: list):
+    """비동기 handler: 받은 요청의 tool_choice를 기록한다."""
+
+    async def handler(request):
+        seen.append(request.tool_choice)
+
+    return handler
+
+
+def test_rating_agent_uses_form_confirm_middleware(make_client, env, monkeypatch):
+    """API의 Form 확정 흐름에서 평가 에이전트의 모델 호출이 미들웨어를 거친다."""
+    from src import agent as agent_mod
+    from tests.test_api import FORM_TWO
+
+    picked = []
+    original = agent_mod.form_confirm_tool_choice
+    monkeypatch.setattr(agent_mod, "form_confirm_tool_choice", lambda msgs: picked.append(original(msgs)) or picked[-1])
+    _, ask = make_client(call("confirm_meal_form", {}), say("저장했어요."))
+    r = ask({"question": FORM_TWO, "thread_id": "dad-form-mw"}, DAD)
+    assert r["trace"]["pending_interrupt"]["type"] == "meal_form_confirm"
+    assert picked and picked[0] == "confirm_meal_form"
+
+
+def test_inventory_form_request_forces_its_own_tool_only_where_bound():
+    from langchain_core.messages import HumanMessage
+
+    from src.agent import FormConfirmToolChoice, form_confirm_tool_choice
+
+    ask = HumanMessage(f"{tools.INVENTORY_FORM_REQUEST}: 입고 두부 2개")
+    assert form_confirm_tool_choice([ask]) == "confirm_inventory_form"
+
+    class Req:
+        """도구 목록과 메시지만 가진 최소 요청 객체."""
+
+        def __init__(self, names):
+            self.messages = [ask]
+            self.tools = [type("T", (), {"name": n})() for n in names]
+
+    assert FormConfirmToolChoice._choice(Req(["list_inventory", "confirm_inventory_form"])) == "confirm_inventory_form"
+    assert FormConfirmToolChoice._choice(Req(["get_recipe", "confirm_meal_form"])) is None  # 그 에이전트에 없는 도구는 강제하지 않는다

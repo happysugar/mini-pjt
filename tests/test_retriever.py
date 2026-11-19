@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from langchain_core.embeddings import DeterministicFakeEmbedding
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -66,7 +67,8 @@ def test_storage_tips_have_no_period():
     for doc in retriever.load_chunks():
         if doc.metadata["kind"] != KIND_STORAGE or doc.metadata["title"] == retriever.SCOPE_TITLE:
             continue
-        tip = doc.page_content.split("\n", 2)[-1]  # 첫 줄(제목)과 둘째 줄(기준표 행)을 뺀 보관 팁 본문
+        lines = doc.page_content.split("\n", 2)
+        tip = lines[2] if len(lines) == 3 else ""  # 첫 줄(제목)과 둘째 줄(기준표 행)을 뺀 보관 팁 본문(없으면 빈 글)
         assert not re.search(r"\d+\s*(일|개월|년)|하루|이틀|당일에 먹", tip), (doc.metadata["title"], tip)
 
 
@@ -74,6 +76,57 @@ def test_alias_table_both_ways():
     table = retriever.alias_table()
     assert {"한우", "우둔", "차돌"} <= set(table["소고기"])
     assert table["한우"] == table["소고기"]
+
+
+# ── 품목 기준표 (storage_items.csv) ───────────────────────────────
+
+
+def test_storage_items_file_is_valid_and_shared():
+    """기준표는 형식 검사를 통과하고, 도구와 검색 인덱스가 같은 결과를 쓴다."""
+    items = retriever.load_storage_items()
+    assert items == tools.load_storage_guide()
+    assert items["두부"] == {"aliases": ["부침두부", "찌개두부"], "base_unit": "개", "storage_days": 7, "avg_weight_g": 300.0}
+    assert items["베이컨"]["aliases"] == [] and items["소고기"]["avg_weight_g"] is None
+    assert all(i["base_unit"] in retriever.BASE_UNITS and i["storage_days"] > 0 for i in items.values())
+
+
+def test_every_storage_item_has_a_tip_section():
+    """기준표의 품목마다 storage_guide.md에 보관 팁 절이 있다(두 파일이 어긋나지 않게)."""
+    titles = {d.metadata["title"] for d in retriever.load_chunks() if d.metadata["kind"] == KIND_STORAGE}
+    assert set(retriever.load_storage_items()) <= titles
+    assert "## 품목 기준표" not in retriever.STORAGE_GUIDE.read_text(encoding="utf-8")
+
+
+def _write_items(tmp_path, *rows: str) -> Path:
+    """임시 기준표 CSV를 만든다."""
+    path = tmp_path / "storage_items.csv"
+    path.write_text("\n".join([",".join(retriever.ITEM_COLUMNS), *rows]) + "\n", encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        ("두부,-,모,7,300", "기준 단위"),
+        ("두부,-,개,0,300", "권장 보관일수"),
+        ("두부,-,개,일주일,300", "권장 보관일수"),
+        ("두부,-,개,7,무거움", "개당 평균 무게"),
+        (",-,개,7,300", "품목명"),
+    ],
+)
+def test_storage_items_rejects_bad_rows(tmp_path, row, message):
+    with pytest.raises(ValueError, match=message) as error:
+        retriever.load_storage_items(_write_items(tmp_path, row))
+    assert "2번째 줄" in str(error.value)
+
+
+def test_storage_items_rejects_duplicate_and_bad_header(tmp_path):
+    with pytest.raises(ValueError, match="3번째 줄"):
+        retriever.load_storage_items(_write_items(tmp_path, "두부,-,개,7,300", "두부,-,개,5,300"))
+    path = tmp_path / "bad.csv"
+    path.write_text("품목,별칭,단위,보관일수,무게\n두부,-,개,7,300\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="열 이름"):
+        retriever.load_storage_items(path)
 
 
 def test_rrf_sums_reciprocal_ranks():
@@ -132,7 +185,7 @@ def test_unknown_item_returns_guide_scope_only(offline_index, monkeypatch):
 
 def test_unknown_item_storage_days_is_context():
     output = tools.get_storage_days.invoke({"item": "망고"})
-    assert extract_contexts([("get_storage_days", output)]) == [f"[storage_guide.md#망고] {output}"]
+    assert extract_contexts([("get_storage_days", output)]) == [f"[storage_items.csv#망고] {output}"]
     assert extract_contexts([("list_inventory", output)]) == []
 
 
@@ -188,3 +241,57 @@ def test_persisted_vectors_are_reused(tmp_path, monkeypatch):
     third = retriever.HybridIndex(embeddings=changed, use_llm=False, persist_dir=tmp_path)
     assert not third.vectors_loaded and changed.embedded == len(third.ids)
     assert third.vectors._collection.count() == len(third.ids)
+
+
+# ── 기준표 자동 추가 (SERVICE.md 5.1 "기준표 자동 추가") ───────────
+
+
+def test_upsert_storage_item_adds_then_fills_only_blanks(storage_items_copy):
+    path = storage_items_copy
+    assert retriever.upsert_storage_item("망고", "개", 5, aliases=["애플망고"]) == "added"
+    assert retriever.load_storage_items()["망고"] == {
+        "aliases": ["애플망고"], "base_unit": "개", "storage_days": 5, "avg_weight_g": None}
+    assert path.read_text(encoding="utf-8").endswith("망고,애플망고,개,5,-\n")
+    # 있는 값은 바꾸지 않고, 비어 있는 개당 평균 무게만 채운다
+    assert retriever.upsert_storage_item("망고", "개", 9, avg_weight_g=350, aliases=["망고스틴"]) == "filled"
+    assert retriever.load_storage_items()["망고"] == {
+        "aliases": ["애플망고"], "base_unit": "개", "storage_days": 5, "avg_weight_g": 350.0}
+    assert retriever.upsert_storage_item("망고", "개", 9, avg_weight_g=400) == "unchanged"
+    # 원본 기준표는 바뀌지 않는다(테스트는 임시 복사본을 쓴다)
+    assert "망고" not in retriever.load_storage_items(retriever.STORAGE_ITEMS)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"storage_days": None}, "권장 보관일수는 양의 정수"),
+        ({"storage_days": 0}, "권장 보관일수는 양의 정수"),
+        ({"avg_weight_g": 0}, "개당 평균 무게는 양수"),
+        ({"aliases": ["망고, 애플망고"]}, "쉼표"),
+        ({"base_unit": "kg"}, "기준 단위"),
+    ],
+)
+def test_upsert_storage_item_rejects_bad_rows(storage_items_copy, kwargs, message):
+    before = storage_items_copy.read_bytes()
+    args = {"name": "망고", "base_unit": "개", "storage_days": 5, **kwargs}
+    with pytest.raises(ValueError, match=message):
+        retriever.upsert_storage_item(**args)
+    assert storage_items_copy.read_bytes() == before
+
+
+def test_sync_storage_adds_and_removes_registered_item_chunk(storage_items_copy):
+    index = retriever.HybridIndex(embeddings=DeterministicFakeEmbedding(size=32), use_llm=False)
+    original = storage_items_copy.read_bytes()
+    retriever.upsert_storage_item("망고", "개", 5, aliases=["애플망고"])
+    assert index.sync_storage() == ["storage:storage_guide.md#망고"]
+    doc = index.by_id["storage:storage_guide.md#망고"]
+    assert doc.page_content == "망고 보관\n별칭: 애플망고 / 기준 단위: 개 / 권장 보관일수: 5일"
+    assert index.aliases["애플망고"] == ["망고", "애플망고"]
+    assert index.search("애플망고 보관", KIND_STORAGE).hits[0].title == "망고"
+    assert index.vectors._collection.count() == len(index.ids)
+    assert index.sync_storage() == []  # 바뀐 것이 없으면 아무것도 하지 않는다
+    # 평가·테스트가 기준표를 원본으로 되돌리면 청크도 빠진다
+    storage_items_copy.write_bytes(original)
+    assert index.sync_storage() == ["storage:storage_guide.md#망고"]
+    assert "storage:storage_guide.md#망고" not in index.by_id
+    assert index.vectors._collection.count() == len(index.ids)

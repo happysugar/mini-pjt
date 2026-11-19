@@ -4,6 +4,8 @@
 LLM 없는(별칭 확장 + RRF 순서) 인덱스를 세션마다 한 번 만들어 끼워 넣는다.
 """
 
+import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -41,6 +43,40 @@ def _trace_file(tmp_path, monkeypatch):
     path = tmp_path / "trace.jsonl"
     monkeypatch.setenv("TRACE_FILE", str(path))
     return path
+
+
+@pytest.fixture
+def allow_free_text_writes(monkeypatch):
+    """API의 형식 가드레일(자연어 재고·평가 쓰기 차단)을 끈다.
+
+    자연어 문장으로 도구의 승인(HITL)·멱등·신원 처리를 검증하던 테스트용이다. 실제 서비스는 이런 요청을 모델 호출 전에
+    막는다(SERVICE.md 5.6). 도구는 그대로 등록돼 있으므로 도구 수준의 동작은 계속 검증한다.
+    """
+    from src import guardrails
+
+    monkeypatch.setattr(guardrails, "free_text_write_kind", lambda question: None)
+
+
+@pytest.fixture(autouse=True)
+def storage_items_copy(tmp_path, offline_index):
+    """품목 기준표를 테스트마다 임시 복사본으로 바꿔 쓴다(새 품목 등록이 원본에 행을 덧붙이지 않게).
+
+    끝나면 원래 경로로 되돌리고, 세션 인덱스의 보관 청크도 원본 기준표에 맞춘다.
+    """
+    from src import tools
+
+    path = tmp_path / retriever.STORAGE_ITEMS.name
+    shutil.copyfile(retriever.STORAGE_ITEMS, path)
+    previous = os.environ.get(retriever.STORAGE_ITEMS_ENV)
+    os.environ[retriever.STORAGE_ITEMS_ENV] = str(path)
+    tools.clear_guide_cache()
+    yield path
+    if previous is None:
+        os.environ.pop(retriever.STORAGE_ITEMS_ENV, None)
+    else:
+        os.environ[retriever.STORAGE_ITEMS_ENV] = previous
+    tools.clear_guide_cache()
+    offline_index.sync_storage()
 
 
 @pytest.fixture(autouse=True)

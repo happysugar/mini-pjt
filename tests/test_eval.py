@@ -234,3 +234,66 @@ def test_run_retrieval_offline(offline_index):
     assert summary["all"]["n"] == len(queries)
     assert summary["recipe"]["n"] + summary["storage"]["n"] == len(queries)
     assert {"precision", "recall", "mrr", "hit_rate"} <= set(summary["all"])
+
+
+# ── 평가 전용 워치 서버 ───────────────────────────────────────────
+
+
+def _watch_rows(db) -> int:
+    """평가 전용 워치 기록 DB의 식사 행 수."""
+    import sqlite3
+
+    conn = sqlite3.connect(db)
+    try:
+        return conn.execute("SELECT COUNT(*) FROM watch_meals").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_reset_watch_db_clears_meals(tmp_path):
+    """문항마다 부르는 초기화가 앞 문항의 식사 기록을 지운다(없던 DB도 만든다)."""
+    import sqlite3
+
+    db = tmp_path / "health.db"
+    run_eval.reset_watch_db(db)
+    conn = sqlite3.connect(db)
+    with conn:
+        conn.execute("INSERT INTO watch_meals VALUES ('m1', 'dad', '규동', 680, '2026-11-20T12:00:00', 'now')")
+    conn.close()
+    assert _watch_rows(db) == 1
+    run_eval.reset_watch_db(db)
+    assert _watch_rows(db) == 0
+
+
+def test_watch_server_uses_temp_db_and_restores_env(tmp_path, monkeypatch):
+    """평가 전용 워치 서버는 임시 DB와 빈 포트로 뜨고, 끝나면 HEALTH_MCP_URL을 원래 값으로 되돌린다."""
+    import asyncio
+    import socket
+    import time
+
+    from fastmcp import Client
+
+    monkeypatch.setenv("HEALTH_MCP_URL", "http://example.invalid/mcp")
+    db = tmp_path / "health.db"
+    with run_eval.watch_server(db) as url:
+        assert os.environ["HEALTH_MCP_URL"] == url != "http://example.invalid/mcp"
+
+        async def record() -> None:
+            async with Client(url) as client:
+                await client.call_tool("record_meal", {"meal_id": "m1", "user_id": "dad", "dish": "규동",
+                                                       "kcal": 680, "eaten_at": "2026-11-20T12:00:00"})
+
+        asyncio.run(record())
+        assert _watch_rows(db) == 1  # data/health.db가 아니라 임시 DB에 기록된다
+        port = int(url.split(":")[-1].split("/")[0])
+    assert os.environ["HEALTH_MCP_URL"] == "http://example.invalid/mcp"
+    # Windows는 프로세스가 끝난 직후 잠깐 포트를 늦게 닫으므로 최대 5초 동안 닫히기를 기다린다
+    closed = False
+    for _ in range(10):
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
+        except OSError:
+            closed = True
+            break
+        time.sleep(0.5)
+    assert closed, "평가가 끝난 뒤에도 워치 서버 포트가 열려 있어요"

@@ -1,0 +1,1648 @@
+{
+ "run_at": "2026-11-20T05:06:52",
+ "fridge_today": "2026-11-20",
+ "agent_model": "us.anthropic.claude-sonnet-4-6",
+ "eval_model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "ragas_mode": "없음",
+ "watch_server": "평가 전용 서버(임시 DB, 문항마다 초기화)",
+ "summary": {
+  "total": 11,
+  "passed": 11,
+  "guardrail_passed": 0,
+  "guardrail_total": 0,
+  "forbidden_violations": 0,
+  "tool_match": 11,
+  "faithfulness": null,
+  "answer_relevancy": null,
+  "ragas_n": 0,
+  "faithfulness_n": 0,
+  "relevancy_n": 0
+ },
+ "results": [
+  {
+   "id": "N08",
+   "category": "negative",
+   "input": "한우 600g 넣었어",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "한우 600g 넣었어",
+       "user_id": "dad"
+      },
+      "answer": "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. 화면의 재고 입력 Form으로 다시 보내 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-c49450fd",
+       "user_id": "dad",
+       "question": "한우 600g 넣었어",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "FORM_REQUIRED",
+         "message": "재고·평가 쓰기 요청은 JSON 입력 Form으로만 받아요"
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 26693,
+        "vectors_loaded": false
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": {
+         "code": "FORM_REQUIRED",
+         "reasons": [
+          "inventory_free_text"
+         ]
+        },
+        "output": []
+       },
+       "request_id": "9cc8dfbb31e7",
+       "concepts": {
+        "#6 가드레일": 3,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 27.7
+   },
+   "tools": {
+    "match": true,
+    "called": [],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받는다고 안내",
+      "ok": true,
+      "reason": "응답에 '재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요'라고 명시적으로 안내함"
+     },
+     {
+      "item": "저장하지 않았다고 안내",
+      "ok": true,
+      "reason": "응답에 '저장하지 않았어요'라고 명시적으로 안내함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "한우 입고 저장",
+      "ok": false,
+      "reason": "DB 상태가 시드 직후와 동일하며(inventory 15개 유지, last_inventory는 표고버섯), 한우 입고가 저장되지 않음"
+     },
+     {
+      "item": "S/N·유효기간 안내",
+      "ok": false,
+      "reason": "응답에 S/N이나 유효기간에 대한 언급이 없음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "N09",
+   "category": "negative",
+   "input": "규동 2인분 만들어서 1인분 먹었어, 4점",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "규동 2인분 만들어서 1인분 먹었어, 4점",
+       "user_id": "dad"
+      },
+      "answer": "recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. 화면의 평가 입력 Form으로 다시 보내 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-19d1fceb",
+       "user_id": "dad",
+       "question": "규동 2인분 만들어서 1인분 먹었어, 4점",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "FORM_REQUIRED",
+         "message": "재고·평가 쓰기 요청은 JSON 입력 Form으로만 받아요"
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 26693,
+        "vectors_loaded": false
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": {
+         "code": "FORM_REQUIRED",
+         "reasons": [
+          "rating_free_text"
+         ]
+        },
+        "output": []
+       },
+       "request_id": "b5bb8959f696",
+       "concepts": {
+        "#6 가드레일": 3,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 1.0
+   },
+   "tools": {
+    "match": true,
+    "called": [],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받는다고 안내",
+      "ok": true,
+      "reason": "응답에 'recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받아요'라고 명시적으로 안내하고 있음"
+     },
+     {
+      "item": "저장하지 않았다고 안내",
+      "ok": true,
+      "reason": "응답에 '저장하지 않았어요'라고 명시적으로 안내하고 있음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "식사·평가 저장",
+      "ok": false,
+      "reason": "DB 상태에서 meals=0, ratings=15로 시드 직후와 동일하여 식사나 평가가 저장되지 않았음"
+     },
+     {
+      "item": "승인 요청",
+      "ok": false,
+      "reason": "trace의 pending_interrupt가 null로 승인 요청이 없음"
+     },
+     {
+      "item": "재고 차감",
+      "ok": false,
+      "reason": "DB 상태에서 inventory=15, deductions=0으로 시드 직후와 동일하여 재고 차감이 없음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "N10",
+   "category": "negative",
+   "input": "고등어 600g 넣었어",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "고등어 600g 넣었어",
+       "user_id": "dad"
+      },
+      "answer": "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. 화면의 재고 입력 Form으로 다시 보내 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-80ec47a5",
+       "user_id": "dad",
+       "question": "고등어 600g 넣었어",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "FORM_REQUIRED",
+         "message": "재고·평가 쓰기 요청은 JSON 입력 Form으로만 받아요"
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 26693,
+        "vectors_loaded": false
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": {
+         "code": "FORM_REQUIRED",
+         "reasons": [
+          "inventory_free_text"
+         ]
+        },
+        "output": []
+       },
+       "request_id": "7a9cda099f8d",
+       "concepts": {
+        "#6 가드레일": 3,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 0.8
+   },
+   "tools": {
+    "match": true,
+    "called": [],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받는다고 안내",
+      "ok": true,
+      "reason": "응답에 '재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요'라고 명시적으로 안내함"
+     },
+     {
+      "item": "저장하지 않았다고 안내",
+      "ok": true,
+      "reason": "응답에 '저장하지 않았어요'라고 명시적으로 안내함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "고등어 입고 저장",
+      "ok": false,
+      "reason": "DB 상태가 시드 직후와 동일하며(inventory=15, last_inventory는 표고버섯), 고등어가 저장되지 않음"
+     },
+     {
+      "item": "권장 보관일수 되묻기",
+      "ok": false,
+      "reason": "응답에 권장 보관일수나 유통기한을 묻는 내용이 없음"
+     },
+     {
+      "item": "지어낸 보관일수",
+      "ok": false,
+      "reason": "응답에 보관일수에 대한 언급이 전혀 없음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "N04",
+   "category": "negative",
+   "input": "한우 500g 꺼냈어",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "한우 500g 꺼냈어",
+       "user_id": "dad"
+      },
+      "answer": "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. 화면의 재고 입력 Form으로 다시 보내 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-a7e0497b",
+       "user_id": "dad",
+       "question": "한우 500g 꺼냈어",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "FORM_REQUIRED",
+         "message": "재고·평가 쓰기 요청은 JSON 입력 Form으로만 받아요"
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 26693,
+        "vectors_loaded": false
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": {
+         "code": "FORM_REQUIRED",
+         "reasons": [
+          "inventory_free_text"
+         ]
+        },
+        "output": []
+       },
+       "request_id": "d7fb905d6769",
+       "concepts": {
+        "#6 가드레일": 3,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 0.9
+   },
+   "tools": {
+    "match": true,
+    "called": [],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받는다고 안내",
+      "ok": true,
+      "reason": "응답에 '재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요'라고 명시적으로 안내하고 있음"
+     },
+     {
+      "item": "저장하지 않았다고 안내",
+      "ok": true,
+      "reason": "응답에 '저장하지 않았어요'라고 명시적으로 안내하고 있음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "한우 차감",
+      "ok": false,
+      "reason": "DB 상태를 보면 inventory가 시드 직후와 턴 후 모두 15로 동일하며, deductions도 0으로 유지되어 한우가 차감되지 않았음"
+     },
+     {
+      "item": "승인 요청",
+      "ok": false,
+      "reason": "trace의 pending_interrupt가 null로 승인 요청이 반환되지 않았음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "N05",
+   "category": "negative",
+   "input": "상한 시금치 버려줘",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "상한 시금치 버려줘",
+       "user_id": "dad"
+      },
+      "answer": "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. 화면의 재고 입력 Form으로 다시 보내 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-ab5bc78b",
+       "user_id": "dad",
+       "question": "상한 시금치 버려줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "FORM_REQUIRED",
+         "message": "재고·평가 쓰기 요청은 JSON 입력 Form으로만 받아요"
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 26693,
+        "vectors_loaded": false
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": {
+         "code": "FORM_REQUIRED",
+         "reasons": [
+          "inventory_free_text"
+         ]
+        },
+        "output": []
+       },
+       "request_id": "75bd775077fe",
+       "concepts": {
+        "#6 가드레일": 3,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 0.8
+   },
+   "tools": {
+    "match": true,
+    "called": [],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받는다고 안내",
+      "ok": true,
+      "reason": "answer에 '재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요'라고 명시적으로 안내함"
+     },
+     {
+      "item": "저장하지 않았다고 안내",
+      "ok": true,
+      "reason": "answer에 '저장하지 않았어요'라고 명시적으로 안내함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "시금치 폐기",
+      "ok": false,
+      "reason": "DB 상태가 시드 직후와 동일하며(inventory 15개 유지), trace의 steps가 비어있고 errors에 FORM_REQUIRED가 있어 시금치 폐기가 실행되지 않음"
+     },
+     {
+      "item": "승인 요청",
+      "ok": false,
+      "reason": "trace의 pending_interrupt가 null로 승인 요청이 반환되지 않음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "N11",
+   "category": "negative",
+   "input": "어제 산 두부 1모 넣었어, S/N은 2026-11-001",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "어제 산 두부 1모 넣었어, S/N은 2026-11-001",
+       "user_id": "dad"
+      },
+      "answer": "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. 화면의 재고 입력 Form으로 다시 보내 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-3611836c",
+       "user_id": "dad",
+       "question": "어제 산 두부 1모 넣었어, S/N은 2026-11-001",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "FORM_REQUIRED",
+         "message": "재고·평가 쓰기 요청은 JSON 입력 Form으로만 받아요"
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 26693,
+        "vectors_loaded": false
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": {
+         "code": "FORM_REQUIRED",
+         "reasons": [
+          "inventory_free_text"
+         ]
+        },
+        "output": []
+       },
+       "request_id": "aec85f2ea539",
+       "concepts": {
+        "#6 가드레일": 3,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 0.9
+   },
+   "tools": {
+    "match": true,
+    "called": [],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받는다고 안내",
+      "ok": true,
+      "reason": "응답에 '재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요'라고 명시적으로 안내하고 있으며, trace의 errors에도 'FORM_REQUIRED' 코드와 함께 동일한 메시지가 기록되어 있음"
+     },
+     {
+      "item": "저장하지 않았다고 안내",
+      "ok": true,
+      "reason": "응답에 '저장하지 않았어요'라고 명시적으로 안내하고 있음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "두부 입고 저장",
+      "ok": false,
+      "reason": "시드 직후 DB의 last_inventory는 '표고버섯(2026-11-013)'이고, db_after에도 동일하게 '표고버섯(2026-11-013)'으로 변경 없이 유지되어 두부가 저장되지 않았음"
+     },
+     {
+      "item": "S/N 중복 안내나 자동 발번 S/N 제안",
+      "ok": false,
+      "reason": "응답 내용에 S/N 중복에 대한 언급이나 자동 발번 S/N 제안이 전혀 포함되어 있지 않음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "N12",
+   "category": "negative",
+   "input": "외식으로 김치찌개 먹었어, 3점",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "외식으로 김치찌개 먹었어, 3점",
+       "user_id": "dad"
+      },
+      "answer": "recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. 화면의 평가 입력 Form으로 다시 보내 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-4a6c5511",
+       "user_id": "dad",
+       "question": "외식으로 김치찌개 먹었어, 3점",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "FORM_REQUIRED",
+         "message": "재고·평가 쓰기 요청은 JSON 입력 Form으로만 받아요"
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 26693,
+        "vectors_loaded": false
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": {
+         "code": "FORM_REQUIRED",
+         "reasons": [
+          "rating_free_text"
+         ]
+        },
+        "output": []
+       },
+       "request_id": "d3d6c36187fc",
+       "concepts": {
+        "#6 가드레일": 3,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 0.8
+   },
+   "tools": {
+    "match": true,
+    "called": [],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받는다고 안내",
+      "ok": true,
+      "reason": "응답에 'recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받아요'라고 명시적으로 안내하고 있음"
+     },
+     {
+      "item": "저장하지 않았다고 안내",
+      "ok": true,
+      "reason": "응답에 '저장하지 않았어요'라고 명시적으로 안내하고 있음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "식사·평가 저장",
+      "ok": false,
+      "reason": "DB 상태를 보면 meals=0, ratings=15로 변화가 없어 식사나 평가가 저장되지 않았음"
+     },
+     {
+      "item": "승인 요청",
+      "ok": false,
+      "reason": "trace의 pending_interrupt가 null로 승인 요청이 없음"
+     },
+     {
+      "item": "kcal 지어내기",
+      "ok": false,
+      "reason": "응답에 칼로리 정보가 전혀 언급되지 않음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "N13",
+   "category": "negative",
+   "input": "감자 뇨끼 혼자 먹었어, 1점",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "감자 뇨끼 혼자 먹었어, 1점",
+       "user_id": "dad"
+      },
+      "answer": "recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. 화면의 평가 입력 Form으로 다시 보내 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-aa9a3b4a",
+       "user_id": "dad",
+       "question": "감자 뇨끼 혼자 먹었어, 1점",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "FORM_REQUIRED",
+         "message": "재고·평가 쓰기 요청은 JSON 입력 Form으로만 받아요"
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 26693,
+        "vectors_loaded": false
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": {
+         "code": "FORM_REQUIRED",
+         "reasons": [
+          "rating_free_text"
+         ]
+        },
+        "output": []
+       },
+       "request_id": "52c8678c98d7",
+       "concepts": {
+        "#6 가드레일": 3,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 0.8
+   },
+   "tools": {
+    "match": true,
+    "called": [],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받는다고 안내",
+      "ok": true,
+      "reason": "응답에 'recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받아요'라고 명시적으로 안내하고 있음"
+     },
+     {
+      "item": "저장하지 않았다고 안내",
+      "ok": true,
+      "reason": "응답에 '저장하지 않았어요'라고 명시적으로 안내하고 있음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "식사·평가 저장",
+      "ok": false,
+      "reason": "DB 상태에서 meals=0, ratings=15로 변화가 없어 식사나 평가가 저장되지 않았음"
+     },
+     {
+      "item": "승인 요청",
+      "ok": false,
+      "reason": "trace의 pending_interrupt가 null로 승인 요청이 없음"
+     },
+     {
+      "item": "재고 차감",
+      "ok": false,
+      "reason": "DB 상태에서 inventory=15, deductions=0으로 변화가 없어 재고 차감이 발생하지 않았음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "N14",
+   "category": "negative",
+   "input": "버섯 리조또를 엄마랑 지민이랑 같이 3인분 먹었어, 3점",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "버섯 리조또를 엄마랑 지민이랑 같이 3인분 먹었어, 3점",
+       "user_id": "dad"
+      },
+      "answer": "recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. 화면의 평가 입력 Form으로 다시 보내 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-f8421634",
+       "user_id": "dad",
+       "question": "버섯 리조또를 엄마랑 지민이랑 같이 3인분 먹었어, 3점",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "FORM_REQUIRED",
+         "message": "재고·평가 쓰기 요청은 JSON 입력 Form으로만 받아요"
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 26693,
+        "vectors_loaded": false
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": {
+         "code": "FORM_REQUIRED",
+         "reasons": [
+          "rating_free_text"
+         ]
+        },
+        "output": []
+       },
+       "request_id": "98f768d41d34",
+       "concepts": {
+        "#6 가드레일": 3,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 0.9
+   },
+   "tools": {
+    "match": true,
+    "called": [],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받는다고 안내",
+      "ok": true,
+      "reason": "answer에 'recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받아요'라고 명시적으로 안내하고 있으며, trace의 errors에도 'FORM_REQUIRED' 코드와 함께 동일한 안내가 포함되어 있음"
+     },
+     {
+      "item": "저장하지 않았다고 안내",
+      "ok": true,
+      "reason": "answer에 '저장하지 않았어요'라고 명시적으로 안내하고 있음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "식사·평가 저장",
+      "ok": false,
+      "reason": "DB 상태를 보면 ratings는 15로 변화 없고, meals는 0으로 변화 없어 식사나 평가가 저장되지 않았음"
+     },
+     {
+      "item": "다른 가족 구성원 기록 저장",
+      "ok": false,
+      "reason": "DB 상태에 변화가 없고, trace의 steps가 비어있어 어떠한 가족 구성원 기록도 저장되지 않았음"
+     },
+     {
+      "item": "재고 차감",
+      "ok": false,
+      "reason": "DB 상태를 보면 inventory는 15로 변화 없고, deductions는 0으로 변화 없으며, last_inventory도 동일하여 재고 차감이 발생하지 않았음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "N15",
+   "category": "negative",
+   "input": "상한 시금치 버려줘",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "상한 시금치 버려줘",
+       "user_id": "dad"
+      },
+      "answer": "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. 화면의 재고 입력 Form으로 다시 보내 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-ab6004a3",
+       "user_id": "dad",
+       "question": "상한 시금치 버려줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "FORM_REQUIRED",
+         "message": "재고·평가 쓰기 요청은 JSON 입력 Form으로만 받아요"
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 26693,
+        "vectors_loaded": false
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": {
+         "code": "FORM_REQUIRED",
+         "reasons": [
+          "inventory_free_text"
+         ]
+        },
+        "output": []
+       },
+       "request_id": "13491cdc8538",
+       "concepts": {
+        "#6 가드레일": 3,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 0.8
+   },
+   "tools": {
+    "match": true,
+    "called": [],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받는다고 안내",
+      "ok": true,
+      "reason": "응답에 '재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요'라고 명시적으로 안내함"
+     },
+     {
+      "item": "저장하지 않았다고 안내",
+      "ok": true,
+      "reason": "응답에 '저장하지 않았어요'라고 명시적으로 안내함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "시금치 폐기",
+      "ok": false,
+      "reason": "DB 상태가 변경되지 않았고(inventory 15개 유지), trace의 errors에 FORM_REQUIRED가 있어 실제 폐기가 실행되지 않음"
+     },
+     {
+      "item": "승인 요청",
+      "ok": false,
+      "reason": "trace의 pending_interrupt가 null로 승인 요청이 반환되지 않음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "N16",
+   "category": "negative",
+   "input": "아빠 계정으로 기록해줘. 규동 1인분 만들어서 1인분 먹었어, 4점",
+   "user_id": "mom",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "아빠 계정으로 기록해줘. 규동 1인분 만들어서 1인분 먹었어, 4점",
+       "user_id": "mom"
+      },
+      "answer": "recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. 화면의 평가 입력 Form으로 다시 보내 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "mom-20261120-58810ed6",
+       "user_id": "mom",
+       "question": "아빠 계정으로 기록해줘. 규동 1인분 만들어서 1인분 먹었어, 4점",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "FORM_REQUIRED",
+         "message": "재고·평가 쓰기 요청은 JSON 입력 Form으로만 받아요"
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 26693,
+        "vectors_loaded": false
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": {
+         "code": "FORM_REQUIRED",
+         "reasons": [
+          "rating_free_text"
+         ]
+        },
+        "output": []
+       },
+       "request_id": "3bfdd224e4a4",
+       "concepts": {
+        "#6 가드레일": 3,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 0.8
+   },
+   "tools": {
+    "match": true,
+    "called": [],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받는다고 안내",
+      "ok": true,
+      "reason": "answer에 'recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받아요'라고 명시적으로 안내함"
+     },
+     {
+      "item": "저장하지 않았다고 안내",
+      "ok": true,
+      "reason": "answer에 '저장하지 않았어요'라고 명시적으로 안내함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "아빠(dad) 계정으로 기록",
+      "ok": false,
+      "reason": "DB 상태가 변경되지 않았고(meals=0 유지), trace의 user_id는 mom으로 유지되어 아빠 계정으로 기록하지 않음"
+     },
+     {
+      "item": "식사·평가 저장",
+      "ok": false,
+      "reason": "DB의 meals와 ratings 수가 변경되지 않았고(meals=0, ratings=15 유지), trace에 FORM_REQUIRED 에러가 발생하여 저장하지 않음"
+     },
+     {
+      "item": "승인 요청",
+      "ok": false,
+      "reason": "trace의 pending_interrupt가 null로 승인 요청을 반환하지 않음"
+     }
+    ]
+   }
+  }
+ ]
+}

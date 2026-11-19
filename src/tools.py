@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -25,7 +26,19 @@ from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
 from src import memory
-from src.retriever import KIND_RECIPE, KIND_STORAGE, SearchResult, get_index
+from src.retriever import (
+    KIND_RECIPE,
+    KIND_STORAGE,
+    STORAGE_ITEMS,
+    SearchResult,
+    get_index,
+    load_storage_items,
+    refresh_storage_index,
+    storage_items_path,
+    upsert_storage_item,
+)
+
+log = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 FRIDGE_DB = DATA_DIR / "fridge.db"
@@ -33,7 +46,7 @@ FRIDGE_DB = DATA_DIR / "fridge.db"
 CHECKPOINT_DB = DATA_DIR / "checkpoints.db"
 SEED_INVENTORY = DATA_DIR / "seed_inventory.json"
 SEED_USERS = DATA_DIR / "seed_users.json"
-STORAGE_GUIDE = DATA_DIR / "storage_guide.md"
+# 보관 팁 문서(`storage_guide.md`)는 검색 인덱스가, 품목 기준표(`STORAGE_ITEMS`, `storage_items.csv`)는 아래 도구가 읽는다.
 # 카테고리 순서가 곧 추천 슬롯 순서다.
 RECIPE_FILES = {
     "한식": DATA_DIR / "recipes_korean.md",
@@ -101,9 +114,14 @@ CREATE TABLE threads (
     created_at TEXT NOT NULL
 );
 
+-- 품목 기준표(storage_items.csv)에 없는 품목의 기준. 기준 단위는 처음 등록할 때 쓴 단위이고,
+-- 별칭·개당 평균 무게·권장 보관일수는 재고 입력 Form으로 받은 값이다(없으면 NULL, SERVICE.md 5.1).
 CREATE TABLE item_units (
-    item      TEXT PRIMARY KEY,
-    base_unit TEXT NOT NULL CHECK (base_unit IN ('g', 'L', '개'))
+    item         TEXT PRIMARY KEY,
+    base_unit    TEXT NOT NULL CHECK (base_unit IN ('g', 'L', '개')),
+    aliases      TEXT,     -- JSON 문자열 배열
+    avg_weight_g REAL,
+    storage_days INTEGER
 );
 
 -- 승인 도구의 멱등 기록: 같은 키(thread_id:tool_call_id)는 한 번만 저장한다.
@@ -115,6 +133,24 @@ CREATE TABLE applied_actions (
     created_at TEXT NOT NULL
 );
 
+-- 화면의 recipe 평가 결과 입력 Form(JSON). API가 검사를 통과한 값만 스레드별로 하나 보관하고,
+-- 승인 도구(confirm_meal_form)가 읽어 승인 요약과 저장에 쓴다. 저장이 끝나면 지운다 (SERVICE.md 5.6).
+CREATE TABLE meal_forms (
+    thread_id  TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    form_json  TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- 화면의 재고 입력 Form(JSON). API가 검사를 통과한 값만 스레드별로 하나 보관하고,
+-- 확정 도구(confirm_inventory_form)가 읽어 입고·출고·폐기에 쓴다. 끝나면 지운다 (SERVICE.md 5.1).
+CREATE TABLE inventory_forms (
+    thread_id  TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    form_json  TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX idx_inventory_item ON inventory(item, status);
 CREATE INDEX idx_deductions_created ON deductions(created_at);
 CREATE INDEX idx_ratings_user_dish ON ratings(user_id, dish);
@@ -122,7 +158,10 @@ CREATE INDEX idx_meals_user_synced ON meals(user_id, watch_synced);
 CREATE UNIQUE INDEX idx_meals_meal_id ON meals(meal_id);
 """
 
-TABLES = ("applied_actions", "deductions", "ratings", "meals", "threads", "item_units", "inventory", "users")
+TABLES = ("inventory_forms", "meal_forms", "applied_actions", "deductions", "ratings", "meals", "threads", "item_units", "inventory", "users")
+MEAL_FORMS_DDL = SCHEMA.split("CREATE TABLE meal_forms", 1)[1].split(";", 1)[0]
+INVENTORY_FORMS_DDL = SCHEMA.split("CREATE TABLE inventory_forms", 1)[1].split(";", 1)[0]
+ITEM_PROFILE_COLUMNS = {"aliases": "TEXT", "avg_weight_g": "REAL", "storage_days": "INTEGER"}
 
 
 def today() -> date:
@@ -154,7 +193,34 @@ def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     _migrate_meal_id(conn)
+    _migrate_meal_forms(conn)
+    _migrate_inventory_forms(conn)
     return conn
+
+
+def _migrate_meal_forms(conn: sqlite3.Connection) -> None:
+    """평가 입력 Form 이전에 만든 DB에 `meal_forms` 테이블을 더한다. 도메인 테이블이 없는 빈 DB는 건드리지 않는다."""
+    names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "meals" in names and "meal_forms" not in names:
+        with conn:
+            conn.execute(f"CREATE TABLE meal_forms{MEAL_FORMS_DDL}")
+
+
+def _migrate_inventory_forms(conn: sqlite3.Connection) -> None:
+    """재고 입력 Form 이전에 만든 DB에 `inventory_forms` 테이블과 `item_units`의 기준 열을 더한다.
+
+    도메인 테이블이 없는 빈 DB는 건드리지 않는다.
+    """
+    names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "inventory" in names and "inventory_forms" not in names:
+        with conn:
+            conn.execute(f"CREATE TABLE inventory_forms{INVENTORY_FORMS_DDL}")
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(item_units)")}
+    missing = [c for c in ITEM_PROFILE_COLUMNS if cols and c not in cols]
+    if missing:
+        with conn:
+            for col in missing:
+                conn.execute(f"ALTER TABLE item_units ADD COLUMN {col} {ITEM_PROFILE_COLUMNS[col]}")
 
 
 def _migrate_meal_id(conn: sqlite3.Connection) -> None:
@@ -209,8 +275,8 @@ def load_seed(conn: sqlite3.Connection, base: date | None = None) -> dict:
         inventory_rows,
     )
     conn.executemany(
-        "INSERT INTO item_units (item, base_unit) VALUES (?, ?)",
-        [(u["item"], u["base_unit"]) for u in inv.get("item_units", [])],
+        "INSERT INTO item_units (item, base_unit, storage_days, avg_weight_g) VALUES (?, ?, ?, ?)",
+        [(u["item"], u["base_unit"], u.get("storage_days"), u.get("avg_weight_g")) for u in inv.get("item_units", [])],
     )
     conn.executemany(
         "INSERT INTO users (user_id, name, family_id) VALUES (?, ?, ?)",
@@ -268,37 +334,37 @@ def _name_key(name: str) -> str:
     return re.sub(r"\s+", "", name).lower()
 
 
-@lru_cache(maxsize=4)
-def load_storage_guide(path: str = str(STORAGE_GUIDE)) -> dict[str, dict]:
-    """`storage_guide.md`의 품목 기준표를 읽는다.
+def load_storage_guide(path: str | None = None) -> dict[str, dict]:
+    """품목 기준표(`storage_items.csv`)를 읽는다. 결과를 경로별로 캐시한다.
 
     품목명을 키로, 별칭 목록·기준 단위·권장 보관일수·개당 평균 무게 g(없으면 None)를
-    값으로 하는 사전을 돌려준다.
+    값으로 하는 사전을 돌려준다. 읽기와 형식 검사는 검색 인덱스와 같은 `retriever.load_storage_items`가 맡는다.
+    경로를 주지 않으면 `retriever.storage_items_path()`(평가·테스트는 임시 복사본)를 읽는다.
     """
-    text = Path(path).read_text(encoding="utf-8")
-    table = text.split("## 품목 기준표", 1)[1].split("\n## ", 1)[0]
-    guide: dict[str, dict] = {}
-    for line in table.splitlines():
-        line = line.strip()
-        if not line.startswith("|") or re.match(r"^\|\s*-", line):
-            continue
-        cells = [c.strip() for c in line.strip("|").split("|")]
-        if cells[0] == "품목":
-            continue
-        name, aliases, unit, days, weight = cells
-        guide[name] = {
-            "aliases": [] if aliases == "-" else [a.strip() for a in aliases.split(",")],
-            "base_unit": unit,
-            "storage_days": int(days),
-            "avg_weight_g": None if weight == "-" else float(weight),
-        }
-    return guide
+    return _read_guide(str(path or storage_items_path()))
 
 
 @lru_cache(maxsize=4)
-def _alias_index(path: str = str(STORAGE_GUIDE)) -> dict[str, str]:
+def _read_guide(path: str) -> dict[str, dict]:
+    """`load_storage_guide`의 캐시 본체."""
+    return load_storage_items(path)
+
+
+def _alias_index(path: str | None = None) -> dict[str, str]:
     """품목명과 별칭을 품목명으로 잇는 색인을 만든다. 품목명이 별칭보다 우선한다."""
-    guide = load_storage_guide(path)
+    return _alias_index_at(str(path or storage_items_path()))
+
+
+def clear_guide_cache() -> None:
+    """기준표 캐시를 비운다. 기준표에 행이 덧붙었거나 기준표 경로가 바뀌었을 때 부른다."""
+    _read_guide.cache_clear()
+    _alias_index_at.cache_clear()
+
+
+@lru_cache(maxsize=4)
+def _alias_index_at(path: str) -> dict[str, str]:
+    """`_alias_index`의 캐시 본체."""
+    guide = _read_guide(path)
     index: dict[str, str] = {}
     for name, info in guide.items():
         for alias in info["aliases"]:
@@ -359,13 +425,14 @@ def normalize_unit(qty: float, unit: str) -> tuple[float, str]:
     """수량과 단위를 `g`, `L`, `개` 중 하나로 바꾼다.
 
     `kg`→`g`, `ml`→`L`, `모·팩·봉·알·단·대·캔`→`개`. 모르는 단위면 ValueError.
+    양은 절대값으로 바꿔 양수로만 다룬다(`-2` → `2`, SERVICE.md 5.1).
     """
     key = unit.strip()
     key = key.lower() if key.isascii() else key
     if key not in UNIT_TABLE:
         raise ValueError(f"지원하지 않는 단위예요: {unit}")
     base, factor = UNIT_TABLE[key]
-    return _round(float(qty) * factor), base
+    return _round(abs(float(qty)) * factor), base
 
 
 def base_unit_of(item: str, conn: sqlite3.Connection | None = None) -> str | None:
@@ -378,10 +445,23 @@ def base_unit_of(item: str, conn: sqlite3.Connection | None = None) -> str | Non
     if info:
         return info["base_unit"]
     if conn is not None:
-        row = conn.execute("SELECT base_unit FROM item_units WHERE item = ?", (item.strip(),)).fetchone()
-        if row:
-            return row["base_unit"]
+        profile = item_profile(conn, item)
+        if profile:
+            return profile["base_unit"]
     return None
+
+
+def item_profile(conn: sqlite3.Connection, name: str) -> dict | None:
+    """기준표에 없는 품목의 기준(`item_units`)을 품목명 → 별칭 순으로 찾는다(공백 무시).
+
+    `{"item", "base_unit", "aliases": [...], "avg_weight_g", "storage_days"}`을 돌려준다. 없으면 None.
+    """
+    key = _name_key(name)
+    rows = [dict(r) for r in conn.execute("SELECT * FROM item_units").fetchall()]
+    for row in rows:
+        row["aliases"] = json.loads(row.get("aliases") or "[]")
+    exact = next((r for r in rows if _name_key(r["item"]) == key), None)
+    return exact or next((r for r in rows if any(_name_key(a) == key for a in r["aliases"])), None)
 
 
 def convert_to_base(item: str, qty: float, unit: str, conn: sqlite3.Connection | None = None) -> tuple[float, str]:
@@ -395,7 +475,8 @@ def convert_to_base(item: str, qty: float, unit: str, conn: sqlite3.Connection |
     if base is None or u == base:
         return q, u
     info = guide_info(item)
-    weight = info["avg_weight_g"] if info else None
+    profile = item_profile(conn, item) if info is None and conn is not None else None
+    weight = info["avg_weight_g"] if info else (profile or {}).get("avg_weight_g")
     if weight:
         if u == "개" and base == "g":
             return _round(q * weight), "g"
@@ -527,6 +608,31 @@ def check_sn(conn: sqlite3.Connection, sn: str) -> dict:
 # ── 입고 ─────────────────────────────────────────────────────────
 
 
+STORAGE_DAYS_REQUIRED = "storage_days_required"
+MSG_STORAGE_DAYS_REQUIRED = "기준표에 없는 품목이라 권장 보관일수(1 이상의 정수)가 필요해요"
+MSG_AVG_WEIGHT_INVALID = "개당 평균 무게는 양수여야 해요"
+
+
+def is_new_item(conn: sqlite3.Connection, item: str) -> bool:
+    """기준표에도 `item_units`에도 없는 품목인지 본다(새로 등록해야 하는 품목)."""
+    return resolve_item(item) is None and item_profile(conn, item) is None
+
+
+def registration_problems(storage_days: object, avg_weight_g: object) -> list[str]:
+    """새 품목 등록 조건(SERVICE.md 5.1)을 검사해 어긋난 점을 돌려준다(없으면 빈 목록).
+
+    권장 보관일수는 반드시 양의 정수, 개당 평균 무게는 없거나 양수여야 한다.
+    """
+    problems = []
+    if isinstance(storage_days, bool) or not isinstance(storage_days, int) or storage_days <= 0:
+        problems.append(MSG_STORAGE_DAYS_REQUIRED)
+    if avg_weight_g is not None and (
+        isinstance(avg_weight_g, bool) or not isinstance(avg_weight_g, (int, float)) or avg_weight_g <= 0
+    ):
+        problems.append(MSG_AVG_WEIGHT_INVALID)
+    return problems
+
+
 def add_inventory(
     conn: sqlite3.Connection,
     item: str,
@@ -535,17 +641,33 @@ def add_inventory(
     input_date: date | int | str | None = None,
     expiry_date: date | int | str | None = None,
     sn: str | None = None,
+    storage_days: int | None = None,
+    avg_weight_g: float | None = None,
+    aliases: list[str] | None = None,
 ) -> dict:
     """재고 한 건을 입고한다. 커밋은 호출한 쪽이 한다.
 
     - 투입일자: 상대 토큰("어제", "-1")이나 날짜. 없으면 오늘.
+    - 양: 절대값으로 바꾼다. 0이면 저장하지 않고 `status="qty_invalid"`.
     - 단위: 기준 단위로 환산. 환산할 수 없으면 저장하지 않고 `status="unit_mismatch"`.
     - S/N: 주면 형식·중복을 검사하고, 어긋나면 저장하지 않고 `status="sn_invalid"`와
       자동 발번 S/N(`suggested_sn`)을 돌려준다. 없으면 자동 발번.
-    - 유효기간: 주면 출처 `user`, 없으면 가이드로 계산(`guide`), 가이드에도 없으면 미상(`unknown`).
-    - 가이드에 없는 품목은 첫 등록 단위를 `item_units`에 기준 단위로 기록한다.
+    - 유효기간: 주면 출처 `user`, 없으면 가이드로 계산(`guide`). 새 품목은 `투입일자 + storage_days`(`user`).
+      가이드에 없고 보관일수도 없는 예전 등록 품목만 미상(`unknown`).
+    - 새 품목(기준표에도 `item_units`에도 없음)은 등록 조건을 지켜야 한다(SERVICE.md 5.1 "새 품목 등록 조건").
+      `storage_days`가 양의 정수가 아니면 저장하지 않고 `status="storage_days_required"`, 개당 평균 무게가
+      양수가 아니면 `status="avg_weight_invalid"`. 통과하면 첫 등록 단위·보관일수·평균 무게·별칭을 `item_units`에
+      기록하고 결과에 `registered=True`를 담는다. 기준표 반영은 커밋 뒤 `sync_guide`가 한다.
     """
     in_date = resolve_date(input_date)
+    if float(qty) == 0:
+        return {"status": "qty_invalid", "item": item, "message": "양이 0이에요. 0보다 큰 양을 알려 주세요"}
+    new = is_new_item(conn, item)
+    if new:
+        problems = registration_problems(storage_days, avg_weight_g)
+        if problems:
+            status = STORAGE_DAYS_REQUIRED if MSG_STORAGE_DAYS_REQUIRED in problems else "avg_weight_invalid"
+            return {"status": status, "item": item.strip(), "message": "; ".join(problems)}
     try:
         q, u = convert_to_base(item, qty, unit, conn)
     except UnitMismatchError as e:
@@ -562,11 +684,16 @@ def add_inventory(
 
     if expiry_date is not None:
         expiry, source = resolve_date(expiry_date), "user"
+    elif new:
+        expiry, source = in_date + timedelta(days=storage_days), "user"
     else:
         expiry, source = default_expiry(item, in_date)
 
-    if resolve_item(item) is None and base_unit_of(item, conn) is None:
-        conn.execute("INSERT INTO item_units (item, base_unit) VALUES (?, ?)", (item.strip(), u))
+    if new:
+        conn.execute(
+            "INSERT INTO item_units (item, base_unit, aliases, avg_weight_g, storage_days) VALUES (?, ?, ?, ?, ?)",
+            (item.strip(), u, json.dumps(aliases, ensure_ascii=False) if aliases else None, avg_weight_g, storage_days),
+        )
 
     conn.execute(
         "INSERT INTO inventory (sn, item, qty, unit, expiry_date, expiry_source, input_date, status)"
@@ -583,7 +710,44 @@ def add_inventory(
         "expiry_date": expiry.isoformat() if expiry else None,
         "expiry_source": source,
         "d_day": d_day(expiry),
+        **({"registered": True} if new else {}),
     }
+
+
+def sync_guide(conn: sqlite3.Connection) -> list[str]:
+    """`item_units`에 등록된 품목을 품목 기준표에 맞춘다(SERVICE.md 5.1 "기준표 자동 추가"). 바뀐 품목명 목록을 돌려준다.
+
+    권장 보관일수가 있는 행은 기준표에 없으면 덧붙이고, 있으면 비어 있는 별칭·개당 평균 무게만 채운다.
+    바뀐 품목이 있으면 기준표 캐시를 비우고 검색 인덱스의 보관 청크를 다시 맞춘다. 재고 DB 커밋 뒤와 서버 시작 때
+    부른다. 파일 쓰기가 실패해도 재고 저장은 되돌리지 않고 기록만 남긴다(다음 시작 때 다시 맞춘다).
+    """
+    changed = []
+    rows = conn.execute("SELECT * FROM item_units WHERE storage_days IS NOT NULL ORDER BY item").fetchall()
+    for row in rows:
+        canonical = resolve_item(row["item"])
+        if canonical not in (None, row["item"]):
+            continue  # 기준표의 다른 품목 별칭과 같은 이름이면 덧붙이지 않는다
+        try:
+            status = upsert_storage_item(row["item"], row["base_unit"], int(row["storage_days"]), row["avg_weight_g"],
+                                         json.loads(row["aliases"] or "[]"))
+        except (ValueError, OSError) as e:
+            log.warning("기준표에 %s을(를) 반영하지 못했어요: %s", row["item"], e)
+            continue
+        if status != "unchanged":
+            changed.append(row["item"])
+    if changed:
+        clear_guide_cache()
+        refresh_storage_index()
+    return changed
+
+
+def sync_guide_db(db_path: str | None = None) -> list[str]:
+    """도메인 DB를 열어 `sync_guide`를 부른다. 서버 시작 때 쓴다."""
+    conn = connect(db_path)
+    try:
+        return sync_guide(conn)
+    finally:
+        conn.close()
 
 
 # ── 차감 (FEFO) ──────────────────────────────────────────────────
@@ -597,8 +761,10 @@ def stock_rows(conn: sqlite3.Connection, item: str) -> list[sqlite3.Row]:
     """품목(별칭 포함)의 보관 중 재고를 FEFO 순서로 돌려준다.
 
     유효기간이 빠른 순, 유효기간 미상은 맨 뒤, 같으면 투입일자·S/N 순.
+    기준표에 없는 품목은 재고 입력 Form으로 등록한 별칭(`item_units`)으로도 찾는다.
     """
-    key = item_key(item)
+    profile = item_profile(conn, item) if resolve_item(item) is None else None
+    key = item_key(profile["item"] if profile else item)
     rows = conn.execute(
         "SELECT * FROM inventory WHERE status = 'stored'"
         " ORDER BY expiry_date IS NULL, expiry_date, input_date, sn"
@@ -606,8 +772,12 @@ def stock_rows(conn: sqlite3.Connection, item: str) -> list[sqlite3.Row]:
     return [r for r in rows if item_key(r["item"]) == key]
 
 
-def deduct_fefo(conn: sqlite3.Connection, item: str, qty: float, unit: str, reason: str = REASON_OUTFLOW) -> dict:
+def deduct_fefo(
+    conn: sqlite3.Connection, item: str, qty: float, unit: str, reason: str = REASON_OUTFLOW, sn: str | None = None
+) -> dict:
     """재고를 유효기간이 빠른 것부터(FEFO) 차감한다. 커밋은 호출한 쪽이 한다.
+
+    `sn`을 주면 그 재고 한 건에서만 차감한다(재고 입력 Form의 출고).
 
     출고·식사 차감·폐기가 모두 이 함수 하나를 쓴다. S/N마다 `deductions`에
     g 환산량(평균 무게가 없으면 NULL)과 차감 시점 D-day를 남기고, 0이 된 재고는
@@ -624,7 +794,7 @@ def deduct_fefo(conn: sqlite3.Connection, item: str, qty: float, unit: str, reas
     except UnitMismatchError as e:
         return {"status": "unit_mismatch", "item": item, "unit": e.unit, "base_unit": e.base_unit, "message": str(e)}
 
-    rows = stock_rows(conn, item)
+    rows = [r for r in stock_rows(conn, item) if sn is None or r["sn"] == sn]
     if not rows:
         return {"status": "not_in_stock", "item": item, "requested": need, "deducted": 0.0,
                 "shortage": need, "unit": u, "details": []}
@@ -850,10 +1020,13 @@ class RecommendationResult(BaseModel):
     items: list[RecommendationItem] = Field(default_factory=list)
     empty_slots: list[EmptySlot] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list, description="신메뉴가 없을 때 같은 안내 문구")
+    within_calorie_budget: bool | None = Field(
+        default=None, description="추천 요리가 모두 요청자의 오늘 남은 칼로리 안인지. 칼로리 정보가 없으면 null"
+    )
 
 
 class FamilyRecommendationResult(BaseModel):
-    """가족 합의 저녁 추천 결과 (SERVICE.md 5.5). 다른 가족의 개별 평점·칼로리는 담지 않는다."""
+    """가족 합의 저녁 추천 결과 (SERVICE.md 5.5). 다른 가족 구성원의 개별 평점·칼로리는 담지 않는다."""
 
     diners: list[str]
     items: list[RecommendationItem] = Field(default_factory=list)
@@ -1056,12 +1229,19 @@ def recommend(
     allergies: list[str] | None = None,
     dislikes: list[str] | None = None,
     servings: float = 1,
+    calorie_budget: float | None = None,
 ) -> RecommendationResult:
     """요청자 한 명의 요리 추천을 슬롯 규칙(SERVICE.md 5.2 규칙 1~6)대로 만든다.
 
     알레르기·비선호를 주지 않으면 `seed_profile()`에서 읽는다. 부족 재료는 `servings`
     인분 기준으로 계산한다. 신메뉴는 후보가 있는 만큼 2개까지 넣는다. 카테고리를 지정하면
     그 안에서 평점 우선 2개와 신메뉴 2개를 고른다. 지원하지 않는 카테고리는 ValueError를 낸다.
+
+    `calorie_budget`(요청자의 오늘 남은 kcal)을 주면 안전 필터 다음에 칼로리 제약을 건다(SERVICE.md 5.2).
+    1인분 kcal이 남은 칼로리 이하인 요리만 쓰고, 어떤 슬롯(또는 지정 카테고리)에 그런 요리가 없으면
+    그 카테고리의 가장 가벼운 요리로 대신하고 알린다. 대체 요리도 슬롯 규칙의 우선순위를 따라 평점 3점 이상 요리 중
+    가장 가벼운 것을, 없으면 신메뉴 중 가장 가벼운 것을 고른다. "신메뉴 2개까지" 규칙은 그대로 적용한다.
+    없으면(None) 제약 없이 고른다.
     """
     if category is not None and category not in CUISINES:
         raise ValueError(f"지원하지 않는 카테고리예요: {category} (한식·일식·이탈리아식·중식만 지원)")
@@ -1071,12 +1251,37 @@ def recommend(
 
     candidates, _ = _safe_candidates(conn, allergies, dislikes, servings)
     ratings = user_ratings(conn, user_id)
-    pool = [_to_item(c, *ratings.get(c.recipe.name, (None, 0))) for c in candidates]
+    all_items = [_to_item(c, *ratings.get(c.recipe.name, (None, 0))) for c in candidates]
     result = RecommendationResult(user_id=user_id, category=category)
+
+    # 칼로리 제약: 남은 칼로리 안의 요리만 후보로 쓰고, 그런 요리가 없는 카테고리는 가장 가벼운 요리로 대신한다
+    def fits(item: RecommendationItem) -> bool:
+        return calorie_budget is None or item.kcal_per_serving <= calorie_budget
+
+    pool = [i for i in all_items if fits(i)]
+    lightened: list[str] = []
+
+    def lightest(cuisine: str) -> RecommendationItem | None:
+        in_cat = [i for i in all_items if i.cuisine == cuisine]
+        group = _good(in_cat) or _new(in_cat)
+        if not group:
+            return None
+        lightened.append(cuisine)
+        return min(group, key=lambda i: (i.kcal_per_serving, rank_key(i)))
+
+    def finish() -> RecommendationResult:
+        if calorie_budget is not None:
+            used = [c for c in lightened if any(i.cuisine == c and not fits(i) for i in result.items)]
+            result.within_calorie_budget = all(fits(i) for i in result.items)
+            if used:
+                result.notes.append(f"남은 칼로리 안에 드는 요리가 없어 가장 가벼운 요리를 골랐어요: {', '.join(used)}")
+        return result
 
     # 규칙 6: 카테고리 지정
     if category is not None:
         in_cat = [i for i in pool if i.cuisine == category]
+        if not in_cat and (light := lightest(category)):
+            in_cat = [light]
         result.items = [_slot(i, category) for i in _good(in_cat)[:2]]
         new = _new(in_cat)
         result.items += [_slot(i, category) for i in new[:NEW_MENU_COUNT]]
@@ -1084,7 +1289,7 @@ def recommend(
             result.notes.append(_few_new_note(len(new), f"{category} 요리"))
         if not result.items:
             result.empty_slots.append(EmptySlot(slot=category, reason=_no_dish_reason(category, bool(in_cat))))
-        return result
+        return finish()
 
     # 규칙 1~3: 카테고리별 슬롯
     slots: dict[str, RecommendationItem] = {}
@@ -1092,6 +1297,8 @@ def recommend(
     for cuisine in CUISINES:
         in_cat = [i for i in pool if i.cuisine == cuisine]
         pick = (_good(in_cat) or _new(in_cat) or [None])[0]
+        if pick is None and calorie_budget is not None:
+            pick = lightest(cuisine)
         if pick:
             slots[cuisine] = pick
         else:
@@ -1114,7 +1321,7 @@ def recommend(
     total_new = min(len(new_in_slots), NEW_MENU_COUNT) + len(extra)
     if total_new < NEW_MENU_COUNT:
         result.notes.append(_few_new_note(total_new, "요리"))
-    return result
+    return finish()
 
 
 def recommend_family(
@@ -1312,7 +1519,7 @@ def fetch_calorie_budgets(members: list[str], caller: str) -> tuple[dict[str, fl
     """가족 합의 저녁용으로 참여자 전원의 오늘 남은 kcal을 워치 MCP에서 읽는다 (SERVICE.md 5.5).
 
     코드에서만 부르고 값은 `recommend_family`의 칼로리 제약에만 쓴다. 에이전트(LLM)에는 넘기지 않으므로
-    다른 가족의 수치가 답변에 들어갈 길이 없다. 워치 연동이 꺼져 있거나 한 명이라도 읽지 못하면
+    다른 가족 구성원의 수치가 답변에 들어갈 길이 없다. 워치 연동이 꺼져 있거나 한 명이라도 읽지 못하면
     `(None, 기록)`을 돌려주고 칼로리 제약을 건너뛴다. trace 기록에는 수치를 남기지 않는다.
     """
     target = health_target()
@@ -1366,6 +1573,9 @@ class InventoryInput(BaseModel):
     )
     expiry_date: str | None = Field(default=None, description="사용자가 말한 유효기간(YYYY-MM-DD). 말하지 않았으면 비운다")
     sn: str | None = Field(default=None, description="사용자가 직접 준 S/N(YYYY-MM-NNN). 말하지 않았으면 비운다")
+    storage_days: int | None = Field(
+        default=None, description="사용자가 말한 권장 보관일수(일 수, 정수). 말하지 않았으면 비운다"
+    )
 
 
 def _context(runtime: ToolRuntime[FridgeContext]) -> FridgeContext:
@@ -1510,7 +1720,8 @@ def add_parsed_items(conn: sqlite3.Connection, items: list[InventoryInput]) -> l
     results = []
     for it in items:
         try:
-            result = add_inventory(conn, it.item, it.qty, it.unit, it.input_date, it.expiry_date, it.sn)
+            result = add_inventory(conn, it.item, it.qty, it.unit, it.input_date, it.expiry_date, it.sn,
+                                   storage_days=it.storage_days)
             if result["status"] == "sn_invalid":
                 qty, unit = convert_to_base(it.item, it.qty, it.unit, conn)
                 result.update(input_date=resolve_date(it.input_date).isoformat(), qty=qty, unit=unit)
@@ -1530,7 +1741,10 @@ def add_items_from_text(runtime: ToolRuntime[FridgeContext], text: str) -> str:
     status가 `sn_invalid`면 저장하지 않았다. 이유(reason)와 suggested_sn을 알리고 그 S/N으로
     저장할지 묻는다. 사용자가 동의하면 원래 입고 문장의 S/N만 suggested_sn으로 바꾼 문장을
     text로 다시 넘긴다(예: "어제 산 두부 1모 넣었어, S/N은 2026-11-014"). status가 `unit_mismatch`면
-    기준 단위로 다시 물어본다. expiry_source가 `unknown`이면 유효기간 미상으로 저장됐다고 알린다.
+    기준 단위로 다시 물어본다. status가 `storage_days_required`면 기준표에 없는 품목이라 저장하지 않았다.
+    권장 보관일수(며칠)를 사용자에게 묻고, 답을 받으면 원래 입고 문장에 그 보관일수를 붙여 text로 다시 넘긴다
+    (예: "고등어 600g 넣었어, 권장 보관일수 2일"). 보관일수를 지어내지 않는다. registered가 true인 품목은
+    품목 기준표에 새로 등록됐다고 알린다.
     """
     from src.chains import parse_inventory_text
 
@@ -1544,6 +1758,8 @@ def add_items_from_text(runtime: ToolRuntime[FridgeContext], text: str) -> str:
     try:
         with conn:
             results = add_parsed_items(conn, items)
+        if any(r.get("registered") for r in results):
+            sync_guide(conn)
         return _to_json(results)
     finally:
         conn.close()
@@ -1618,6 +1834,24 @@ def withdraw_item(runtime: ToolRuntime[FridgeContext], item: str, qty: float, un
         conn.close()
 
 
+def describe_lots(lots: list[sqlite3.Row]) -> str:
+    """폐기 대상 재고를 승인 요약용 문구로 적는다(품목, 수량, S/N, D-day)."""
+    return ", ".join(
+        f"{r['item']} {_fmt_qty(r['qty'], r['unit'])} (S/N {r['sn']}, D-day {d_day(r['expiry_date'])})" for r in lots
+    )
+
+
+def apply_discard(conn: sqlite3.Connection, lots: list[sqlite3.Row]) -> None:
+    """재고 여러 건을 폐기 상태로 바꾸고 폐기 차감 기록을 남긴다. 커밋은 호출한 쪽이 한다."""
+    created_at = now_iso()
+    for r in lots:
+        conn.execute("UPDATE inventory SET qty = 0, status = 'discarded' WHERE sn = ?", (r["sn"],))
+        conn.execute(
+            "INSERT INTO deductions (sn, qty_g, d_day_at_deduction, reason, created_at) VALUES (?, ?, ?, ?, ?)",
+            (r["sn"], to_grams(r["item"], r["qty"], r["unit"]), d_day(r["expiry_date"]), REASON_DISCARD, created_at),
+        )
+
+
 @tool
 def discard_item(runtime: ToolRuntime[FridgeContext], item: str, sn: str | None = None) -> str:
     """재고를 폐기한다. 반드시 사용자 승인을 먼저 받는다.
@@ -1636,10 +1870,7 @@ def discard_item(runtime: ToolRuntime[FridgeContext], item: str, sn: str | None 
         lots = [r for r in stock_rows(conn, item) if sn is None or r["sn"] == sn.strip()]
         if not lots:
             return f"폐기할 {item} 재고가 없어요"
-        desc = ", ".join(
-            f"{r['item']} {_fmt_qty(r['qty'], r['unit'])} (S/N {r['sn']}, D-day {d_day(r['expiry_date'])})"
-            for r in lots
-        )
+        desc = describe_lots(lots)
         decision = interrupt({"type": "discard", "tool": "discard_item", "summary": f"{desc} 폐기. 진행할까요?"})
         if not is_approved(decision):
             return REJECT_DISCARD
@@ -1648,13 +1879,7 @@ def discard_item(runtime: ToolRuntime[FridgeContext], item: str, sn: str | None 
             done = _applied_result(conn, key)
             if done:
                 return done
-            created_at = now_iso()
-            for r in lots:
-                conn.execute("UPDATE inventory SET qty = 0, status = 'discarded' WHERE sn = ?", (r["sn"],))
-                conn.execute(
-                    "INSERT INTO deductions (sn, qty_g, d_day_at_deduction, reason, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (r["sn"], to_grams(r["item"], r["qty"], r["unit"]), d_day(r["expiry_date"]), REASON_DISCARD, created_at),
-                )
+            apply_discard(conn, lots)
             message = f"폐기했어요: {desc}"
             _record_applied(conn, key, "discard_item", ctx.user_id, message)
         return message
@@ -1728,6 +1953,10 @@ def rank_recipes(runtime: ToolRuntime[FridgeContext], category: str | None = Non
     - diners: 함께 먹는 가족 이름(예: ["엄마", "지민"]). 요청자는 자동 포함이므로 넣지 않는다.
       주면 가족 합의 저녁 규칙으로 메뉴 1개와 신메뉴 2개를 고른다. 참여자 알레르기·비선호를 빼고,
       참여자 전원의 남은 칼로리를 워치에서 읽어 within_calorie_budget(모두의 남은 칼로리 안인지)만 돌려준다.
+      가족 구성원 정보에 없는 이름은 참여자에서 빼고 notes로 알린다.
+    - 혼자 먹는 추천도 요청자의 남은 칼로리를 워치에서 읽어 칼로리 제약에 쓰고 within_calorie_budget을 돌려준다.
+    남은 칼로리는 이 도구가 코드에서 직접 읽는다. 에이전트의 get_calorie_budget 호출 결과는 계산에 쓰지 않으며,
+    다른 가족 구성원의 수치는 결과에 담지 않는다.
     """
     ctx = _context(runtime)
     conn = _open(runtime)
@@ -1757,8 +1986,14 @@ def rank_recipes(runtime: ToolRuntime[FridgeContext], category: str | None = Non
                 notes.append(CALORIE_UNKNOWN)
         else:
             profile = memory.profile_or(store, ctx.user_id, seed_profile(ctx.user_id))
-            result = recommend(conn, ctx.user_id, category=category,
-                               allergies=profile["allergies"], dislikes=profile["dislikes"])
+            # 혼자 먹는 추천도 요청자의 오늘 남은 칼로리를 코드에서 읽어 칼로리 제약에 쓴다(값은 LLM에 넘기지 않는다).
+            budgets, steps = fetch_calorie_budgets([ctx.user_id], caller="rank_recipes")
+            ctx.mcp_calls.extend(steps)
+            budget = budgets.get(ctx.user_id) if budgets else None
+            result = recommend(conn, ctx.user_id, category=category, allergies=profile["allergies"],
+                               dislikes=profile["dislikes"], calorie_budget=budget)
+            if budget is None:
+                notes.append(CALORIE_UNKNOWN)
         result.notes = notes + result.notes
         return result.model_dump_json()
     finally:
@@ -1779,7 +2014,7 @@ def calc_kcal_tool(servings_eaten: float, dish: str | None = None, kcal_per_serv
 
 # 보관 가이드에 없는 품목 안내의 앞부분. API가 이 문구로 시작하는 결과를 근거(contexts)로 담는다
 NOT_IN_GUIDE = "보관 가이드에 없는 품목이에요"
-# 권장 보관일수의 보관 조건. 가이드 표는 따로 적지 않으면 냉장 기준이다(storage_guide.md 단위 규칙)
+# 권장 보관일수의 보관 조건. 품목 기준표는 따로 적지 않으면 냉장 기준이다(storage_guide.md 단위 규칙)
 STORAGE_BASIS = "냉장 보관 기준"
 
 
@@ -1790,7 +2025,7 @@ def get_storage_days(item: str) -> str:
     if info is None:
         return f"{NOT_IN_GUIDE}: {item}. 권장 보관일수를 알 수 없어요. 유효기간을 직접 알려 주세요"
     return _to_json({"item": item, "guide_item": resolve_item(item), "storage_days": info["storage_days"],
-                     "basis": STORAGE_BASIS, "base_unit": info["base_unit"], "source": STORAGE_GUIDE.name})
+                     "basis": STORAGE_BASIS, "base_unit": info["base_unit"], "source": STORAGE_ITEMS.name})
 
 
 @tool
@@ -1891,6 +2126,382 @@ def confirm_meal(
         conn.close()
 
 
+FORM_CONFIRM_REQUEST = "평가 입력 Form을 확정해줘"
+NO_MEAL_FORM = "확정할 평가 입력이 없어요. 평가 입력 Form을 다시 보내 주세요"
+
+
+def save_meal_form(db_path: str | None, thread_id: str, user_id: str, form: dict) -> None:
+    """API가 검사를 통과시킨 평가 입력 Form을 스레드별로 하나 보관한다(같은 스레드의 이전 Form은 바꾼다).
+
+    `form`은 `{"recipe", "cooked", "entries": [{"user_id", "eaten", "score"}]}`이다. 평가자는 모두
+    가족 구성원(`users`)이라는 검사를 이미 거쳤다. 승인 도구 `confirm_meal_form`이 이 값만 읽는다.
+    """
+    conn = connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO meal_forms (thread_id, user_id, form_json, created_at) VALUES (?, ?, ?, ?)",
+                (thread_id, user_id, json.dumps(form, ensure_ascii=False), now_iso()),
+            )
+    finally:
+        conn.close()
+
+
+@tool
+def confirm_meal_form(runtime: ToolRuntime[FridgeContext]) -> str:
+    """화면의 recipe 평가 결과 입력 Form을 확정한다. 인자는 없다. 반드시 사용자 승인을 먼저 받는다.
+
+    "평가 입력 Form을 확정해줘"로 시작하는 요청에만 쓴다. 평가자·식사량·점수는 서버가 검사해 보관한 Form에서
+    읽으므로 대화 내용으로 값을 넘기거나 바꾸지 않는다. 승인되면 평가자마다 평가와 식사 기록을 저장하고,
+    재료는 요리한 양 기준으로 한 번만 차감하고, 평가자마다 각자의 워치에 칼로리를 기록한다(요청자 한 사람의 승인).
+    """
+    ctx = _context(runtime)
+    if ctx.user_id == GUEST_USER:
+        return GUEST_DENIED
+    thread_id = (runtime.config or {}).get("configurable", {}).get("thread_id")
+    conn = _open(runtime)
+    try:
+        key = idempotency_key(runtime)
+        done = _applied_result(conn, key)
+        if done:
+            return done
+        row = conn.execute("SELECT form_json FROM meal_forms WHERE thread_id = ?", (thread_id,)).fetchone()
+        if row is None:
+            return NO_MEAL_FORM
+        form = json.loads(row["form_json"])
+        dish, cooked = form["recipe"], float(form["cooked"])
+        recipe = parse_recipes().get(dish)
+        entries = [
+            {**e, "kcal": calc_kcal(float(e["eaten"]), recipe.kcal if recipe else None)} for e in form["entries"]
+        ]
+
+        # 1) 읽기 전용 미리보기: 차감해 보고 롤백한다.
+        preview = plan_meal_deductions(conn, recipe, cooked) if recipe else []
+        conn.rollback()
+        deducted, notes = describe_deductions(preview)
+        scores = "·".join(f"{e['user_id']} {e['score']}점" for e in entries)
+        parts = [f"{dish} 평가 저장({scores})"]
+        if recipe:
+            parts.append(f"{_fmt_qty(cooked)}인분 기준 {deducted} 차감" if deducted else "차감할 재고 없음")
+        else:
+            parts.append("레시피에 없는 요리라 재고는 차감하지 않음")
+        meals = "·".join(
+            f"{e['user_id']} {_fmt_qty(float(e['eaten']))}인분" + (f" {_fmt_qty(e['kcal'])}kcal" if e["kcal"] is not None else "")
+            for e in entries
+        )
+        watch = "각자 워치에 기록" if any(e["kcal"] is not None for e in entries) else "kcal을 몰라 워치 기록은 생략"
+        parts.append(f"식사 기록 {meals}을 {watch}")
+        summary = ", ".join(parts) + (f" ({'; '.join(notes)})" if notes else "") + ". 진행할까요?"
+
+        # 2) 쓰기 전에 요청자에게 승인을 받는다. 재개되면 이 도구가 처음부터 다시 실행되고 같은 Form을 다시 읽는다.
+        decision = interrupt({"type": "meal_form_confirm", "tool": "confirm_meal_form", "summary": summary})
+        if not is_approved(decision):
+            with conn:
+                conn.execute("DELETE FROM meal_forms WHERE thread_id = ?", (thread_id,))
+            return REJECT_MEAL
+
+        # 3) 승인 후 한 트랜잭션으로 한 번만 저장한다. 워치 멱등 키는 평가자마다 따로 둔다.
+        with conn:
+            done = _applied_result(conn, key)
+            if done:
+                return done
+            now = now_iso()
+            for e in entries:
+                conn.execute(
+                    "INSERT INTO ratings (user_id, dish, cuisine, score, comment, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (e["user_id"], dish, recipe.cuisine if recipe else None, int(e["score"]), None, now),
+                )
+                conn.execute(
+                    "INSERT INTO meals (user_id, dish, servings, kcal, eaten_at, watch_synced, meal_id) "
+                    "VALUES (?, ?, ?, ?, ?, 0, ?)",
+                    (e["user_id"], dish, float(e["eaten"]), e["kcal"], now, f"{key}:{e['user_id']}"),
+                )
+            applied = plan_meal_deductions(conn, recipe, cooked) if recipe else []
+            deducted, notes = describe_deductions(applied)
+            conn.execute("DELETE FROM meal_forms WHERE thread_id = ?", (thread_id,))
+            message = f"저장했어요. {dish} {scores}"
+            if deducted:
+                message += f", {deducted} 차감"
+            message += f", 식사 기록 {meals}."
+            if notes:
+                message += f" ({'; '.join(notes)})"
+            _record_applied(conn, key, "confirm_meal_form", ctx.user_id, message)
+
+        # 4) 커밋 뒤 코드에서 평가자마다 워치 MCP record_meal을 부른다.
+        steps: list[dict] = []
+        for e in entries:
+            if e["kcal"] is not None:
+                steps += sync_meals_to_watch(conn, e["user_id"], caller="confirm_meal_form", meal_id=f"{key}:{e['user_id']}")
+        ctx.mcp_calls.extend(steps)
+        if not any(e["kcal"] is not None for e in entries):
+            return message
+        if not steps:
+            return f"{message} {WATCH_PENDING}."
+        failed = any(s["event"] == "error" for s in steps)
+        return f"{message} {WATCH_FAILED if failed else WATCH_OK}."
+    finally:
+        conn.close()
+
+
+# ── 재고 입력 Form (입고·출고·폐기, SERVICE.md 5.1) ────────────────
+
+INVENTORY_FORM_REQUEST = "재고 입력 Form을 확정해줘"  # src/guardrails.py의 같은 이름 상수와 같은 문구
+NO_INVENTORY_FORM = "확정할 재고 입력이 없어요. 재고 입력 Form을 다시 보내 주세요"
+STOCK_CHANGED = "재고가 그 사이 바뀌어 처리하지 않았어요. 재고 입력 Form을 다시 보내 주세요"
+FORM_ACTIONS = {"stored": "입고", "consumed": "출고", "discarded": "폐기"}
+
+
+def form_item_name(conn: sqlite3.Connection, item: str) -> str:
+    """Form의 품목명을 저장·조회에 쓸 이름으로 바꾼다.
+
+    기준표 품목은 입력한 이름 그대로(기준표 매칭은 조회 때 한다), 기준표에 없지만 Form으로 등록한 품목이면
+    그 품목명(별칭으로 들어와도), 처음 보는 품목이면 입력한 이름.
+    """
+    if resolve_item(item) is None:
+        profile = item_profile(conn, item)
+        if profile:
+            return profile["item"]
+    return item.strip()
+
+
+def check_inventory_form_stock(db_path: str | None, form: dict) -> list[str]:
+    """재고 입력 Form을 지금 재고와 맞춰 본다. 형식 검사(`guardrails.check_inventory_form`)를 통과한 값만 받는다.
+
+    입고: S/N 중복(자동 발번 S/N 제안), 기준 단위 환산. 출고·폐기: S/N이 보관 중 재고인지와 품목이 맞는지,
+    재고가 있는지, 출고량이 보유량(S/N을 주면 그 재고의 양)보다 많지 않은지. 문제 문구 목록을 돌려준다(없으면 빈 목록).
+    """
+    conn = connect(db_path)
+    try:
+        problems: list[str] = []
+        action, sn = form["action"], form.get("sn")
+        name = form_item_name(conn, form["item"])
+        if action == "stored":
+            if sn:
+                check = check_sn(conn, sn)
+                if not check["valid"]:
+                    suggested = next_sn(conn, resolve_date(form.get("input_date")))
+                    problems.append(
+                        f"이미 있는 S/N이에요: {sn}. {suggested}로 저장하려면 S/N 칸을 그 번호로 바꾸거나 비워 주세요"
+                        if check["reason"].startswith("이미") else check["reason"]
+                    )
+            if is_new_item(conn, name):
+                problems.extend(registration_problems(form.get("storage_days"), form.get("avg_weight_g")))
+            try:
+                convert_to_base(name, form["qty"], form["unit"], conn)
+            except UnitMismatchError as e:
+                problems.append(f"{e}. 기준 단위({e.base_unit})로 입력해 주세요")
+            return problems
+
+        rows = stock_rows(conn, name)
+        lot = None
+        if sn:
+            lot = conn.execute("SELECT * FROM inventory WHERE sn = ?", (sn,)).fetchone()
+            if lot is None:
+                problems.append(f"S/N {sn} 재고가 없어요")
+            elif lot["status"] != "stored" or lot["qty"] <= 0:
+                problems.append(f"S/N {sn} 재고는 보관 중이 아니에요")
+            elif item_key(lot["item"]) != item_key(name):
+                problems.append(f"S/N {sn}의 품목({lot['item']})과 Form의 품목({form['item']})이 달라요")
+        elif not rows:
+            problems.append(f"{form['item']} 재고가 없어요")
+        if action == "consumed" and not problems:
+            try:
+                need, base = convert_to_base(name, form["qty"], form["unit"], conn)
+            except UnitMismatchError as e:
+                return [f"{e}. 기준 단위({e.base_unit})로 입력해 주세요"]
+            have = _round(lot["qty"] if lot else sum(r["qty"] for r in rows))
+            if need > have:
+                problems.append(f"출고량({_fmt_qty(need, base)})이 보유량({_fmt_qty(have, base)})보다 많아요")
+        return problems
+    finally:
+        conn.close()
+
+
+def save_inventory_form(db_path: str | None, thread_id: str, user_id: str, form: dict) -> None:
+    """API가 검사를 통과시킨 재고 입력 Form을 스레드별로 하나 보관한다(같은 스레드의 이전 Form은 바꾼다).
+
+    확정 도구 `confirm_inventory_form`이 이 값만 읽는다.
+    """
+    conn = connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO inventory_forms (thread_id, user_id, form_json, created_at) VALUES (?, ?, ?, ?)",
+                (thread_id, user_id, json.dumps(form, ensure_ascii=False), now_iso()),
+            )
+    finally:
+        conn.close()
+
+
+def _update_profile(conn: sqlite3.Connection, name: str, form: dict) -> None:
+    """기준표에 없는 예전 등록 품목의 기준(`item_units`)을 Form 값으로 고친다. Form에서 비운 값은 그대로 둔다."""
+    aliases = json.dumps(form["aliases"], ensure_ascii=False) if form.get("aliases") else None
+    conn.execute(
+        "UPDATE item_units SET aliases = COALESCE(?, aliases), avg_weight_g = COALESCE(?, avg_weight_g),"
+        " storage_days = COALESCE(?, storage_days) WHERE item = ?",
+        (aliases, form.get("avg_weight_g"), form.get("storage_days"), name),
+    )
+
+
+def _registered_row(conn: sqlite3.Connection, info_name: str | None) -> sqlite3.Row | None:
+    """새 품목 등록으로 기준표에 덧붙은 품목이면 그 `item_units` 행을 돌려준다(아니면 None)."""
+    if not info_name:
+        return None
+    return conn.execute("SELECT * FROM item_units WHERE item = ?", (info_name,)).fetchone()
+
+
+def _fill_registered(conn: sqlite3.Connection, name: str, form: dict) -> None:
+    """등록으로 덧붙은 기준표 품목의 비어 있는 별칭·개당 평균 무게만 Form 값으로 채운다(이미 있는 값은 그대로)."""
+    aliases = json.dumps(form["aliases"], ensure_ascii=False) if form.get("aliases") else None
+    conn.execute(
+        "UPDATE item_units SET aliases = COALESCE(aliases, ?), avg_weight_g = COALESCE(avg_weight_g, ?) WHERE item = ?",
+        (aliases, form.get("avg_weight_g"), name),
+    )
+
+
+def _guide_notes(info: dict, form: dict, fillable: bool = False) -> list[str]:
+    """기준표 품목인데 Form의 별칭·개당 평균 무게·권장 보관일수가 기준표와 다르면 기준표 값을 썼다는 안내를 만든다.
+
+    `fillable`(등록으로 덧붙은 품목)이면 기준표에서 비어 있는 별칭·개당 평균 무게는 Form 값으로 채웠다고 알린다.
+    """
+    notes = []
+    days = form.get("storage_days")
+    if days is not None and days != info["storage_days"]:
+        notes.append(f"권장 보관일수는 기준표 값({info['storage_days']}일)을 썼어요")
+    weight = form.get("avg_weight_g")
+    if weight is not None and fillable and info["avg_weight_g"] is None:
+        notes.append(f"개당 평균 무게 {_fmt_qty(weight)}g을 기준표에 채웠어요")
+    elif weight is not None and weight != info["avg_weight_g"]:
+        base = f"{_fmt_qty(info['avg_weight_g'])}g" if info["avg_weight_g"] else "없음"
+        notes.append(f"개당 평균 무게는 기준표 값({base})을 썼어요")
+    if form.get("aliases") and fillable and not info["aliases"]:
+        notes.append("별칭을 기준표에 채웠어요")
+    else:
+        known = {_name_key(a) for a in info["aliases"]}
+        if any(_name_key(a) not in known for a in form.get("aliases") or []):
+            notes.append("별칭은 기준표 값을 썼어요")
+    return notes
+
+
+class _FormRejected(Exception):
+    """확정 직전에 재고가 바뀌어 Form대로 저장할 수 없을 때 트랜잭션을 되돌리려고 낸다."""
+
+
+def store_from_form(conn: sqlite3.Connection, form: dict) -> dict:
+    """재고 입력 Form으로 입고한다. 커밋은 호출한 쪽이 한다.
+
+    기준표 품목은 기준표 값으로 계산하고 Form 값이 다르면 `notes`에 알린다. 새 품목 등록으로 덧붙은 기준표 품목은
+    비어 있는 별칭·개당 평균 무게만 Form 값으로 채운다. 처음 보는 품목은 새 품목 등록 조건(권장 보관일수 필수)을 지켜
+    Form의 별칭·개당 평균 무게·권장 보관일수로 등록하고, 유효기간이 비면 권장 보관일수로 계산한다(출처 `user`).
+    기준표 반영은 커밋 뒤 `sync_guide`가 한다.
+    """
+    info = guide_info(form["item"])
+    name = form_item_name(conn, form["item"])
+    registered = _registered_row(conn, resolve_item(form["item"])) if info else None
+    notes = _guide_notes(info, form, fillable=registered is not None) if info else []
+    expiry = form.get("expiry_date")
+    profile = None if info else item_profile(conn, name)
+    if registered is not None:
+        _fill_registered(conn, registered["item"], form)
+    elif profile:  # 새 품목 등록 조건 전에 보관일수 없이 등록된 품목
+        _update_profile(conn, name, form)
+        days = form.get("storage_days") or profile.get("storage_days")
+        if expiry is None and days:
+            expiry = (resolve_date(form.get("input_date")) + timedelta(days=int(days))).isoformat()
+    result = add_inventory(conn, name, form["qty"], form["unit"], form.get("input_date"), expiry, form.get("sn"),
+                           storage_days=form.get("storage_days"), avg_weight_g=form.get("avg_weight_g"),
+                           aliases=form.get("aliases"))
+    if result["status"] != "added":
+        raise _FormRejected(result.get("message") or result.get("reason") or STOCK_CHANGED)
+    return {**result, "action": "stored", "notes": notes}
+
+
+@tool
+def confirm_inventory_form(runtime: ToolRuntime[FridgeContext]) -> str:
+    """화면의 재고 입력 Form(입고·출고·폐기)을 확정한다. 인자는 없다.
+
+    "재고 입력 Form을 확정해줘"로 시작하는 요청에만 쓴다. 품목·S/N·양·날짜는 서버가 검사해 보관한 Form에서 읽으므로
+    대화 내용으로 값을 넘기거나 바꾸지 않는다. 입고는 승인 없이 저장하고 결과(sn, input_date, expiry_date, notes)를
+    돌려준다. 출고는 그 품목 보유량의 50%를 넘으면, 폐기는 항상 사용자 승인을 도구가 먼저 받는다.
+    결과의 notes(기준표 값을 썼다는 안내 등)는 답변에 그대로 적는다.
+    """
+    ctx = _context(runtime)
+    if ctx.user_id == GUEST_USER:
+        return GUEST_DENIED
+    thread_id = (runtime.config or {}).get("configurable", {}).get("thread_id")
+    conn = _open(runtime)
+    try:
+        key = idempotency_key(runtime)
+        done = _applied_result(conn, key)
+        if done:
+            return done
+        row = conn.execute("SELECT form_json FROM inventory_forms WHERE thread_id = ?", (thread_id,)).fetchone()
+        if row is None:
+            return NO_INVENTORY_FORM
+        form = json.loads(row["form_json"])
+        action, sn, item = form["action"], form.get("sn"), form["item"]
+
+        def finish(message: str) -> str:
+            """Form을 지우고 처리 기록을 남긴다(저장과 같은 트랜잭션)."""
+            conn.execute("DELETE FROM inventory_forms WHERE thread_id = ?", (thread_id,))
+            _record_applied(conn, key, "confirm_inventory_form", ctx.user_id, message)
+            return message
+
+        def drop(answer: str) -> str:
+            """거절이나 재고 변경으로 끝낼 때 보관한 Form만 지운다."""
+            with conn:
+                conn.execute("DELETE FROM inventory_forms WHERE thread_id = ?", (thread_id,))
+            return answer
+
+        if action == "stored":
+            try:
+                with conn:
+                    answer = finish(_to_json(store_from_form(conn, form)))
+            except _FormRejected as e:
+                return drop(f"{e}. 재고 입력 Form을 다시 보내 주세요")
+            sync_guide(conn)  # 새로 등록했거나 비어 있던 값을 채운 품목을 기준표·검색 인덱스에 반영한다
+            return answer
+
+        name = form_item_name(conn, item)
+        rows = stock_rows(conn, name)
+        lots = [r for r in rows if sn is None or r["sn"] == sn]
+        if not lots:
+            return drop(STOCK_CHANGED)
+        where = f" (S/N {sn})" if sn else ""
+
+        if action == "consumed":
+            need, base = convert_to_base(name, form["qty"], form["unit"], conn)
+            total = _round(sum(r["qty"] for r in rows))
+            if need > _round(sum(r["qty"] for r in lots)):
+                return drop(STOCK_CHANGED)
+            if need > total * BULK_WITHDRAW_RATIO:
+                summary = (f"{item} {_fmt_qty(need, base)} 출고{where} (보유량 {_fmt_qty(total, base)}의 "
+                           f"{round(need / total * 100)}%). 진행할까요?")
+                decision = interrupt({"type": "bulk_withdraw", "tool": "confirm_inventory_form", "summary": summary})
+                if not is_approved(decision):
+                    return drop(REJECT_WITHDRAW)
+            with conn:
+                done = _applied_result(conn, key)
+                if done:
+                    return done
+                result = deduct_fefo(conn, name, need, base, reason=REASON_OUTFLOW, sn=sn)
+                left = _round(sum(r["qty"] for r in stock_rows(conn, name) if sn is None or r["sn"] == sn))
+                return finish(f"{item} {_fmt_qty(result['deducted'], base)} 출고했어요{where}. 남은 양 {_fmt_qty(left, base)}")
+
+        desc = describe_lots(lots)
+        decision = interrupt({"type": "discard", "tool": "confirm_inventory_form", "summary": f"{desc} 폐기. 진행할까요?"})
+        if not is_approved(decision):
+            return drop(REJECT_DISCARD)
+        with conn:
+            done = _applied_result(conn, key)
+            if done:
+                return done
+            apply_discard(conn, lots)
+            return finish(f"폐기했어요: {desc}")
+    finally:
+        conn.close()
+
+
 def _preference_target(kind: str, value: str) -> str | None:
     """선호 값이 추천 필터에 쓰이는 대상인지 본다: "요리", "재료", "알레르기 분류" 또는 None(자유 메모)."""
     recipes = parse_recipes().values()
@@ -1909,7 +2520,7 @@ def remember_preference(runtime: ToolRuntime[FridgeContext], kind: Literal["like
 
     - kind: "like"(좋아함), "dislike"(싫어함), "allergy"(알레르기).
     - value: 사용자가 말한 대상 그대로 (예: "가지", "가지 파르미자나", "갑각류", "매운 거").
-    누구의 선호인지는 서버가 확인한 요청자로 정해진다. 다른 가족의 선호는 저장할 수 없다.
+    누구의 선호인지는 서버가 확인한 요청자로 정해진다. 다른 가족 구성원의 선호는 저장할 수 없다.
     요리명·재료명·알레르기 분류가 아니면 추천 필터에는 쓰지 않는 메모로 저장한다(알레르기는 안전을 위해 그대로 저장).
     """
     ctx = _context(runtime)
@@ -1938,7 +2549,7 @@ def remember_preference(runtime: ToolRuntime[FridgeContext], kind: Literal["like
 
 @tool
 def get_my_preferences(runtime: ToolRuntime[FridgeContext]) -> str:
-    """요청자 본인의 장기 메모리(좋아함·싫어함·알레르기·메모)를 돌려준다. 다른 가족의 기록은 읽지 않는다."""
+    """요청자 본인의 장기 메모리(좋아함·싫어함·알레르기·메모)를 돌려준다. 다른 가족 구성원의 기록은 읽지 않는다."""
     ctx = _context(runtime)
     store = getattr(runtime, "store", None)
     profile = memory.read_profile(store, ctx.user_id) if store is not None else seed_profile(ctx.user_id)
@@ -1957,6 +2568,8 @@ AGENT_TOOLS = [
     calc_kcal_tool,
     get_storage_days,
     confirm_meal,
+    confirm_meal_form,
+    confirm_inventory_form,
     remember_preference,
     get_my_preferences,
 ]

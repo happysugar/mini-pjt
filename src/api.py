@@ -30,15 +30,19 @@ from src.tools import (
     GUEST_DENIED,
     NOT_IN_GUIDE,
     REJECT_ANSWERS,
-    STORAGE_GUIDE,
+    STORAGE_ITEMS,
     GUEST_USER,
     FridgeContext,
+    check_inventory_form_stock,
     connect,
     list_alerts,
     now_iso,
     rescued_g_week,
     reset_db,
+    save_inventory_form,
+    save_meal_form,
     resend_unsynced_meals,
+    sync_guide_db,
     resolve_item,
     WATCH_FAILED,
 )
@@ -145,7 +149,7 @@ def recommendation_context(item: dict[str, Any]) -> str:
 
     요약뿐 아니라 슬롯, 카테고리, 주재료, 평점 또는 신메뉴 여부, 1인분 kcal, 임박 재료(D-day),
     부족 재료까지 담는다. 모두 `rank_recipes`가 계산한 값이라 답의 주장을 그대로 뒷받침한다.
-    가족 추천의 평점은 그룹 평점이라 다른 가족의 개별 기록은 들어가지 않는다.
+    가족 추천의 평점은 그룹 평점이라 다른 가족 구성원의 개별 기록은 들어가지 않는다.
     """
     if item.get("is_new"):
         rating = "신메뉴(평가 없음)"
@@ -200,7 +204,7 @@ def extract_contexts(outputs: list[tuple[str, str]]) -> list[str]:
             elif name == "get_storage_days" and output.startswith(NOT_IN_GUIDE):
                 # 가이드에 없는 품목: "망고는 가이드에 없다"는 답의 근거로 담는다
                 item = output.removeprefix(NOT_IN_GUIDE).lstrip(": ").split(".", 1)[0].strip()
-                add(f"[{STORAGE_GUIDE.name}#{item}] {output}")
+                add(f"[{STORAGE_ITEMS.name}#{item}] {output}")
             continue
         if name == "list_inventory":
             for row in data:
@@ -303,7 +307,7 @@ async def _last_answer_asks(agent: Any, thread_id: str) -> bool:
 async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path: str | None) -> QueryResponse:
     """`/query` 한 건을 처리한다. 신원 → 스레드 소유권 → 승인 상태 → 입력 가드레일 → 에이전트 실행 순서다.
 
-    모든 응답은 출력 가드레일(개인정보·다른 가족 칼로리 마스킹)을 거친다. trace의 질문도 같은 방식으로 가린다.
+    모든 응답은 출력 가드레일(개인정보·다른 가족 구성원 칼로리 마스킹)을 거친다. trace의 질문도 같은 방식으로 가린다.
     실행 이벤트는 `RequestTracer`가 모아 `trace.jsonl`에 남기고, 같은 이벤트로 `trace.steps`·`trace.concepts`를 만든다.
     """
     tracer = RequestTracer(thread_id=req.thread_id)
@@ -320,7 +324,7 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
         "rescued_g_week": 0,
         "errors": [],
         "index": dict(retriever.BUILD_STATS),
-        "guardrail": {"input": None, "output": []},
+        "guardrail": {"input": None, "format": None, "output": []},
         "request_id": tracer.request_id,
         "concepts": {},
     }
@@ -379,9 +383,51 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
             trace["errors"].append(_error(verdict.code, "입력 가드레일에서 막은 요청이에요"))
             return reply(verdict.message)
 
+    # recipe 평가 결과 입력 Form(JSON)이면 모델을 부르기 전에 형식과 값을 검사한다 (SERVICE.md 5.6).
+    # 통과하면 Form을 이 스레드에 보관하고 확정 요청 문장을 에이전트에 넘긴다. 평가·헬스 에이전트의
+    # confirm_meal_form이 보관된 값만 읽어 요청자 한 사람의 승인으로 평가자마다 저장한다.
+    # 걸리면 저장하지 않고 고정 문구로 답한다.
+    question = req.question
+    if not req.resume:
+        form = guardrails.check_rating_form(req.question, user_id)
+        if form.is_form:
+            trace["form"] = form.as_trace()
+            if form.code:
+                trace["errors"].append(_error(form.code, "; ".join(form.problems)))
+                return reply(form.message)
+            await asyncio.to_thread(save_meal_form, db_path, thread_id, user_id, form.form)
+            question = form.question
+
+    # 재고 입력 Form(JSON, 입고·출고·폐기)도 같은 방식이다 (SERVICE.md 5.1). 형식 검사 뒤 지금 재고와 맞춰 보고
+    # (S/N 중복, 보유량 등), 통과하면 보관한 Form을 재고 에이전트의 confirm_inventory_form이 읽어 처리한다.
+    if not req.resume and question == req.question:
+        stock_form = guardrails.check_inventory_form(req.question)
+        if stock_form.is_form:
+            if not stock_form.code:
+                problems = await asyncio.to_thread(check_inventory_form_stock, db_path, stock_form.form)
+                if problems:
+                    stock_form.code, stock_form.problems = "FORM_INVALID", problems
+                    stock_form.message = f"{guardrails.MSG_INVENTORY_FORM_INVALID}: " + "; ".join(problems)
+            trace["form"] = stock_form.as_trace()
+            if stock_form.code:
+                trace["errors"].append(_error(stock_form.code, "; ".join(stock_form.problems)))
+                return reply(stock_form.message)
+            await asyncio.to_thread(save_inventory_form, db_path, thread_id, user_id, stock_form.form)
+            question = stock_form.question
+
+    # 재고 입고·출고·폐기와 recipe 평가는 JSON Form으로만 받는다 (SERVICE.md 5.6). Form이 아닌 자연어 쓰기 요청은
+    # 모델을 부르지 않고 Form을 쓰라고 안내한다. 조회·추천·보관 질문은 그대로 에이전트에 넘긴다.
+    if not req.resume and question == req.question:
+        write = guardrails.check_free_text_write(req.question)
+        trace["guardrail"]["format"] = {"code": write.code, "reasons": write.problems} if write.code else None
+        if write.code:
+            tracer.guardrail("format", trace["guardrail"]["format"])
+            trace["errors"].append(_error(write.code, "재고·평가 쓰기 요청은 JSON 입력 Form으로만 받아요"))
+            return reply(write.message)
+
     context = FridgeContext(user_id=user_id, db_path=db_path)
     try:
-        turn = await run_turn(agent, req.question, context, thread_id, resume=req.resume, callbacks=[tracer])
+        turn = await run_turn(agent, question, context, thread_id, resume=req.resume, callbacks=[tracer])
     except Exception as exc:  # noqa: BLE001 - 어떤 실패든 세 키 형식으로 돌려준다
         tracer.mcp_calls(context.mcp_calls)
         if is_model_unavailable(exc):  # 서브 에이전트 재시도 끝 실패, 또는 Supervisor 모델의 Bedrock 오류
@@ -438,6 +484,7 @@ def create_app(model: Any = None, db_path: str | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         """체크포인터를 연 에이전트를 서버가 떠 있는 동안 유지한다."""
         ensure_domain_db(db_path)
+        sync_guide_db(db_path)  # 등록된 품목 중 기준표에 빠진 것을 덧붙인다(검색 인덱스를 만들기 전에)
         configure_langsmith()  # .env에 LangSmith 키가 있으면 같은 실행을 LangSmith에도 보낸다
         retriever.warm_up()
         async with open_agent(model=model) as agent:

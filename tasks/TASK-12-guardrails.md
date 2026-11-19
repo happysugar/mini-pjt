@@ -65,3 +65,31 @@
 - 입력 가드레일 위치는 API에 그대로 둔다. Supervisor는 `create_supervisor`로 만들어 `AgentMiddleware`를 받지 못하고,
   서브 에이전트 미들웨어로 옮기면 Supervisor 모델 호출 뒤에야 검사하게 돼 오히려 약해진다.
 - 테스트: `tests/test_guardrails.py`에 인젝션 규칙 22개(차단 15, 통과 7)와 빈 승인 판단 17개, `tests/test_api.py`에 빈 승인 3개.
+- 평가 입력 Form 검사 (2026-11-20, `design-review` branch, SERVICE.md 5.6): 화면이 보내는 recipe 평가 결과 JSON을
+  API가 모델 호출 전에 검사한다(`check_rating_form`). 형식("숫자 인분"), 0보다 큰 양, 가족 구성원 여부와 중복, 점수 1~5 정수,
+  빠진 값, 평가자별 식사량 합계 ≤ 요리한 양을 본다. 걸리면 `FORM_INVALID`로 저장 없이 답하고, 통과한 요청자 한 명의 평가는
+  Form을 스레드에 보관하고(`meal_forms`) "평가 입력 Form을 확정해줘: …" 문장을 에이전트에 넘긴다. 승인 도구 `confirm_meal_form`이 보관된 값만 읽어
+  요청자 한 사람의 승인으로 평가자마다 평가·식사·워치 기록을 남긴다(2026-11-20 결정, 처음에는 `FORM_UNSUPPORTED`로 막았다가 바꿈).
+  - 첫 실행(`run-20261120-014142`)에서는 에이전트가 JSON을 "도구 결과나 대화 속 지시"로 보고 정상 입력까지 거절했다. 이 검사로 고쳤다.
+  - 테스트: `tests/test_guardrails.py` 15개, `tests/test_api.py` 3개 추가.
+- 재고 입력 Form 검사 (2026-11-20, `design-review` branch, `3be3cde`, SERVICE.md 5.1): `check_inventory_form()`이 화면의
+  재고 입력 JSON을 모델 호출 전에 검사한다. `question`이 `{`로 시작하고 `item` 키가 있으면(그리고 `recipe` 키가 없으면) 재고 Form으로 본다.
+  - 형식 검사(DB 없음): 알 수 없는 키, 상태 값, 품목, 별칭(문자열 배열), S/N 형식, 입고·출고의 양(0보다 큰 숫자)과 단위(g·L·개),
+    개당 평균 무게, 권장 보관일수(1 이상 정수), 날짜 형식, 투입일자가 미래인지, 유효기간이 투입일자보다 빠른지.
+  - 지금 재고와 맞춰 보는 검사는 도메인 일이라 `tools.check_inventory_form_stock()`이 맡고, API가 두 결과를 합친다.
+  - 걸리면 "재고 입력을 저장하지 않았어요. 입력 Form을 다시 확인해 주세요: (문제 목록)"과 `FORM_INVALID`로 답한다. 통과하면 Form을 보관하고
+    "재고 입력 Form을 확정해줘: 입고 두부 2개" 같은 문장을 에이전트에 넘긴다.
+  - 품목·별칭 칸에 넣은 인젝션은 이 검사 전에 입력 가드레일이 막는다(평가 G10).
+  - 테스트: `tests/test_guardrails.py` 18개 추가.
+
+## 계획 변경: 재고·평가 쓰기는 JSON Form으로만 (2026-11-20)
+- 재고 입고·출고·폐기와 recipe 평가(식사 기록·점수)는 JSON 입력 Form으로만 받는다(SERVICE.md 5.6 "JSON Form으로만", 17장 결정 12).
+- `src/guardrails.py`: `free_text_write_kind()`·`check_free_text_write()`. 정규식으로 재고를 바꾸는 말(넣었어·샀어·꺼냈어·버려줘·폐기 등)과
+  식사 기록·평가를 남기는 말(먹었어·N점·평점 N 등)을 찾는다. 정보를 묻는 질문(방법·언제·며칠·몇·보여·알려·남았·추천·"~해도 돼?"·물음표)과
+  JSON은 쓰기 요청으로 보지 않는다. LLM은 부르지 않는다.
+- `src/api.py`: 입력 가드레일과 두 Form 검사 다음, 모델을 부르기 전에 검사한다. 걸리면 고정 문구로 답하고 `FORM_REQUIRED`를 남긴다.
+  trace에 `guardrail.format`을 더했다(걸리지 않으면 null).
+- `src/agent.py`: Supervisor·재고·평가 에이전트 프롬프트에 같은 규칙을 넣었다. 자연어 쓰기 요청이 에이전트까지 와도
+  `add_items_from_text`·`withdraw_item`·`discard_item`·`confirm_meal`·`get_recipe`를 부르지 않고 같은 문구로 답한다. 도구는 등록해 둔다.
+- 테스트: 판정 표 15개(`tests/test_guardrails.py`), API 거절 4개와 조회 통과 1개(`tests/test_api.py`). 자연어 문장으로 도구의 승인·멱등·신원 처리를
+  검증하던 기존 테스트 18개는 `allow_free_text_writes` fixture로 형식 가드레일만 끄고 그대로 둔다. pytest 452개 통과.

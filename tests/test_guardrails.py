@@ -1,8 +1,9 @@
-"""가드레일 테스트 (TASK-12): 입력 검사, 다른 가족 기록 권한, 개인정보 저장 거절, 출력 마스킹.
+"""가드레일 테스트 (TASK-12): 입력 검사, 다른 가족 구성원 기록 권한, 개인정보 저장 거절, 출력 마스킹.
 
 LLM 인젝션 분류는 가짜 분류기로 바꿔 Bedrock 없이 돈다.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -177,3 +178,172 @@ def test_mask_other_family_kcal():
     text, kinds = guardrails.mask_output("엄마는 오늘 1,250kcal를 드셨어요. 나는 680kcal.", "dad")
     assert "1,250" not in text and "엄마는 오늘 ***kcal" in text and "680kcal" in text
     assert kinds == ["other_family_kcal"]
+
+
+# ── recipe 평가 결과 입력 Form (JSON) ─────────────────────────────
+
+
+def _form(cooked="2 인분", ratings=None, recipe="규동"):
+    """평가 입력 Form JSON 문자열을 만든다."""
+    import json
+
+    ratings = [{"evaluator": "dad", "eaten": "1 인분", "score": 4}] if ratings is None else ratings
+    return json.dumps({"recipe": recipe, "cooked": cooked, "ratings": ratings}, ensure_ascii=False)
+
+
+def test_valid_form_becomes_confirm_request():
+    v = guardrails.check_rating_form(_form(), "dad")
+    assert v.is_form and not v.code
+    assert v.question == "평가 입력 Form을 확정해줘: 규동 2인분, dad 1인분 4점"
+    assert v.form == {"recipe": "규동", "cooked": 2.0, "entries": [{"user_id": "dad", "eaten": 1.0, "score": 4}]}
+    # 평가자는 이름(아빠)으로 와도 같은 가족 구성원(user_id)으로 바꾼다
+    v = guardrails.check_rating_form(_form(ratings=[{"evaluator": "아빠", "eaten": "0.5 인분", "score": 5}]), "dad")
+    assert v.form["entries"] == [{"user_id": "dad", "eaten": 0.5, "score": 5}]
+
+
+@pytest.mark.parametrize(
+    ("cooked", "ratings", "problem"),
+    [
+        ("2 인분", [{"evaluator": "dad", "eaten": "0 인분", "score": 4}], "식사량은 0보다 커야"),
+        ("2 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 9}], "점수는 1~5"),
+        ("2 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": "4"}], "점수는 1~5"),
+        ("2 인분", [{"evaluator": "dad", "eaten": "1 인분"}], "점수가 빠졌어요"),
+        ("2 인분", [{"evaluator": "철수", "eaten": "1 인분", "score": 4}], "가족 구성원이 아니에요"),
+        ("두 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 4}], "요리한 양은 '숫자 인분'"),
+        ("2인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 4}], "요리한 양은 '숫자 인분'"),
+        ("1 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 4},
+                   {"evaluator": "mom", "eaten": "1 인분", "score": 5}], "합계(2 인분)가 요리한 양(1 인분)보다"),
+        ("2 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 4},
+                   {"evaluator": "아빠", "eaten": "1 인분", "score": 3}], "두 번 들어"),
+        ("2 인분", [], "평가자별 항목이 비었어요"),
+    ],
+)
+def test_invalid_form_is_rejected(cooked, ratings, problem):
+    v = guardrails.check_rating_form(_form(cooked, ratings), "dad")
+    assert v.is_form and v.code == "FORM_INVALID" and not v.question
+    assert any(problem in p for p in v.problems), v.problems
+    assert v.message.startswith(guardrails.MSG_FORM_INVALID)
+
+
+def test_multiple_and_other_family_member_evaluators_are_accepted():
+    """요청자 한 사람의 승인으로 평가자마다 저장하므로, 평가자는 여러 명이어도 요청자가 아니어도 된다."""
+    two = [{"evaluator": "dad", "eaten": "1 인분", "score": 4}, {"evaluator": "엄마", "eaten": "1 인분", "score": 5}]
+    v = guardrails.check_rating_form(_form(ratings=two), "dad")
+    assert not v.code and [e["user_id"] for e in v.form["entries"]] == ["dad", "mom"]
+    assert v.question == "평가 입력 Form을 확정해줘: 규동 2인분, dad 1인분 4점, mom 1인분 5점"
+    mom = [{"evaluator": "mom", "eaten": "1 인분", "score": 5}]
+    assert not guardrails.check_rating_form(_form(ratings=mom), "dad").code
+
+
+def test_non_form_questions_are_untouched():
+    for q in ["규동 2인분 만들어서 1인분 먹었어, 4점", '{"a": 1}', "{중괄호로 시작하는 말}"]:
+        assert not guardrails.check_rating_form(q, "dad").is_form
+    broken = guardrails.check_rating_form('{"recipe": "규동", "ratings": [', "dad")
+    assert broken.code == "FORM_INVALID" and broken.problems == ["JSON 형식이 아니에요"]
+
+
+# ── 재고 입력 Form 형식 검사 (SERVICE.md 5.1) ─────────────────────
+
+
+def _stock(**values) -> str:
+    """재고 입력 Form JSON. 화면처럼 모든 키를 보내고 주지 않은 칸은 null이다."""
+    keys = guardrails.INVENTORY_FORM_KEYS
+    return json.dumps({k: values.get(k) for k in keys}, ensure_ascii=False)
+
+
+@pytest.fixture
+def fridge_today(monkeypatch):
+    monkeypatch.setenv("FRIDGE_TODAY", "2026-11-20")
+
+
+def test_inventory_form_stored_with_blank_fields(fridge_today):
+    v = guardrails.check_inventory_form(_stock(item="두부", qty=2, unit="개", status="stored"))
+    assert v.is_form and not v.code
+    assert v.form == {"action": "stored", "item": "두부", "aliases": [], "sn": None, "qty": 2.0, "unit": "개",
+                      "avg_weight_g": None, "expiry_date": None, "input_date": None, "storage_days": None}
+    assert v.question == "재고 입력 Form을 확정해줘: 입고 두부 2개"
+    blank_status = guardrails.check_inventory_form(_stock(item="두부", qty=2, unit="개"))
+    assert blank_status.form["action"] == "stored"  # 상태가 비면 입고
+
+
+def test_inventory_form_consume_and_discard_questions(fridge_today):
+    out = guardrails.check_inventory_form(_stock(item="한우", sn="2026-11-003", qty=200, unit="g", status="consumed"))
+    assert out.question == "재고 입력 Form을 확정해줘: 출고 한우 200g (S/N 2026-11-003)"
+    gone = guardrails.check_inventory_form(_stock(item="시금치", sn="2026-11-008", status="discarded"))
+    assert not gone.code and gone.question == "재고 입력 Form을 확정해줘: 폐기 시금치 (S/N 2026-11-008)"
+
+
+@pytest.mark.parametrize(
+    "values, problem",
+    [
+        ({"item": "우유", "qty": 0, "unit": "L"}, "양은 0보다 큰"),
+        ({"item": "우유", "qty": 1, "unit": "ml"}, "단위는 g, L, 개"),
+        ({"item": "우유", "unit": "L"}, "양이 비었어요"),
+        ({"item": "", "qty": 1, "unit": "L"}, "품목이 비었어요"),
+        ({"item": "우유", "qty": 1, "unit": "L", "status": "eaten"}, "상태는 stored"),
+        ({"item": "우유", "qty": 1, "unit": "L", "sn": "2026-11-14"}, "S/N은 YYYY-MM-NNN"),
+        ({"item": "우유", "qty": 1, "unit": "L", "expiryDate": "2026-11-10", "inputDate": "2026-11-20"}, "유효기간이 투입일자보다"),
+        ({"item": "우유", "qty": 1, "unit": "L", "inputDate": "2026-11-21"}, "투입일자가 오늘보다 늦어요"),
+        ({"item": "우유", "qty": 1, "unit": "L", "expiryDate": "11월 30일"}, "유효기간은 YYYY-MM-DD"),
+        ({"item": "망고", "qty": 1, "unit": "개", "storageDays": 0}, "권장 보관일수는 1 이상"),
+        ({"item": "망고", "qty": 1, "unit": "개", "avgWeight": -3}, "개당 평균 무게는 0보다"),
+        ({"item": "망고", "qty": 1, "unit": "개", "aliases": "애플망고"}, "별칭은 글자 목록"),
+        ({"item": "한우", "qty": "200", "unit": "g", "status": "consumed"}, "양은 0보다 큰"),
+    ],
+)
+def test_inventory_form_invalid_values(fridge_today, values, problem):
+    v = guardrails.check_inventory_form(_stock(**values))
+    assert v.is_form and v.code == "FORM_INVALID" and not v.question
+    assert any(problem in p for p in v.problems), v.problems
+    assert v.message.startswith(guardrails.MSG_INVENTORY_FORM_INVALID)
+
+
+def test_inventory_form_unknown_key_and_broken_json(fridge_today):
+    v = guardrails.check_inventory_form('{"item": "두부", "qty": 1, "unit": "개", "price": 3000}')
+    assert v.code == "FORM_INVALID" and "알 수 없는 항목이 있어요: price" in v.problems
+    broken = guardrails.check_inventory_form('{"item": "두부", "qty": ')
+    assert broken.code == "FORM_INVALID" and broken.problems == ["JSON 형식이 아니에요"]
+
+
+def test_inventory_form_leaves_other_questions_alone(fridge_today):
+    rating = '{"recipe": "규동", "cooked": "2 인분", "ratings": []}'
+    for q in ["한우 600g 넣었어", rating, '{"a": 1}']:
+        assert not guardrails.check_inventory_form(q).is_form
+
+
+def test_inventory_form_quantity_is_absolute(fridge_today):
+    v = guardrails.check_inventory_form(_stock(item="두부", qty=-2, unit="개", status="stored"))
+    assert not v.code and v.form["qty"] == 2.0
+    assert v.question == "재고 입력 Form을 확정해줘: 입고 두부 2개"
+
+
+def test_inventory_form_rejects_comma_alias(fridge_today):
+    v = guardrails.check_inventory_form(_stock(item="망고", aliases=["망고, 애플망고"], qty=1, unit="개", storageDays=5))
+    assert v.code == "FORM_INVALID" and any("쉼표" in p for p in v.problems)
+
+
+@pytest.mark.parametrize(
+    ("question", "kind"),
+    [
+        ("한우 600g 넣었어", "inventory"),
+        ("어제 산 두부 1모 넣었어, S/N은 2026-11-001", "inventory"),
+        ("한우 500g 꺼냈어", "inventory"),
+        ("상한 시금치 버려줘", "inventory"),
+        ("규동 2인분 만들어서 1인분 먹었어, 4점", "rating"),
+        ("외식으로 김치찌개 먹었어, 3점", "rating"),
+        ("아빠 계정으로 기록해줘. 규동 1인분 만들어서 1인분 먹었어, 4점", "rating"),
+        ("오늘 저녁 뭐 먹지?", None),
+        ("두부는 냉장 며칠 보관해?", None),
+        ("냉장고에 연어 몇 g 남았어?", None),
+        ("유통기한 지난 우유 버려도 돼?", None),
+        ("폐기 알람 언제 와?", None),
+        ("평점 4점 이상 요리 추천해줘", None),
+        ("아까 그 식사 기록 승인할게", None),
+        ('{"item": "두부", "qty": 1, "unit": "개"}', None),
+    ],
+)
+def test_free_text_write_kind(question, kind):
+    assert guardrails.free_text_write_kind(question) == kind
+    verdict = guardrails.check_free_text_write(question)
+    assert (verdict.code == "FORM_REQUIRED") is (kind is not None)
+

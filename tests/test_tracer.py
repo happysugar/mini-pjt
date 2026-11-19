@@ -9,6 +9,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src import health_mcp_server as health  # noqa: E402
@@ -21,6 +23,7 @@ def read_events(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_representative_scenario_shows_concepts_2_to_9(make_client, _trace_file, tmp_path, monkeypatch):
     monkeypatch.setenv("HEALTH_DB", str(tmp_path / "health.db"))
     tools.set_health_target(health.mcp)
@@ -55,8 +58,11 @@ def test_representative_scenario_shows_concepts_2_to_9(make_client, _trace_file,
     # 응답 trace에는 개념별 이벤트 수와 예전 형식의 steps가 함께 있다
     assert "#2 ReAct" in r1["trace"]["concepts"] and "#9 Supervisor" in r1["trace"]["concepts"]
     assert "#7 HITL" in r2["trace"]["concepts"] and "#5 MCP" in r3["trace"]["concepts"]
-    tool_steps = [s["tool"] for s in r1["trace"]["steps"] if "tool" in s]
+    tool_steps = [s["tool"] for s in r1["trace"]["steps"] if "tool" in s and s.get("via") != "mcp"]
     assert tool_steps == ["list_inventory", "rank_recipes", "search_recipes"]
+    # 혼자 먹는 추천도 rank_recipes가 코드에서 요청자의 남은 칼로리를 워치에서 읽는다 (SERVICE.md 5.2)
+    mcp_steps = [s for s in r1["trace"]["steps"] if s.get("via") == "mcp"]
+    assert [(s["tool"], s["caller"]) for s in mcp_steps] == [("get_calorie_budget", "rank_recipes")]
     assert any(s.get("event") == "handoff" for s in r1["trace"]["steps"])
     assert any(s.get("event") == "interrupt" for s in r2["trace"]["steps"])
     assert [s["caller"] for s in r3["trace"]["steps"] if s.get("via") == "mcp"] == ["confirm_meal"]

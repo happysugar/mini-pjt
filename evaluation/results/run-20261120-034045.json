@@ -1,0 +1,219 @@
+{
+ "run_at": "2026-11-20T03:40:45",
+ "fridge_today": "2026-11-20",
+ "agent_model": "us.anthropic.claude-sonnet-4-6",
+ "eval_model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "ragas_mode": "없음",
+ "watch_server": "평가 전용 서버(임시 DB, 문항마다 초기화)",
+ "summary": {
+  "total": 1,
+  "passed": 1,
+  "guardrail_passed": 0,
+  "guardrail_total": 0,
+  "forbidden_violations": 0,
+  "tool_match": 1,
+  "faithfulness": null,
+  "answer_relevancy": null,
+  "ragas_n": 0,
+  "faithfulness_n": 0,
+  "relevancy_n": 0
+ },
+ "results": [
+  {
+   "id": "P11",
+   "category": "positive",
+   "input": "{\"item\": \"우유\", \"aliases\": null, \"sn\": \"2026-11-020\", \"qty\": 1, \"unit\": \"L\", \"avgWeight\": null, \"expiryDate\": \"2026-11-30\", \"inputDate\": \"2026-11-19\", \"storageDays\": null, \"status\": \"stored\"}",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "{\"item\": \"우유\", \"aliases\": null, \"sn\": \"2026-11-020\", \"qty\": 1, \"unit\": \"L\", \"avgWeight\": null, \"expiryDate\": \"2026-11-30\", \"inputDate\": \"2026-11-19\", \"storageDays\": null, \"status\": \"stored\"}",
+       "user_id": "dad"
+      },
+      "answer": "입고가 완료되었습니다.\n\n- **품목:** 우유\n- **S/N:** 2026-11-020\n- **투입일자:** 2026-11-19\n- **수량:** 1L\n- **유효기간:** 2026-11-30 (D-10)",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-88170445",
+       "user_id": "dad",
+       "question": "{\"item\": \"우유\", \"aliases\": null, \"sn\": \"2026-11-020\", \"qty\": 1, \"unit\": \"L\", \"avgWeight\": null, \"expiryDate\": \"2026-11-30\", \"inputDate\": \"2026-11-19\", \"storageDays\": null, \"status\": \"stored\"}",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "inventory_agent"
+        },
+        {
+         "tool": "confirm_inventory_form",
+         "ms": 16
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 4030,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       },
+       "request_id": "72fd7400d91f",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       },
+       "form": {
+        "is_form": true,
+        "code": "",
+        "problems": [],
+        "message": "",
+        "question": "재고 입력 Form을 확정해줘: 입고 우유 1L (S/N 2026-11-020)",
+        "form": {
+         "action": "stored",
+         "item": "우유",
+         "aliases": [],
+         "sn": "2026-11-020",
+         "qty": 1.0,
+         "unit": "L",
+         "avg_weight_g": null,
+         "expiry_date": "2026-11-30",
+         "input_date": "2026-11-19",
+         "storage_days": null
+        }
+       }
+      },
+      "db_after": {
+       "inventory": 16,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-020",
+        "item": "우유",
+        "qty": 1.0,
+        "unit": "L",
+        "input_date": "2026-11-19",
+        "expiry_date": "2026-11-30",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_inventory_agent",
+      "args": {}
+     },
+     {
+      "name": "confirm_inventory_form",
+      "args": {}
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 10.1
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "confirm_inventory_form"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 5,
+    "traits_total": 5,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "Form의 S/N 2026-11-020 그대로 저장",
+      "ok": true,
+      "reason": "db_after의 last_inventory에서 sn이 '2026-11-020'으로 Form 값 그대로 저장되었음"
+     },
+     {
+      "item": "투입일자를 Form 값(2026-11-19)으로 기록",
+      "ok": true,
+      "reason": "db_after의 last_inventory에서 input_date가 '2026-11-19'로 Form 값 그대로 기록되었음"
+     },
+     {
+      "item": "유효기간을 Form 값(2026-11-30)으로 저장",
+      "ok": true,
+      "reason": "db_after의 last_inventory에서 expiry_date가 '2026-11-30'으로 Form 값 그대로 저장되었음"
+     },
+     {
+      "item": "양 1L",
+      "ok": true,
+      "reason": "db_after의 last_inventory에서 qty가 1.0, unit이 'L'로 저장되어 1L가 맞음"
+     },
+     {
+      "item": "승인 없이 저장",
+      "ok": true,
+      "reason": "trace의 pending_interrupt가 null이고 confirm_inventory_form 도구로 바로 저장 완료되었음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "Form과 다른 S/N이나 날짜로 저장",
+      "ok": false,
+      "reason": "S/N은 2026-11-020, 투입일자는 2026-11-19, 유효기간은 2026-11-30으로 모두 Form 값과 일치하게 저장됨"
+     },
+     {
+      "item": "기준표 보관일수로 다시 계산한 유효기간",
+      "ok": false,
+      "reason": "유효기간이 Form에서 제공된 2026-11-30 그대로 저장되었으며, 기준표 보관일수로 재계산하지 않음"
+     }
+    ]
+   }
+  }
+ ]
+}

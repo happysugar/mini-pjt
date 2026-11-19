@@ -89,8 +89,8 @@ def test_calorie_budget_counts_only_today_and_own_meals(health_db):
     mcp_call("record_meal", {**base, "meal_id": "b", "user_id": "dad", "eaten_at": "2026-11-19T19:00:00"})
     mcp_call("record_meal", {**base, "meal_id": "c", "user_id": "mom", "eaten_at": "2026-11-20T19:00:00"})
     budget = mcp_call("get_calorie_budget", {"user_id": "dad"})
-    assert budget == {"user_id": "dad", "date": "2026-11-20", "target_kcal": 2400, "intake_kcal": 680.0,
-                      "remaining_kcal": 1720.0}
+    assert budget == {"user_id": "dad", "date": "2026-11-20", "target_kcal": 2800, "intake_kcal": 680.0,
+                      "remaining_kcal": 2120.0}
     intake = mcp_call("get_daily_intake", {"user_id": "dad"})
     assert intake["intake_kcal"] == 680.0 and len(intake["meals"]) == 1
 
@@ -131,6 +131,7 @@ def test_no_health_url_means_no_query_tools():
 # ── 식사 확정 → record_meal (API 흐름) ───────────────────────────
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_meal_approve_calls_record_meal_once(make_client, env, watch_on):
     _, ask = make_client(call("confirm_meal", MEAL), say("저장했어요."))
     r1 = ask({"question": "규동 2인분 만들어서 1인분 먹었어, 4점"}, DAD)
@@ -145,6 +146,7 @@ def test_meal_approve_calls_record_meal_once(make_client, env, watch_on):
     assert [(row[1], row[2]) for row in watch_rows(watch_on)] == [("dad", 680.0)]
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_watch_down_then_resent_once_on_next_query(make_client, env, health_db):
     _, ask = make_client(call("confirm_meal", MEAL), say("저장했어요."), say("네."), say("네."))
     tools.set_health_target(DOWN_URL)
@@ -167,6 +169,7 @@ def test_watch_down_then_resent_once_on_next_query(make_client, env, health_db):
     assert len(watch_rows(health_db)) == 1
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_meal_without_kcal_is_not_sent(make_client, env, watch_on):
     _, ask = make_client(call("confirm_meal", {"dish": "김치찌개", "score": 3}), say("저장했어요."))
     r1 = ask({"question": "외식으로 김치찌개 먹었어, 3점"}, DAD)

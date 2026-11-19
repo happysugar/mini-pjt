@@ -18,7 +18,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src import agent as agent_module  # noqa: E402
-from src import tools  # noqa: E402
+from src import guardrails, tools  # noqa: E402
 from src.api import create_app  # noqa: E402
 
 HANWOO = "2026-11-003"  # 시드 한우 600g, D-day 2
@@ -205,6 +205,7 @@ def test_token_alone_identifies_user(make_client):
 # ── 식사 승인 (HITL) ─────────────────────────────────────────────
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_meal_approve_saves_once(make_client, env):
     _, ask = make_client(call("confirm_meal", MEAL), say("저장했어요."))
     before = counts(env)
@@ -232,6 +233,7 @@ def test_meal_approve_saves_once(make_client, env):
     assert counts(env) == after
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_meal_reject_saves_nothing(make_client, env):
     client, ask = make_client(call("confirm_meal", MEAL), say("취소했어요."))
     before = counts(env)
@@ -244,6 +246,7 @@ def test_meal_reject_saves_nothing(make_client, env):
     assert r2["answer"] == tools.REJECT_MEAL  # 모델이 바꿔 쓴 "취소했어요." 대신 도구 문장 그대로
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_new_question_while_pending(make_client, env):
     _, ask = make_client(call("confirm_meal", MEAL))
     tid = ask({"question": "규동 먹었어, 4점"}, DAD)["trace"]["thread_id"]
@@ -269,6 +272,7 @@ def test_bare_approval_sentence_without_pending(make_client, env):
     assert r["trace"]["steps"] == [] and counts(env) == before
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_bare_approval_after_agent_question_goes_to_agent(make_client, env):
     # S/N 제안처럼 승인 대기 없이 되물은 뒤의 "그대로 진행해 줘"는 그 질문에 대한 답이라 에이전트가 처리한다.
     _, ask = make_client(say("제안한 S/N 2026-11-014로 저장할까요?"), say("저장했어요."))
@@ -277,6 +281,7 @@ def test_bare_approval_after_agent_question_goes_to_agent(make_client, env):
     assert not codes(r) and r["answer"] == "저장했어요."
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_approval_sentence_with_meal_goes_to_agent(make_client, env):
     _, ask = make_client(call("confirm_meal", MEAL))
     r = ask({"question": "규동 2인분 만들어서 1인분 먹었어, 4점. 승인할게"}, DAD)
@@ -296,6 +301,7 @@ def test_other_users_thread_is_blocked(make_client, env):
     assert counts(env) == before  # 엄마가 아빠의 승인을 대신 할 수 없다
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_tools_run_as_server_identified_user(make_client, env):
     # 질문에 "엄마 이름으로"라고 해도 도구는 토큰으로 확인한 사용자(dad)로만 실행된다.
     _, ask = make_client(call("confirm_meal", MEAL), say("저장했어요."))
@@ -319,6 +325,7 @@ def test_tool_schemas_have_no_user_id():
 # ── guest ───────────────────────────────────────────────────────
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_guest_write_is_read_only(make_client, env, monkeypatch):
     monkeypatch.delenv("DEFAULT_USER")
     _, ask = make_client(call("confirm_meal", MEAL), say("저장했어요."))
@@ -352,6 +359,7 @@ class FakeParser:
         return RunnableLambda(run)
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_add_items_from_text_runs_parse_chain(make_client, env, monkeypatch):
     from src import chains
 
@@ -369,6 +377,7 @@ def test_add_items_from_text_runs_parse_chain(make_client, env, monkeypatch):
     assert counts(env) == before and r["trace"]["errors"] == []
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_guest_cannot_add_items(make_client, env, monkeypatch):
     from src import chains
 
@@ -382,6 +391,7 @@ def test_guest_cannot_add_items(make_client, env, monkeypatch):
 # ── 대량 출고 (HITL) ────────────────────────────────────────────
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_bulk_withdraw_resume_deducts_once(make_client, env):
     _, ask = make_client(call("withdraw_item", {"item": "한우", "qty": 400, "unit": "g"}), say("출고했어요."))
     before = counts(env)
@@ -400,6 +410,7 @@ def test_bulk_withdraw_resume_deducts_once(make_client, env):
     assert codes(r3) == ["NO_PENDING_INTERRUPT"] and counts(env) == after
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_small_withdraw_needs_no_approval(make_client, env):
     _, ask = make_client(call("withdraw_item", {"item": "한우", "qty": 100, "unit": "g"}), say("출고했어요."))
     r = ask({"question": "한우 100g 꺼낼게"}, DAD)
@@ -517,3 +528,198 @@ def test_supported_recommendation_keeps_answer(make_client):
     _, ask = make_client(call("rank_recipes", {}), say("오늘은 소고기 무국 어때요?"))
     r = ask({"question": "오늘 저녁 뭐 먹지?"}, DAD)
     assert r["answer"] == "오늘은 소고기 무국 어때요?"
+
+
+# ── recipe 평가 결과 입력 Form (JSON, SERVICE.md 5.6) ──────────────
+
+FORM_OK = '{"recipe": "규동", "cooked": "2 인분", "ratings": [{"evaluator": "dad", "eaten": "1 인분", "score": 4}]}'
+FORM_BAD = '{"recipe": "규동", "cooked": "2 인분", "ratings": [{"evaluator": "dad", "eaten": "1 인분", "score": 9}]}'
+
+
+def test_invalid_form_rejected_before_model(make_client, env):
+    before = counts(env)
+    _, ask = make_client()  # 대본이 비어 있어 에이전트가 불리면 오류가 난다
+    r = ask({"question": FORM_BAD}, DAD)
+    assert codes(r) == ["FORM_INVALID"]
+    assert r["answer"].startswith("평가 입력을 저장하지 않았어요") and "1~5" in r["answer"]
+    assert r["trace"]["steps"] == [] and counts(env) == before
+
+
+FORM_TWO = FORM_OK.replace("]}", ', {"evaluator": "mom", "eaten": "1 인분", "score": 5}]}')
+
+
+def _user_rows(db: str, table: str) -> list[tuple]:
+    """평가나 식사 테이블에서 시드 뒤에 새로 생긴 (user_id, 값) 행을 읽는다."""
+    conn = tools.connect(db)
+    try:
+        col = "score" if table == "ratings" else "servings"
+        rows = conn.execute(f"SELECT user_id, {col} FROM {table} WHERE dish = '규동' ORDER BY id").fetchall()
+        return [tuple(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def test_multi_evaluator_form_saved_with_one_approval(make_client, env):
+    """요청자 한 사람의 승인으로 평가자마다 평가·식사 기록을 남기고, 재료는 요리한 양 기준으로 한 번만 차감한다."""
+    before = counts(env)
+    seed_ratings = _user_rows(env, "ratings")
+    client, ask = make_client(call("confirm_meal_form", {}), say("저장했어요."))
+    r = ask({"question": FORM_TWO, "thread_id": "dad-form"}, DAD)
+    assert not codes(r) and r["trace"]["form"]["form"]["entries"][1]["user_id"] == "mom"
+    pending = r["trace"]["pending_interrupt"]
+    assert pending["type"] == "meal_form_confirm" and "dad 4점·mom 5점" in pending["summary"]
+    assert counts(env) == before  # 승인 전에는 아무것도 저장하지 않는다
+
+    done = ask({"question": "승인", "thread_id": "dad-form", "resume": "approve"}, DAD)
+    assert not codes(done)
+    assert _user_rows(env, "ratings") == seed_ratings + [("dad", 4), ("mom", 5)]
+    assert _user_rows(env, "meals") == [("dad", 1.0), ("mom", 1.0)]
+    after = counts(env)
+    assert after["hanwoo"] == before["hanwoo"] - 300 and after["onion"] == before["onion"] - 1  # 2인분 한 번만 차감
+
+
+def test_multi_evaluator_form_reject_saves_nothing(make_client, env):
+    before = counts(env)
+    _, ask = make_client(call("confirm_meal_form", {}), say("취소했어요."))
+    ask({"question": FORM_TWO, "thread_id": "dad-form-x"}, DAD)
+    r = ask({"question": "거절", "thread_id": "dad-form-x", "resume": "reject"}, DAD)
+    assert r["answer"] == tools.REJECT_MEAL and counts(env) == before
+    conn = tools.connect(env)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM meal_forms").fetchone()[0] == 0  # 거절하면 보관한 Form도 지운다
+    finally:
+        conn.close()
+
+
+# ── 재고 입력 Form (입고·출고·폐기, SERVICE.md 5.1) ────────────────
+
+SPINACH = "2026-11-008"  # 시드 시금치 200g, 만료(D-1)
+
+
+def stock_form(**values) -> str:
+    """재고 입력 Form JSON. 화면처럼 모든 키를 보내고 주지 않은 칸은 null이다."""
+    return json.dumps({k: values.get(k) for k in guardrails.INVENTORY_FORM_KEYS}, ensure_ascii=False)
+
+
+def lot(db: str, sn: str) -> dict | None:
+    """재고 한 건을 사전으로 읽는다."""
+    conn = tools.connect(db)
+    try:
+        row = conn.execute("SELECT * FROM inventory WHERE sn = ?", (sn,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def test_stock_form_stored_fills_blanks_without_approval(make_client, env):
+    client, ask = make_client(call("confirm_inventory_form", {}), say("입고했어요."))
+    r = ask({"question": stock_form(item="두부", qty=2, unit="개", status="stored"), "thread_id": "dad-stock-in"}, DAD)
+    assert not codes(r) and r["trace"]["pending_interrupt"] is None
+    assert r["trace"]["form"]["question"] == "재고 입력 Form을 확정해줘: 입고 두부 2개"
+    row = lot(env, "2026-11-014")
+    assert row["item"] == "두부" and row["qty"] == 2 and row["input_date"] == "2026-11-20"
+    assert row["expiry_date"] == "2026-11-27" and row["expiry_source"] == "guide"  # 기준표 7일
+    conn = tools.connect(env)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM inventory_forms").fetchone()[0] == 0  # 처리 뒤 Form을 지운다
+    finally:
+        conn.close()
+
+
+def test_stock_form_guide_item_keeps_guide_values(make_client, env):
+    client, ask = make_client(call("confirm_inventory_form", {}), say("입고했어요."))
+    ask({"question": stock_form(item="두부", qty=1, unit="개", storageDays=30, avgWeight=500), "thread_id": "dad-guide"}, DAD)
+    out = json.loads(tool_outputs(client, "dad-guide")[0])
+    assert out["expiry_date"] == "2026-11-27"  # Form의 30일이 아니라 기준표 7일
+    assert "권장 보관일수는 기준표 값(7일)을 썼어요" in out["notes"]
+    assert "개당 평균 무게는 기준표 값(300g)을 썼어요" in out["notes"]
+
+
+def test_stock_form_new_item_uses_form_profile(make_client, env):
+    """기준표에 없는 품목은 Form의 별칭·평균 무게·보관일수를 그 품목의 기준으로 저장하고 다음 요청부터 쓴다."""
+    _, ask = make_client(call("confirm_inventory_form", {}), say("입고했어요."),
+                         call("confirm_inventory_form", {}), say("출고했어요."))
+    ask({"question": stock_form(item="망고", aliases=["애플망고"], qty=2, unit="개", avgWeight=350, storageDays=5),
+         "thread_id": "dad-mango"}, DAD)
+    row = lot(env, "2026-11-014")
+    assert row["expiry_date"] == "2026-11-25" and row["expiry_source"] == "user" and row["unit"] == "개"
+    conn = tools.connect(env)
+    try:
+        profile = tools.item_profile(conn, "애플망고")
+        assert profile["item"] == "망고" and profile["avg_weight_g"] == 350 and profile["storage_days"] == 5
+    finally:
+        conn.close()
+    # 별칭과 g 단위로 출고해도 평균 무게로 환산해 망고에서 차감한다(700g 중 350g = 1개, 50% 이하라 승인 없음)
+    r = ask({"question": stock_form(item="애플망고", qty=350, unit="g", status="consumed"), "thread_id": "dad-mango-out"}, DAD)
+    assert not codes(r) and lot(env, "2026-11-014")["qty"] == 1
+
+
+def test_stock_form_consume_by_sn_without_approval(make_client, env):
+    client, ask = make_client(call("confirm_inventory_form", {}), say("출고했어요."))
+    r = ask({"question": stock_form(item="한우", sn=HANWOO, qty=200, unit="g", status="consumed"), "thread_id": "dad-out"}, DAD)
+    assert not codes(r) and r["trace"]["pending_interrupt"] is None
+    assert lot(env, HANWOO)["qty"] == 400
+    assert "남은 양 400g" in tool_outputs(client, "dad-out")[0]
+
+
+def test_stock_form_bulk_consume_needs_approval_and_reject_keeps_stock(make_client, env):
+    _, ask = make_client(call("confirm_inventory_form", {}), say("취소했어요."))
+    r = ask({"question": stock_form(item="한우", sn=HANWOO, qty=500, unit="g", status="consumed"), "thread_id": "dad-bulk"}, DAD)
+    pending = r["trace"]["pending_interrupt"]
+    assert pending["type"] == "bulk_withdraw" and "83%" in pending["summary"]
+    done = ask({"question": "거절", "thread_id": "dad-bulk", "resume": "reject"}, DAD)
+    assert done["answer"] == tools.REJECT_WITHDRAW and lot(env, HANWOO)["qty"] == 600
+
+
+def test_stock_form_discard_after_approval(make_client, env):
+    _, ask = make_client(call("confirm_inventory_form", {}), say("폐기했어요."))
+    r = ask({"question": stock_form(item="시금치", sn=SPINACH, status="discarded"), "thread_id": "dad-discard"}, DAD)
+    assert r["trace"]["pending_interrupt"]["type"] == "discard" and lot(env, SPINACH)["status"] == "stored"
+    ask({"question": "승인", "thread_id": "dad-discard", "resume": "approve"}, DAD)
+    assert lot(env, SPINACH)["status"] == "discarded" and lot(env, HANWOO)["status"] == "stored"
+
+
+@pytest.mark.parametrize(
+    "values, problem",
+    [
+        ({"item": "양파", "sn": ONION, "qty": 2, "unit": "개"}, "이미 있는 S/N이에요: 2026-11-001. 2026-11-014로 저장하려면"),
+        ({"item": "두부", "sn": HANWOO, "qty": 1, "unit": "개", "status": "consumed"}, "품목(한우)과 Form의 품목(두부)이 달라요"),
+        ({"item": "한우", "sn": HANWOO, "qty": 700, "unit": "g", "status": "consumed"}, "출고량(700g)이 보유량(600g)보다 많아요"),
+        ({"item": "연어", "status": "discarded"}, "연어 재고가 없어요"),
+        ({"item": "우유", "qty": 500, "unit": "g"}, "재고 단위 불일치"),
+    ],
+)
+def test_stock_form_checked_against_stock_before_model(make_client, env, values, problem):
+    before = counts(env)
+    _, ask = make_client()  # 대본이 비어 있어 에이전트가 불리면 오류가 난다
+    r = ask({"question": stock_form(**values)}, DAD)
+    assert codes(r) == ["FORM_INVALID"] and problem in r["answer"], r["answer"]
+    assert r["answer"].startswith(guardrails.MSG_INVENTORY_FORM_INVALID)
+    assert counts(env) == before and lot(env, "2026-11-014") is None
+
+# ── 자연어 재고·평가 쓰기 차단 (JSON Form으로만, SERVICE.md 5.6) ──────────
+
+
+@pytest.mark.parametrize(
+    ("question", "message"),
+    [
+        ("한우 600g 넣었어", guardrails.MSG_INVENTORY_FORM_REQUIRED),
+        ("한우 500g 꺼냈어", guardrails.MSG_INVENTORY_FORM_REQUIRED),
+        ("상한 시금치 버려줘", guardrails.MSG_INVENTORY_FORM_REQUIRED),
+        ("규동 2인분 만들어서 1인분 먹었어, 4점", guardrails.MSG_RATING_FORM_REQUIRED),
+    ],
+)
+def test_free_text_write_rejected_before_model(make_client, env, question, message):
+    before = counts(env)
+    _, ask = make_client()  # 대본이 비어 있어 에이전트가 불리면 오류가 난다
+    r = ask({"question": question}, DAD)
+    assert codes(r) == ["FORM_REQUIRED"] and r["answer"] == message
+    assert r["trace"]["guardrail"]["format"]["code"] == "FORM_REQUIRED"
+    assert r["trace"]["steps"] == [] and counts(env) == before
+
+
+def test_read_questions_still_reach_agent(make_client):
+    _, ask = make_client(call("list_inventory", {}), say("연어는 없어요"))
+    r = ask({"question": "냉장고에 연어 몇 g 남았어?"}, DAD)
+    assert r["answer"] == "연어는 없어요" and r["trace"]["guardrail"]["format"] is None
+

@@ -77,3 +77,50 @@
   평가 문항도 맞췄다: P05 기대 도구 `get_storage_days`, "보관 팁 한 가지" 기준 삭제. N02 기대 도구 `get_storage_days`.
   - 재평가 (실제 Bedrock, `BEDROCK_MODEL_ID=global.anthropic.claude-sonnet-4-6`, `run-20261119-143145.json`): P05·N02 2/2 통과, 도구 일치 2/2(`get_storage_days`만), forbidden 위반 0.
     P05 "두부의 냉장 권장 보관일수는 7일입니다. 출처: storage_guide.md"(faithfulness 1.00, relevancy 0.76). N02 가이드에 없다고 안내하고 유효기간을 직접 요청(faithfulness 0.50).
+
+## 후속 변경: 품목 기준표 분리 (2026-11-20, `design-review` branch)
+- `storage_guide.md`의 `## 품목 기준표`를 `data/storage_items.csv`로 옮겼다. `storage_guide.md`에는 머리말, 단위 규칙, 품목별 보관 팁만 남는다.
+- 기준표를 읽는 함수를 `retriever.load_storage_items()` 하나로 합쳤다. 전에는 `tools.load_storage_guide()`(사전)와
+  `retriever._guide_rows()`(문자열)가 같은 표를 따로 읽었고, `alias_table()`은 그 문자열을 다시 잘라 별칭을 꺼냈다.
+  `tools.py`가 `retriever.py`를 import하므로 함수를 retriever 쪽에 두어 순환 import를 피했다. `tools.load_storage_guide()`는 캐시만 하고 이 함수를 부른다.
+- 형식 검사: 열 이름·순서, 품목명 빈칸·중복, 기준 단위(g·L·개), 권장 보관일수(양의 정수), 개당 평균 무게(양수 또는 `-`)가 어긋나면
+  몇 번째 줄인지 밝혀 `ValueError`를 낸다. 전에는 제목 문자열("## 품목 기준표")로 표를 잘라 읽어 절 구성이 바뀌면 조용히 틀어질 수 있었다.
+- 검색 청크: 품목 청크 27개는 분리 전과 내용이 같다(기준표 행 + 보관 팁, 출처 `storage_guide.md`). 머리말 문장이 바뀐 "보관 가이드 범위와 단위 규칙" 청크만 달라져 Chroma 인덱스를 한 번 다시 만든다.
+- 출처: `get_storage_days`의 `source`와 가이드에 없는 품목 contexts는 `storage_items.csv`가 됐다. 요리추천 프롬프트의 답 예시, 평가 문항 P05 trait과 N02 note를 함께 바꿨다.
+- 확인
+  - 분리 전 결과와 비교: 기준표 사전, 별칭 표, 품목 청크 27개가 모두 같다.
+  - pytest 344개 통과(기준표 형식 검사, 품목마다 보관 팁 절 존재, 도구와 인덱스가 같은 표를 쓰는지 등 8개 추가).
+  - 검색 평가 `--no-llm`(`retrieval-20261120-003258.json`): 분리 전(`retrieval-20261119-155407.json`)과 같다(Precision@3 0.387, Recall@3 0.96, MRR 0.933).
+  - 검색 평가 LLM 모드 2회(`retrieval-20261120-003036`, `003236`): Recall@3·Hit 1.0, MRR 0.973 / 1.0. S10 순위가 실행마다 1위·3위로 달라지는 건 LLM 리랭킹 편차다.
+  - 실제 Bedrock P01·P05·N02·E01(`run-20261120-003515.json`): 4/4 통과, P05 답의 출처가 `storage_items.csv`, faithfulness 1.0.
+
+## 후속 변경: 재고 입력 Form의 품목 기준 (2026-11-20, `design-review` branch)
+- 재고 입력 Form(SERVICE.md 5.1)은 별칭·개당 평균 무게·권장 보관일수를 받는다. 기준표(`storage_items.csv`)는 바꾸지 않는다(기준표 수정은 admin 기능, SERVICE.md 5.7).
+  - 기준표에 있는 품목: 기준표 값을 쓰고, Form 값이 다르면 기준표 값을 썼다고 입고 결과 `notes`에 적는다.
+  - 기준표에 없는 품목: Form 값을 DB `item_units`의 새 열(`aliases`, `avg_weight_g`, `storage_days`)에 그 품목의 기준으로 저장한다.
+- 품목 찾기는 두 단계가 됐다. `resolve_item()`·`guide_info()`는 지금처럼 기준표만 보고, 기준표에 없을 때 `tools.item_profile()`이
+  `item_units`의 품목명 → 별칭 순으로 찾는다. 재고 조회(`stock_rows`), 기준 단위(`base_unit_of`), 단위 환산(`convert_to_base`)이 이 순서를 쓴다.
+- 검색 인덱스와 `get_storage_days`는 바꾸지 않았다. 둘 다 기준표만 본다.
+  - Form으로 등록한 품목(예: 망고 5일)은 검색 청크에 없고, `get_storage_days("망고")`는 지금처럼 "보관 가이드에 없는 품목"이라고 답한다.
+  - 이유: 인덱스는 문서(기준표·보관 가이드)에서 만들고, 가족마다 달라지는 DB 값을 넣으면 인덱스를 요청마다 다시 만들어야 한다.
+    평가 N02(망고 보관일수를 모르면 지어내지 않음)도 이 동작을 전제로 한다(평가는 문항마다 시드로 DB를 새로 만든다).
+  - Form으로 등록한 보관일수를 `get_storage_days`에서도 알려 줄지는 열린 질문으로 둔다.
+- 확인: pytest 414개 통과, 재고 Form 새 문항(P08·P09·P11, N07, E14~E19, G10) Bedrock 평가 모두 통과(`run-20261120-033127.json`, `run-20261120-034045.json`).
+
+## 계획 변경: 기준표 자동 추가와 검색 인덱스 (2026-11-20, 구현함)
+- 위 열린 질문을 정했다. 기준표에 없는 품목을 `item_units`에 새로 등록하면 `storage_items.csv`에 행을 덧붙이고 검색 인덱스에도 넣는다(SERVICE.md 5.1 "새 품목 등록 조건"·"기준표 자동 추가", 17장 결정 11). 새 등록은 권장 보관일수가 반드시 양의 정수이고 개당 평균 무게는 비거나 양수라서, 기준표의 읽기 검사(`load_storage_items`)와 그대로 맞는다.
+  - 그래서 위의 "기준표는 바꾸지 않는다", "검색 인덱스와 `get_storage_days`는 기준표만 본다(Form 품목은 답하지 않음)"는 이 변경으로 바뀐다. 기준표만 본다는 원칙은 그대로이고, 기준표에 품목이 늘어난다.
+- 할 일 (`src/retriever.py`)
+  - [x] 기준표에 행을 덧붙이는 함수: 잠금 → 임시 파일에 전체 쓰기 → 원본과 바꿔치기 → `load_storage_items`로 다시 읽어 검사. 품목이 이미 있으면 비어 있는 값(별칭 빈 칸, 개당 평균 무게 `-`)만 채운다.
+  - [x] 실행 중인 `HybridIndex`에 그 품목의 보관 청크 하나를 더하는 함수(BM25 다시 구성 + Chroma `add_documents`). 같은 품목 청크가 있으면 바꾼다.
+  - [x] 기준표 경로를 바꿀 수 있게 한다(평가·테스트가 임시 복사본을 쓰도록). 원본 `data/storage_items.csv`와 Chroma 저장소는 평가·테스트에서 바뀌지 않아야 한다.
+- 확인할 것: 망고를 Form으로 5일 등록한 뒤 `get_storage_days("망고")`가 5일과 출처 `storage_items.csv`를 돌려주고, 보관 검색 상위에 망고 청크가 나온다. 서버를 다시 띄워도 그대로다.
+
+- 구현 결과 (`src/retriever.py`)
+  - `storage_items_path()`: 환경변수 `FRIDGE_STORAGE_ITEMS`가 있으면 그 파일. `load_storage_items`·`alias_table`·`load_chunks`가 이 경로를 쓴다.
+  - `upsert_storage_item()`: 등록 조건을 다시 검사하고, 잠금 → 임시 파일 → `os.replace` → 다시 읽어 검사(실패하면 원래 내용으로 복구).
+    결과는 `added`·`filled`·`unchanged`.
+  - 보관 팁이 없는 기준표 품목도 기준표 행만으로 청크를 만든다(지금 기준표 품목은 모두 팁이 있어 기존 청크는 그대로, 피클만 새 청크).
+  - `HybridIndex.sync_storage()`: 보관 청크를 지금 기준표에 맞춘다(바뀐 청크만 Chroma에서 지우고 다시 넣고 BM25·별칭 표를 다시 만든다).
+    `refresh_storage_index()`는 서버 인덱스가 있을 때만 이것을 부른다.
+- 테스트: `conftest.py`의 `storage_items_copy`가 테스트마다 기준표 복사본을 쓰고 끝나면 세션 인덱스를 원본에 맞춘다.

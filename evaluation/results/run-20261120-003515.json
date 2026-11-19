@@ -1,0 +1,839 @@
+{
+ "run_at": "2026-11-20T00:35:15",
+ "fridge_today": "2026-11-20",
+ "agent_model": "us.anthropic.claude-sonnet-4-6",
+ "eval_model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "ragas_mode": "ragas 0.4.4, 3회 평균",
+ "summary": {
+  "total": 4,
+  "passed": 4,
+  "guardrail_passed": 0,
+  "guardrail_total": 0,
+  "forbidden_violations": 0,
+  "tool_match": 4,
+  "faithfulness": 1.0,
+  "answer_relevancy": 0.885,
+  "ragas_n": 2,
+  "faithfulness_n": 2,
+  "relevancy_n": 1
+ },
+ "results": [
+  {
+   "id": "P01",
+   "category": "positive",
+   "input": "한우 600g 넣었어",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "한우 600g 넣었어",
+       "user_id": "dad"
+      },
+      "answer": "입고 완료했습니다! 🥩\n\n| 항목 | 내용 |\n|------|------|\n| 품목 | 한우 |\n| 투입일자 | 2026-11-20 |\n| 수량 | 600g |\n| S/N | 2026-11-014 |\n| 유효기간 | 2026-11-23 (D-3) |\n\n유통기한이 **D-3**으로 짧으니 빠르게 드시는 걸 추천드려요! 😊",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-c5b571cd",
+       "user_id": "dad",
+       "question": "한우 600g 넣었어",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        },
+        {
+         "sn": "2026-11-014",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 3,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "inventory_agent"
+        },
+        {
+         "tool": "add_items_from_text",
+         "ms": 2027
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3696,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       },
+       "request_id": "03389aab442a",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 16,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-014",
+        "item": "한우",
+        "qty": 600.0,
+        "unit": "g",
+        "input_date": "2026-11-20",
+        "expiry_date": "2026-11-23",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_inventory_agent",
+      "args": {}
+     },
+     {
+      "name": "add_items_from_text",
+      "args": {
+       "text": "한우 600g 넣었어"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 12.2
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "add_items_from_text"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 4,
+    "traits_total": 4,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "S/N을 2026-11-NNN 형식으로 자동 발번",
+      "ok": true,
+      "reason": "db_after의 last_inventory에서 sn이 '2026-11-014'로 자동 발번되었고, answer에도 'S/N | 2026-11-014'로 표시됨"
+     },
+     {
+      "item": "투입일자를 오늘(2026-11-20)로 기록",
+      "ok": true,
+      "reason": "db_after의 last_inventory에서 input_date가 '2026-11-20'으로 기록되었고, answer에도 '투입일자 | 2026-11-20'으로 표시됨"
+     },
+     {
+      "item": "유효기간을 품목 기준표 권장일수로 계산해 안내",
+      "ok": true,
+      "reason": "db_after의 last_inventory에서 expiry_date가 '2026-11-23'으로 계산되었고(투입일 2026-11-20 + 3일), answer에도 '유효기간 | 2026-11-23 (D-3)'으로 안내됨"
+     },
+     {
+      "item": "단위 g 유지",
+      "ok": true,
+      "reason": "db_after의 last_inventory에서 unit이 'g'로 유지되었고, answer에도 '수량 | 600g'으로 표시됨"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "근거 없는 유효기간 날짜",
+      "ok": false,
+      "reason": "유효기간 2026-11-23은 투입일 2026-11-20 기준 3일 후로 계산된 것으로, 품목 기준표에 근거한 정상적인 날짜임"
+     },
+     {
+      "item": "사용자가 말하지 않은 수량",
+      "ok": false,
+      "reason": "사용자가 '한우 600g'이라고 명시했고, 응답에서도 정확히 600g으로 기록하여 위반 없음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P05",
+   "category": "positive",
+   "input": "두부는 냉장 며칠 보관해?",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "두부는 냉장 며칠 보관해?",
+       "user_id": "dad"
+      },
+      "answer": "두부는 냉장고에서 7일 동안 보관할 수 있어요. 냉장 보관 기준 권장 보관일수예요. (출처: storage_items.csv)",
+      "contexts": [
+       "[storage_items.csv#두부] 두부의 권장 보관일수는 냉장 보관 기준 7일이에요 (보관 가이드 품목 두부)"
+      ],
+      "trace": {
+       "thread_id": "dad-20261120-06c70958",
+       "user_id": "dad",
+       "question": "두부는 냉장 며칠 보관해?",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "recommend_agent"
+        },
+        {
+         "tool": "get_storage_days",
+         "ms": 0
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3696,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       },
+       "request_id": "6db0c2c870d0",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_recommend_agent",
+      "args": {}
+     },
+     {
+      "name": "get_storage_days",
+      "args": {
+       "item": "두부"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 6.1
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "get_storage_days"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "품목 기준표의 권장 일수",
+      "ok": true,
+      "reason": "응답에서 '두부는 냉장고에서 7일 동안 보관할 수 있어요'라고 명시하고 있으며, contexts에 '[storage_items.csv#두부] 두부의 권장 보관일수는 냉장 보관 기준 7일이에요'로 품목 기준표의 권장 일수를 정확히 제공함"
+     },
+     {
+      "item": "출처 storage_items.csv",
+      "ok": true,
+      "reason": "응답에 '(출처: storage_items.csv)'가 명시되어 있고, contexts에도 '[storage_items.csv#두부]'로 출처가 명확히 표시됨"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "가이드와 다른 일수",
+      "ok": false,
+      "reason": "contexts의 가이드에서 두부는 냉장 보관 기준 7일이라고 명시되어 있고, 응답도 7일로 일치하므로 위반하지 않음"
+     },
+     {
+      "item": "출처 없는 일반 상식 단정",
+      "ok": false,
+      "reason": "응답에 '(출처: storage_items.csv)'가 명시되어 있어 출처가 제공되었으므로 위반하지 않음"
+     },
+     {
+      "item": "문서에 없는 보관 방법이나 팁",
+      "ok": false,
+      "reason": "응답은 보관 일수만 언급하고 있으며, 문서에 없는 추가적인 보관 방법이나 팁을 제공하지 않았으므로 위반하지 않음"
+     }
+    ]
+   },
+   "ragas": {
+    "faithfulness": 1.0,
+    "faithfulness_runs": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "answer_relevancy": 0.885,
+    "answer_relevancy_runs": [
+     0.885,
+     0.885,
+     0.885
+    ]
+   }
+  },
+  {
+   "id": "N02",
+   "category": "negative",
+   "input": "망고는 냉장고에서 며칠 보관할 수 있어?",
+   "user_id": "dad",
+   "abstain": true,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "망고는 냉장고에서 며칠 보관할 수 있어?",
+       "user_id": "dad"
+      },
+      "answer": "보관 가이드에 없는 품목이에요: 망고. 권장 보관일수를 알 수 없어요. 유효기간을 직접 알려 주세요.",
+      "contexts": [
+       "[storage_items.csv#망고] 보관 가이드에 없는 품목이에요: 망고. 권장 보관일수를 알 수 없어요. 유효기간을 직접 알려 주세요"
+      ],
+      "trace": {
+       "thread_id": "dad-20261120-146d32d4",
+       "user_id": "dad",
+       "question": "망고는 냉장고에서 며칠 보관할 수 있어?",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "recommend_agent"
+        },
+        {
+         "tool": "get_storage_days",
+         "ms": 0
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3696,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       },
+       "request_id": "35d5f3e28578",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_recommend_agent",
+      "args": {}
+     },
+     {
+      "name": "get_storage_days",
+      "args": {
+       "item": "망고"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 6.0
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "get_storage_days"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "품목 기준표에 정보가 없다고 안내",
+      "ok": true,
+      "reason": "응답에서 '보관 가이드에 없는 품목이에요: 망고. 권장 보관일수를 알 수 없어요'라고 명확히 안내함"
+     },
+     {
+      "item": "유효기간을 직접 입력해 달라고 요청",
+      "ok": true,
+      "reason": "응답 마지막에 '유효기간을 직접 알려 주세요'라고 요청함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "임의 보관일수 제시",
+      "ok": false,
+      "reason": "응답에서 구체적인 보관일수를 제시하지 않고 '권장 보관일수를 알 수 없어요'라고만 안내함"
+     },
+     {
+      "item": "다른 과일 정보를 망고 정보처럼 제시",
+      "ok": false,
+      "reason": "응답에서 다른 과일에 대한 정보를 제시하지 않음"
+     }
+    ]
+   },
+   "ragas": {
+    "faithfulness": 1.0,
+    "faithfulness_runs": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "answer_relevancy": null,
+    "answer_relevancy_runs": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "relevancy_skipped": "거절이 정답인 문항"
+   }
+  },
+  {
+   "id": "E01",
+   "category": "edge",
+   "input": "어제 산 두부 1모 넣었어, S/N은 2026-11-001",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "어제 산 두부 1모 넣었어, S/N은 2026-11-001",
+       "user_id": "dad"
+      },
+      "answer": "저장하지 못했어요. S/N **2026-11-001**은 이미 존재하는 S/N이에요.\n\n- **제안 S/N:** 2026-11-014\n\n**2026-11-014**로 저장할까요?",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-f38ddedc",
+       "user_id": "dad",
+       "question": "어제 산 두부 1모 넣었어, S/N은 2026-11-001",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "inventory_agent"
+        },
+        {
+         "tool": "add_items_from_text",
+         "ms": 2362
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3696,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       },
+       "request_id": "3b224c528cc4",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     },
+     {
+      "request": {
+       "question": "제안한 S/N으로 저장해줘",
+       "user_id": "dad",
+       "thread_id": "dad-20261120-f38ddedc"
+      },
+      "answer": "두부를 저장했어요!\n\n- **S/N:** 2026-11-014\n- **투입일자:** 2026-11-19\n- **수량:** 1개\n- **유효기간:** 2026-11-26 (D-6)",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-f38ddedc",
+       "user_id": "dad",
+       "question": "제안한 S/N으로 저장해줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "inventory_agent"
+        },
+        {
+         "tool": "add_items_from_text",
+         "ms": 2047
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3696,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       },
+       "request_id": "7da62cdfe49d",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 16,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-014",
+        "item": "두부",
+        "qty": 1.0,
+        "unit": "개",
+        "input_date": "2026-11-19",
+        "expiry_date": "2026-11-26",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_inventory_agent",
+      "args": {}
+     },
+     {
+      "name": "add_items_from_text",
+      "args": {
+       "text": "어제 산 두부 1모 넣었어, S/N은 2026-11-001"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     },
+     {
+      "name": "transfer_to_inventory_agent",
+      "args": {}
+     },
+     {
+      "name": "add_items_from_text",
+      "args": {
+       "text": "어제 산 두부 1모 넣었어, S/N은 2026-11-014"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 15.3
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "add_items_from_text",
+     "add_items_from_text"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 3,
+    "traits_total": 3,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "투입일자를 어제(2026-11-19)로 기록",
+      "ok": true,
+      "reason": "두 번째 턴의 answer와 db_after에서 input_date가 2026-11-19로 기록되었음"
+     },
+     {
+      "item": "1모를 1개로 환산",
+      "ok": true,
+      "reason": "두 번째 턴의 answer와 db_after에서 수량이 1.0개, 단위가 '개'로 저장되었음"
+     },
+     {
+      "item": "S/N 중복을 알리고 자동 발번 S/N 제안",
+      "ok": true,
+      "reason": "첫 번째 턴의 answer에서 'S/N 2026-11-001은 이미 존재하는 S/N'이라고 알리고 '제안 S/N: 2026-11-014'를 제시함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "중복 S/N 그대로 저장",
+      "ok": false,
+      "reason": "첫 번째 턴에서 중복 S/N 저장을 거부했고(inventory 15 유지), 두 번째 턴에서 제안된 S/N 2026-11-014로 저장함"
+     },
+     {
+      "item": "LLM이 날짜를 직접 계산한 흔적(도구 미사용)",
+      "ok": false,
+      "reason": "두 턴 모두 trace에서 add_items_from_text 도구를 사용했으며, LLM이 날짜를 직접 계산한 흔적이 없음"
+     }
+    ]
+   }
+  }
+ ]
+}

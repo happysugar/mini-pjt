@@ -49,9 +49,9 @@ def family_ask(make_client, question: str = "오늘 저녁 엄마랑 지민이�
 
 def test_fetch_budgets_reads_every_member_without_numbers_in_trace(watch_on):
     budgets, steps = tools.fetch_calorie_budgets(["dad", "mom", "jimin"], caller="rank_recipes")
-    assert budgets == {"dad": 2400.0, "mom": 1900.0, "jimin": 2000.0}
+    assert budgets == {"dad": 2800.0, "mom": 2300.0, "jimin": 2400.0}
     assert steps[0]["tool"] == "get_calorie_budget" and steps[0]["via"] == "mcp" and steps[0]["event"] == "ok"
-    assert "1900" not in json.dumps(steps)
+    assert "2300" not in json.dumps(steps)
 
 
 def test_fetch_budgets_off_or_down():
@@ -76,12 +76,12 @@ def test_family_recommendation_within_budget_and_safe(make_client, watch_on):
     mcp_steps = [s for s in r["trace"]["steps"] if s.get("via") == "mcp"]
     assert [s["tool"] for s in mcp_steps] == ["get_calorie_budget"] and mcp_steps[0]["caller"] == "rank_recipes"
     raw = json.dumps(out, ensure_ascii=False)
-    assert "remaining" not in raw and "1900" not in raw and "budget\": {" not in raw
+    assert "remaining" not in raw and "2300" not in raw and "budget\": {" not in raw
 
 
 def test_family_recommendation_low_budget_picks_lightest(make_client, watch_on):
-    # 엄마가 오늘 1890kcal를 먹어 남은 칼로리가 10kcal이 되게 한다(가장 가벼운 레시피도 70kcal라 안에 들지 않음)
-    mcp_call("record_meal", {"meal_id": "m-1", "user_id": "mom", "dish": "외식", "kcal": 1890, "eaten_at": "2026-11-20T12:00:00"})
+    # 엄마가 오늘 2290kcal를 먹어 남은 칼로리가 10kcal이 되게 한다(가장 가벼운 레시피도 70kcal라 안에 들지 않음)
+    mcp_call("record_meal", {"meal_id": "m-1", "user_id": "mom", "dish": "외식", "kcal": 2290, "eaten_at": "2026-11-20T12:00:00"})
     _, out = family_ask(make_client)
     assert out["within_calorie_budget"] is False
     assert any("가장 가벼운 요리" in n for n in out["notes"])
@@ -104,6 +104,7 @@ def test_family_answer_masks_other_member_kcal(make_client, watch_on):
 # ── 식사 확정은 요청자 본인 기록만 ────────────────────────────────
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_meal_with_family_records_only_requester(make_client, env):
     meal = {"dish": "소고기 무국", "score": 4, "servings_made": 3, "servings_eaten": 1}
     _, ask = make_client(call("confirm_meal", meal), say("저장했어요."))
@@ -116,3 +117,61 @@ def test_meal_with_family_records_only_requester(make_client, env):
     finally:
         conn.close()
     assert users == {"dad"} and raters == {"dad"}
+
+
+# ── 참여자 판단: 가족 구성원 정보에 있는지 (SERVICE.md 5.5) ─────────
+
+
+def test_names_not_in_family_are_left_out(make_client, watch_on):
+    """가족 구성원 정보에 있는 이름(엄마)만 참여자로 고려하고, 없는 이름(철수)은 빼고 알린다. 요청자는 한 번만 센다."""
+    client, ask = make_client(call("rank_recipes", {"diners": ["엄마", "철수", "아빠"]}), say("추천해요."))
+    ask({"question": "오늘 저녁 엄마랑 철수랑 같이 먹을 거 추천해줘", "thread_id": "dad-t-unknown"}, DAD)
+    out = rank_output(client, "dad-t-unknown")
+    assert sorted(out["diners"]) == ["dad", "mom"]
+    assert any("가족 목록에 없는 이름은 빼고 골랐어요: 철수" in n for n in out["notes"])
+    assert "철수" not in json.dumps(out["items"], ensure_ascii=False)
+
+
+def test_only_unknown_names_fall_back_to_requester_alone(make_client, watch_on):
+    """가족 구성원이 아닌 이름만 있으면 가족 합의가 아니라 요청자 혼자 기준의 일반 추천이 된다."""
+    from tests.test_api import tool_outputs
+
+    client, ask = make_client(call("rank_recipes", {"diners": ["철수"]}), say("추천해요."))
+    ask({"question": "오늘 저녁 철수랑 같이 먹을 거 추천해줘", "thread_id": "dad-t-only-unknown"}, DAD)
+    out = next(json.loads(o) for o in tool_outputs(client, "dad-t-only-unknown") if o.startswith("{"))
+    assert "diners" not in out
+    assert any("가족 목록에 없는 이름은 빼고 골랐어요: 철수" in n for n in out["notes"])
+
+
+# ── 혼자 먹는 추천도 요청자의 남은 칼로리를 쓴다 (SERVICE.md 5.2) ────
+
+
+def _solo_rank(make_client, thread_id: str) -> dict:
+    """혼자 먹는 추천 대본으로 질문하고 rank_recipes 결과(JSON)를 돌려준다."""
+    from tests.test_api import tool_outputs
+
+    client, ask = make_client(call("rank_recipes", {}), say("추천해요."))
+    r = ask({"question": "오늘 저녁 뭐 먹지?", "thread_id": thread_id}, DAD)
+    out = next(json.loads(o) for o in tool_outputs(client, thread_id) if o.startswith("{"))
+    return r, out
+
+
+def test_solo_recommendation_reads_own_budget(make_client, watch_on):
+    r, out = _solo_rank(make_client, "dad-t-solo")
+    assert out["within_calorie_budget"] is True and "diners" not in out
+    mcp_steps = [s for s in r["trace"]["steps"] if s.get("via") == "mcp"]
+    assert [(s["tool"], s["caller"], s["members"]) for s in mcp_steps] == [("get_calorie_budget", "rank_recipes", 1)]
+    assert "2800" not in json.dumps(out)  # 남은 칼로리 수치는 결과에 담지 않는다
+
+
+def test_solo_recommendation_low_budget_picks_lightest(make_client, watch_on):
+    # 아빠가 오늘 2790kcal를 먹어 남은 칼로리가 10kcal(가장 가벼운 레시피 80kcal보다 적음)
+    mcp_call("record_meal", {"meal_id": "d-1", "user_id": "dad", "dish": "외식", "kcal": 2790, "eaten_at": "2026-11-20T12:00:00"})
+    _, out = _solo_rank(make_client, "dad-t-solo-low")
+    assert out["within_calorie_budget"] is False
+    assert any("가장 가벼운 요리" in n for n in out["notes"])
+
+
+def test_solo_recommendation_without_watch(make_client):
+    _, out = _solo_rank(make_client, "dad-t-solo-off")
+    assert out["within_calorie_budget"] is None and tools.CALORIE_UNKNOWN in out["notes"]

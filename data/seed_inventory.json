@@ -19,6 +19,6 @@
     {"sn": "2026-11-013", "item": "표고버섯", "qty": 150, "unit": "g", "input_offset_days": -2, "expiry_offset_days": 5, "expiry_source": "guide", "status": "stored"}
   ],
   "item_units": [
-    {"item": "피클", "base_unit": "개"}
+    {"item": "피클", "base_unit": "개", "storage_days": 30}
   ]
 }
