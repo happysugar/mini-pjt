@@ -38,6 +38,7 @@ from src.tools import (
     now_iso,
     rescued_g_week,
     reset_db,
+    save_meal_form,
     resend_unsynced_meals,
     resolve_item,
     WATCH_FAILED,
@@ -145,7 +146,7 @@ def recommendation_context(item: dict[str, Any]) -> str:
 
     요약뿐 아니라 슬롯, 카테고리, 주재료, 평점 또는 신메뉴 여부, 1인분 kcal, 임박 재료(D-day),
     부족 재료까지 담는다. 모두 `rank_recipes`가 계산한 값이라 답의 주장을 그대로 뒷받침한다.
-    가족 추천의 평점은 그룹 평점이라 다른 가족의 개별 기록은 들어가지 않는다.
+    가족 추천의 평점은 그룹 평점이라 다른 가족 구성원의 개별 기록은 들어가지 않는다.
     """
     if item.get("is_new"):
         rating = "신메뉴(평가 없음)"
@@ -303,7 +304,7 @@ async def _last_answer_asks(agent: Any, thread_id: str) -> bool:
 async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path: str | None) -> QueryResponse:
     """`/query` 한 건을 처리한다. 신원 → 스레드 소유권 → 승인 상태 → 입력 가드레일 → 에이전트 실행 순서다.
 
-    모든 응답은 출력 가드레일(개인정보·다른 가족 칼로리 마스킹)을 거친다. trace의 질문도 같은 방식으로 가린다.
+    모든 응답은 출력 가드레일(개인정보·다른 가족 구성원 칼로리 마스킹)을 거친다. trace의 질문도 같은 방식으로 가린다.
     실행 이벤트는 `RequestTracer`가 모아 `trace.jsonl`에 남기고, 같은 이벤트로 `trace.steps`·`trace.concepts`를 만든다.
     """
     tracer = RequestTracer(thread_id=req.thread_id)
@@ -379,9 +380,24 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
             trace["errors"].append(_error(verdict.code, "입력 가드레일에서 막은 요청이에요"))
             return reply(verdict.message)
 
+    # recipe 평가 결과 입력 Form(JSON)이면 모델을 부르기 전에 형식과 값을 검사한다 (SERVICE.md 5.6).
+    # 통과하면 Form을 이 스레드에 보관하고 확정 요청 문장을 에이전트에 넘긴다. 평가·헬스 에이전트의
+    # confirm_meal_form이 보관된 값만 읽어 요청자 한 사람의 승인으로 평가자마다 저장한다.
+    # 걸리면 저장하지 않고 고정 문구로 답한다.
+    question = req.question
+    if not req.resume:
+        form = guardrails.check_rating_form(req.question, user_id)
+        if form.is_form:
+            trace["form"] = form.as_trace()
+            if form.code:
+                trace["errors"].append(_error(form.code, "; ".join(form.problems)))
+                return reply(form.message)
+            await asyncio.to_thread(save_meal_form, db_path, thread_id, user_id, form.form)
+            question = form.question
+
     context = FridgeContext(user_id=user_id, db_path=db_path)
     try:
-        turn = await run_turn(agent, req.question, context, thread_id, resume=req.resume, callbacks=[tracer])
+        turn = await run_turn(agent, question, context, thread_id, resume=req.resume, callbacks=[tracer])
     except Exception as exc:  # noqa: BLE001 - 어떤 실패든 세 키 형식으로 돌려준다
         tracer.mcp_calls(context.mcp_calls)
         if is_model_unavailable(exc):  # 서브 에이전트 재시도 끝 실패, 또는 Supervisor 모델의 Bedrock 오류

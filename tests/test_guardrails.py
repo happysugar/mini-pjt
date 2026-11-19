@@ -1,4 +1,4 @@
-"""가드레일 테스트 (TASK-12): 입력 검사, 다른 가족 기록 권한, 개인정보 저장 거절, 출력 마스킹.
+"""가드레일 테스트 (TASK-12): 입력 검사, 다른 가족 구성원 기록 권한, 개인정보 저장 거절, 출력 마스킹.
 
 LLM 인젝션 분류는 가짜 분류기로 바꿔 Bedrock 없이 돈다.
 """
@@ -177,3 +177,65 @@ def test_mask_other_family_kcal():
     text, kinds = guardrails.mask_output("엄마는 오늘 1,250kcal를 드셨어요. 나는 680kcal.", "dad")
     assert "1,250" not in text and "엄마는 오늘 ***kcal" in text and "680kcal" in text
     assert kinds == ["other_family_kcal"]
+
+
+# ── recipe 평가 결과 입력 Form (JSON) ─────────────────────────────
+
+
+def _form(cooked="2 인분", ratings=None, recipe="규동"):
+    """평가 입력 Form JSON 문자열을 만든다."""
+    import json
+
+    ratings = [{"evaluator": "dad", "eaten": "1 인분", "score": 4}] if ratings is None else ratings
+    return json.dumps({"recipe": recipe, "cooked": cooked, "ratings": ratings}, ensure_ascii=False)
+
+
+def test_valid_form_becomes_confirm_request():
+    v = guardrails.check_rating_form(_form(), "dad")
+    assert v.is_form and not v.code
+    assert v.question == "평가 입력 Form을 확정해줘: 규동 2인분, dad 1인분 4점"
+    assert v.form == {"recipe": "규동", "cooked": 2.0, "entries": [{"user_id": "dad", "eaten": 1.0, "score": 4}]}
+    # 평가자는 이름(아빠)으로 와도 같은 가족 구성원(user_id)으로 바꾼다
+    v = guardrails.check_rating_form(_form(ratings=[{"evaluator": "아빠", "eaten": "0.5 인분", "score": 5}]), "dad")
+    assert v.form["entries"] == [{"user_id": "dad", "eaten": 0.5, "score": 5}]
+
+
+@pytest.mark.parametrize(
+    ("cooked", "ratings", "problem"),
+    [
+        ("2 인분", [{"evaluator": "dad", "eaten": "0 인분", "score": 4}], "식사량은 0보다 커야"),
+        ("2 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 9}], "점수는 1~5"),
+        ("2 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": "4"}], "점수는 1~5"),
+        ("2 인분", [{"evaluator": "dad", "eaten": "1 인분"}], "점수가 빠졌어요"),
+        ("2 인분", [{"evaluator": "철수", "eaten": "1 인분", "score": 4}], "가족 구성원이 아니에요"),
+        ("두 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 4}], "요리한 양은 '숫자 인분'"),
+        ("2인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 4}], "요리한 양은 '숫자 인분'"),
+        ("1 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 4},
+                   {"evaluator": "mom", "eaten": "1 인분", "score": 5}], "합계(2 인분)가 요리한 양(1 인분)보다"),
+        ("2 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 4},
+                   {"evaluator": "아빠", "eaten": "1 인분", "score": 3}], "두 번 들어"),
+        ("2 인분", [], "평가자별 항목이 비었어요"),
+    ],
+)
+def test_invalid_form_is_rejected(cooked, ratings, problem):
+    v = guardrails.check_rating_form(_form(cooked, ratings), "dad")
+    assert v.is_form and v.code == "FORM_INVALID" and not v.question
+    assert any(problem in p for p in v.problems), v.problems
+    assert v.message.startswith(guardrails.MSG_FORM_INVALID)
+
+
+def test_multiple_and_other_family_member_evaluators_are_accepted():
+    """요청자 한 사람의 승인으로 평가자마다 저장하므로, 평가자는 여러 명이어도 요청자가 아니어도 된다."""
+    two = [{"evaluator": "dad", "eaten": "1 인분", "score": 4}, {"evaluator": "엄마", "eaten": "1 인분", "score": 5}]
+    v = guardrails.check_rating_form(_form(ratings=two), "dad")
+    assert not v.code and [e["user_id"] for e in v.form["entries"]] == ["dad", "mom"]
+    assert v.question == "평가 입력 Form을 확정해줘: 규동 2인분, dad 1인분 4점, mom 1인분 5점"
+    mom = [{"evaluator": "mom", "eaten": "1 인분", "score": 5}]
+    assert not guardrails.check_rating_form(_form(ratings=mom), "dad").code
+
+
+def test_non_form_questions_are_untouched():
+    for q in ["규동 2인분 만들어서 1인분 먹었어, 4점", '{"a": 1}', "{중괄호로 시작하는 말}"]:
+        assert not guardrails.check_rating_form(q, "dad").is_form
+    broken = guardrails.check_rating_form('{"recipe": "규동", "ratings": [', "dad")
+    assert broken.code == "FORM_INVALID" and broken.problems == ["JSON 형식이 아니에요"]

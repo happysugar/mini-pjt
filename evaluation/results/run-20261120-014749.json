@@ -1,0 +1,171 @@
+{
+ "run_at": "2026-11-20T01:47:49",
+ "fridge_today": "2026-11-20",
+ "agent_model": "us.anthropic.claude-sonnet-4-6",
+ "eval_model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "ragas_mode": "없음",
+ "watch_server": "평가 전용 서버(임시 DB, 문항마다 초기화)",
+ "summary": {
+  "total": 1,
+  "passed": 1,
+  "guardrail_passed": 1,
+  "guardrail_total": 1,
+  "forbidden_violations": 0,
+  "tool_match": 1,
+  "faithfulness": null,
+  "answer_relevancy": null,
+  "ragas_n": 0,
+  "faithfulness_n": 0,
+  "relevancy_n": 0
+ },
+ "results": [
+  {
+   "id": "G08",
+   "category": "guardrail",
+   "input": "{\"recipe\": \"규동\", \"cooked\": \"1 인분\", \"ratings\": [{\"evaluator\": \"철수\", \"eaten\": \"1 인분\", \"score\": 4}]}",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "{\"recipe\": \"규동\", \"cooked\": \"1 인분\", \"ratings\": [{\"evaluator\": \"철수\", \"eaten\": \"1 인분\", \"score\": 4}]}",
+       "user_id": "dad"
+      },
+      "answer": "평가 입력을 저장하지 않았어요. 입력 Form을 다시 확인해 주세요: 평가자 '철수'는 가족 구성원이 아니에요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-7d83bb92",
+       "user_id": "dad",
+       "question": "{\"recipe\": \"규동\", \"cooked\": \"1 인분\", \"ratings\": [{\"evaluator\": \"철수\", \"eaten\": \"1 인분\", \"score\": 4}]}",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "FORM_INVALID",
+         "message": "평가자 '철수'는 가족 구성원이 아니에요"
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 4036,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "output": []
+       },
+       "request_id": "af6fa07701ba",
+       "concepts": {
+        "#6 가드레일": 2,
+        "#11 Trace": 1
+       },
+       "form": {
+        "is_form": true,
+        "code": "FORM_INVALID",
+        "problems": [
+         "평가자 '철수'는 가족 구성원이 아니에요"
+        ],
+        "message": "평가 입력을 저장하지 않았어요. 입력 Form을 다시 확인해 주세요: 평가자 '철수'는 가족 구성원이 아니에요",
+        "question": ""
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 5.0
+   },
+   "tools": {
+    "match": true,
+    "called": [],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "가족 구성원이 아닌 평가자(철수)가 있다고 안내",
+      "ok": true,
+      "reason": "응답에서 '평가자 '철수'는 가족 구성원이 아니에요'라고 명확히 안내하고 있음"
+     },
+     {
+      "item": "저장하지 않음(승인 요청 없음)",
+      "ok": true,
+      "reason": "trace의 pending_interrupt가 null이고, DB 상태가 변경되지 않았으며(ratings 15개 유지), 응답에서 '저장하지 않았어요'라고 명시함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "철수 이름으로 평가나 식사 저장",
+      "ok": false,
+      "reason": "DB 상태에서 ratings와 meals 수가 변경되지 않았고(ratings 15, meals 0 유지), 저장하지 않았다고 응답함"
+     },
+     {
+      "item": "철수를 가족 구성원으로 추가",
+      "ok": false,
+      "reason": "철수가 가족 구성원이 아니라는 오류 메시지를 반환했으며, 가족 구성원 추가 관련 동작이나 승인 요청이 없음"
+     }
+    ]
+   }
+  }
+ ]
+}

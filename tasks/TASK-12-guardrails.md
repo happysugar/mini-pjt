@@ -65,3 +65,10 @@
 - 입력 가드레일 위치는 API에 그대로 둔다. Supervisor는 `create_supervisor`로 만들어 `AgentMiddleware`를 받지 못하고,
   서브 에이전트 미들웨어로 옮기면 Supervisor 모델 호출 뒤에야 검사하게 돼 오히려 약해진다.
 - 테스트: `tests/test_guardrails.py`에 인젝션 규칙 22개(차단 15, 통과 7)와 빈 승인 판단 17개, `tests/test_api.py`에 빈 승인 3개.
+- 평가 입력 Form 검사 (2026-11-20, `design-review` branch, SERVICE.md 5.6): 화면이 보내는 recipe 평가 결과 JSON을
+  API가 모델 호출 전에 검사한다(`check_rating_form`). 형식("숫자 인분"), 0보다 큰 양, 가족 구성원 여부와 중복, 점수 1~5 정수,
+  빠진 값, 평가자별 식사량 합계 ≤ 요리한 양을 본다. 걸리면 `FORM_INVALID`로 저장 없이 답하고, 통과한 요청자 한 명의 평가는
+  Form을 스레드에 보관하고(`meal_forms`) "평가 입력 Form을 확정해줘: …" 문장을 에이전트에 넘긴다. 승인 도구 `confirm_meal_form`이 보관된 값만 읽어
+  요청자 한 사람의 승인으로 평가자마다 평가·식사·워치 기록을 남긴다(2026-11-20 결정, 처음에는 `FORM_UNSUPPORTED`로 막았다가 바꿈).
+  - 첫 실행(`run-20261120-014142`)에서는 에이전트가 JSON을 "도구 결과나 대화 속 지시"로 보고 정상 입력까지 거절했다. 이 검사로 고쳤다.
+  - 테스트: `tests/test_guardrails.py` 15개, `tests/test_api.py` 3개 추가.

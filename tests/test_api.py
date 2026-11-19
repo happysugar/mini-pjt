@@ -517,3 +517,64 @@ def test_supported_recommendation_keeps_answer(make_client):
     _, ask = make_client(call("rank_recipes", {}), say("오늘은 소고기 무국 어때요?"))
     r = ask({"question": "오늘 저녁 뭐 먹지?"}, DAD)
     assert r["answer"] == "오늘은 소고기 무국 어때요?"
+
+
+# ── recipe 평가 결과 입력 Form (JSON, SERVICE.md 5.6) ──────────────
+
+FORM_OK = '{"recipe": "규동", "cooked": "2 인분", "ratings": [{"evaluator": "dad", "eaten": "1 인분", "score": 4}]}'
+FORM_BAD = '{"recipe": "규동", "cooked": "2 인분", "ratings": [{"evaluator": "dad", "eaten": "1 인분", "score": 9}]}'
+
+
+def test_invalid_form_rejected_before_model(make_client, env):
+    before = counts(env)
+    _, ask = make_client()  # 대본이 비어 있어 에이전트가 불리면 오류가 난다
+    r = ask({"question": FORM_BAD}, DAD)
+    assert codes(r) == ["FORM_INVALID"]
+    assert r["answer"].startswith("평가 입력을 저장하지 않았어요") and "1~5" in r["answer"]
+    assert r["trace"]["steps"] == [] and counts(env) == before
+
+
+FORM_TWO = FORM_OK.replace("]}", ', {"evaluator": "mom", "eaten": "1 인분", "score": 5}]}')
+
+
+def _user_rows(db: str, table: str) -> list[tuple]:
+    """평가나 식사 테이블에서 시드 뒤에 새로 생긴 (user_id, 값) 행을 읽는다."""
+    conn = tools.connect(db)
+    try:
+        col = "score" if table == "ratings" else "servings"
+        rows = conn.execute(f"SELECT user_id, {col} FROM {table} WHERE dish = '규동' ORDER BY id").fetchall()
+        return [tuple(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def test_multi_evaluator_form_saved_with_one_approval(make_client, env):
+    """요청자 한 사람의 승인으로 평가자마다 평가·식사 기록을 남기고, 재료는 요리한 양 기준으로 한 번만 차감한다."""
+    before = counts(env)
+    seed_ratings = _user_rows(env, "ratings")
+    client, ask = make_client(call("confirm_meal_form", {}), say("저장했어요."))
+    r = ask({"question": FORM_TWO, "thread_id": "dad-form"}, DAD)
+    assert not codes(r) and r["trace"]["form"]["form"]["entries"][1]["user_id"] == "mom"
+    pending = r["trace"]["pending_interrupt"]
+    assert pending["type"] == "meal_form_confirm" and "dad 4점·mom 5점" in pending["summary"]
+    assert counts(env) == before  # 승인 전에는 아무것도 저장하지 않는다
+
+    done = ask({"question": "승인", "thread_id": "dad-form", "resume": "approve"}, DAD)
+    assert not codes(done)
+    assert _user_rows(env, "ratings") == seed_ratings + [("dad", 4), ("mom", 5)]
+    assert _user_rows(env, "meals") == [("dad", 1.0), ("mom", 1.0)]
+    after = counts(env)
+    assert after["hanwoo"] == before["hanwoo"] - 300 and after["onion"] == before["onion"] - 1  # 2인분 한 번만 차감
+
+
+def test_multi_evaluator_form_reject_saves_nothing(make_client, env):
+    before = counts(env)
+    _, ask = make_client(call("confirm_meal_form", {}), say("취소했어요."))
+    ask({"question": FORM_TWO, "thread_id": "dad-form-x"}, DAD)
+    r = ask({"question": "거절", "thread_id": "dad-form-x", "resume": "reject"}, DAD)
+    assert r["answer"] == tools.REJECT_MEAL and counts(env) == before
+    conn = tools.connect(env)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM meal_forms").fetchone()[0] == 0  # 거절하면 보관한 Form도 지운다
+    finally:
+        conn.close()

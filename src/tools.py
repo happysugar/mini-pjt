@@ -115,6 +115,15 @@ CREATE TABLE applied_actions (
     created_at TEXT NOT NULL
 );
 
+-- 화면의 recipe 평가 결과 입력 Form(JSON). API가 검사를 통과한 값만 스레드별로 하나 보관하고,
+-- 승인 도구(confirm_meal_form)가 읽어 승인 요약과 저장에 쓴다. 저장이 끝나면 지운다 (SERVICE.md 5.6).
+CREATE TABLE meal_forms (
+    thread_id  TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    form_json  TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX idx_inventory_item ON inventory(item, status);
 CREATE INDEX idx_deductions_created ON deductions(created_at);
 CREATE INDEX idx_ratings_user_dish ON ratings(user_id, dish);
@@ -122,7 +131,8 @@ CREATE INDEX idx_meals_user_synced ON meals(user_id, watch_synced);
 CREATE UNIQUE INDEX idx_meals_meal_id ON meals(meal_id);
 """
 
-TABLES = ("applied_actions", "deductions", "ratings", "meals", "threads", "item_units", "inventory", "users")
+TABLES = ("meal_forms", "applied_actions", "deductions", "ratings", "meals", "threads", "item_units", "inventory", "users")
+MEAL_FORMS_DDL = SCHEMA.split("CREATE TABLE meal_forms", 1)[1].split(";", 1)[0]
 
 
 def today() -> date:
@@ -154,7 +164,16 @@ def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     _migrate_meal_id(conn)
+    _migrate_meal_forms(conn)
     return conn
+
+
+def _migrate_meal_forms(conn: sqlite3.Connection) -> None:
+    """평가 입력 Form 이전에 만든 DB에 `meal_forms` 테이블을 더한다. 도메인 테이블이 없는 빈 DB는 건드리지 않는다."""
+    names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "meals" in names and "meal_forms" not in names:
+        with conn:
+            conn.execute(f"CREATE TABLE meal_forms{MEAL_FORMS_DDL}")
 
 
 def _migrate_meal_id(conn: sqlite3.Connection) -> None:
@@ -836,7 +855,7 @@ class RecommendationResult(BaseModel):
 
 
 class FamilyRecommendationResult(BaseModel):
-    """가족 합의 저녁 추천 결과 (SERVICE.md 5.5). 다른 가족의 개별 평점·칼로리는 담지 않는다."""
+    """가족 합의 저녁 추천 결과 (SERVICE.md 5.5). 다른 가족 구성원의 개별 평점·칼로리는 담지 않는다."""
 
     diners: list[str]
     items: list[RecommendationItem] = Field(default_factory=list)
@@ -1295,7 +1314,7 @@ def fetch_calorie_budgets(members: list[str], caller: str) -> tuple[dict[str, fl
     """가족 합의 저녁용으로 참여자 전원의 오늘 남은 kcal을 워치 MCP에서 읽는다 (SERVICE.md 5.5).
 
     코드에서만 부르고 값은 `recommend_family`의 칼로리 제약에만 쓴다. 에이전트(LLM)에는 넘기지 않으므로
-    다른 가족의 수치가 답변에 들어갈 길이 없다. 워치 연동이 꺼져 있거나 한 명이라도 읽지 못하면
+    다른 가족 구성원의 수치가 답변에 들어갈 길이 없다. 워치 연동이 꺼져 있거나 한 명이라도 읽지 못하면
     `(None, 기록)`을 돌려주고 칼로리 제약을 건너뛴다. trace 기록에는 수치를 남기지 않는다.
     """
     target = health_target()
@@ -1874,6 +1893,123 @@ def confirm_meal(
         conn.close()
 
 
+FORM_CONFIRM_REQUEST = "평가 입력 Form을 확정해줘"
+NO_MEAL_FORM = "확정할 평가 입력이 없어요. 평가 입력 Form을 다시 보내 주세요"
+
+
+def save_meal_form(db_path: str | None, thread_id: str, user_id: str, form: dict) -> None:
+    """API가 검사를 통과시킨 평가 입력 Form을 스레드별로 하나 보관한다(같은 스레드의 이전 Form은 바꾼다).
+
+    `form`은 `{"recipe", "cooked", "entries": [{"user_id", "eaten", "score"}]}`이다. 평가자는 모두
+    가족 구성원(`users`)이라는 검사를 이미 거쳤다. 승인 도구 `confirm_meal_form`이 이 값만 읽는다.
+    """
+    conn = connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO meal_forms (thread_id, user_id, form_json, created_at) VALUES (?, ?, ?, ?)",
+                (thread_id, user_id, json.dumps(form, ensure_ascii=False), now_iso()),
+            )
+    finally:
+        conn.close()
+
+
+@tool
+def confirm_meal_form(runtime: ToolRuntime[FridgeContext]) -> str:
+    """화면의 recipe 평가 결과 입력 Form을 확정한다. 인자는 없다. 반드시 사용자 승인을 먼저 받는다.
+
+    "평가 입력 Form을 확정해줘"로 시작하는 요청에만 쓴다. 평가자·식사량·점수는 서버가 검사해 보관한 Form에서
+    읽으므로 대화 내용으로 값을 넘기거나 바꾸지 않는다. 승인되면 평가자마다 평가와 식사 기록을 저장하고,
+    재료는 요리한 양 기준으로 한 번만 차감하고, 평가자마다 각자의 워치에 칼로리를 기록한다(요청자 한 사람의 승인).
+    """
+    ctx = _context(runtime)
+    if ctx.user_id == GUEST_USER:
+        return GUEST_DENIED
+    thread_id = (runtime.config or {}).get("configurable", {}).get("thread_id")
+    conn = _open(runtime)
+    try:
+        key = idempotency_key(runtime)
+        done = _applied_result(conn, key)
+        if done:
+            return done
+        row = conn.execute("SELECT form_json FROM meal_forms WHERE thread_id = ?", (thread_id,)).fetchone()
+        if row is None:
+            return NO_MEAL_FORM
+        form = json.loads(row["form_json"])
+        dish, cooked = form["recipe"], float(form["cooked"])
+        recipe = parse_recipes().get(dish)
+        entries = [
+            {**e, "kcal": calc_kcal(float(e["eaten"]), recipe.kcal if recipe else None)} for e in form["entries"]
+        ]
+
+        # 1) 읽기 전용 미리보기: 차감해 보고 롤백한다.
+        preview = plan_meal_deductions(conn, recipe, cooked) if recipe else []
+        conn.rollback()
+        deducted, notes = describe_deductions(preview)
+        scores = "·".join(f"{e['user_id']} {e['score']}점" for e in entries)
+        parts = [f"{dish} 평가 저장({scores})"]
+        if recipe:
+            parts.append(f"{_fmt_qty(cooked)}인분 기준 {deducted} 차감" if deducted else "차감할 재고 없음")
+        else:
+            parts.append("레시피에 없는 요리라 재고는 차감하지 않음")
+        meals = "·".join(
+            f"{e['user_id']} {_fmt_qty(float(e['eaten']))}인분" + (f" {_fmt_qty(e['kcal'])}kcal" if e["kcal"] is not None else "")
+            for e in entries
+        )
+        watch = "각자 워치에 기록" if any(e["kcal"] is not None for e in entries) else "kcal을 몰라 워치 기록은 생략"
+        parts.append(f"식사 기록 {meals}을 {watch}")
+        summary = ", ".join(parts) + (f" ({'; '.join(notes)})" if notes else "") + ". 진행할까요?"
+
+        # 2) 쓰기 전에 요청자에게 승인을 받는다. 재개되면 이 도구가 처음부터 다시 실행되고 같은 Form을 다시 읽는다.
+        decision = interrupt({"type": "meal_form_confirm", "tool": "confirm_meal_form", "summary": summary})
+        if not is_approved(decision):
+            with conn:
+                conn.execute("DELETE FROM meal_forms WHERE thread_id = ?", (thread_id,))
+            return REJECT_MEAL
+
+        # 3) 승인 후 한 트랜잭션으로 한 번만 저장한다. 워치 멱등 키는 평가자마다 따로 둔다.
+        with conn:
+            done = _applied_result(conn, key)
+            if done:
+                return done
+            now = now_iso()
+            for e in entries:
+                conn.execute(
+                    "INSERT INTO ratings (user_id, dish, cuisine, score, comment, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (e["user_id"], dish, recipe.cuisine if recipe else None, int(e["score"]), None, now),
+                )
+                conn.execute(
+                    "INSERT INTO meals (user_id, dish, servings, kcal, eaten_at, watch_synced, meal_id) "
+                    "VALUES (?, ?, ?, ?, ?, 0, ?)",
+                    (e["user_id"], dish, float(e["eaten"]), e["kcal"], now, f"{key}:{e['user_id']}"),
+                )
+            applied = plan_meal_deductions(conn, recipe, cooked) if recipe else []
+            deducted, notes = describe_deductions(applied)
+            conn.execute("DELETE FROM meal_forms WHERE thread_id = ?", (thread_id,))
+            message = f"저장했어요. {dish} {scores}"
+            if deducted:
+                message += f", {deducted} 차감"
+            message += f", 식사 기록 {meals}."
+            if notes:
+                message += f" ({'; '.join(notes)})"
+            _record_applied(conn, key, "confirm_meal_form", ctx.user_id, message)
+
+        # 4) 커밋 뒤 코드에서 평가자마다 워치 MCP record_meal을 부른다.
+        steps: list[dict] = []
+        for e in entries:
+            if e["kcal"] is not None:
+                steps += sync_meals_to_watch(conn, e["user_id"], caller="confirm_meal_form", meal_id=f"{key}:{e['user_id']}")
+        ctx.mcp_calls.extend(steps)
+        if not any(e["kcal"] is not None for e in entries):
+            return message
+        if not steps:
+            return f"{message} {WATCH_PENDING}."
+        failed = any(s["event"] == "error" for s in steps)
+        return f"{message} {WATCH_FAILED if failed else WATCH_OK}."
+    finally:
+        conn.close()
+
+
 def _preference_target(kind: str, value: str) -> str | None:
     """선호 값이 추천 필터에 쓰이는 대상인지 본다: "요리", "재료", "알레르기 분류" 또는 None(자유 메모)."""
     recipes = parse_recipes().values()
@@ -1892,7 +2028,7 @@ def remember_preference(runtime: ToolRuntime[FridgeContext], kind: Literal["like
 
     - kind: "like"(좋아함), "dislike"(싫어함), "allergy"(알레르기).
     - value: 사용자가 말한 대상 그대로 (예: "가지", "가지 파르미자나", "갑각류", "매운 거").
-    누구의 선호인지는 서버가 확인한 요청자로 정해진다. 다른 가족의 선호는 저장할 수 없다.
+    누구의 선호인지는 서버가 확인한 요청자로 정해진다. 다른 가족 구성원의 선호는 저장할 수 없다.
     요리명·재료명·알레르기 분류가 아니면 추천 필터에는 쓰지 않는 메모로 저장한다(알레르기는 안전을 위해 그대로 저장).
     """
     ctx = _context(runtime)
@@ -1921,7 +2057,7 @@ def remember_preference(runtime: ToolRuntime[FridgeContext], kind: Literal["like
 
 @tool
 def get_my_preferences(runtime: ToolRuntime[FridgeContext]) -> str:
-    """요청자 본인의 장기 메모리(좋아함·싫어함·알레르기·메모)를 돌려준다. 다른 가족의 기록은 읽지 않는다."""
+    """요청자 본인의 장기 메모리(좋아함·싫어함·알레르기·메모)를 돌려준다. 다른 가족 구성원의 기록은 읽지 않는다."""
     ctx = _context(runtime)
     store = getattr(runtime, "store", None)
     profile = memory.read_profile(store, ctx.user_id) if store is not None else seed_profile(ctx.user_id)
@@ -1940,6 +2076,7 @@ AGENT_TOOLS = [
     calc_kcal_tool,
     get_storage_days,
     confirm_meal,
+    confirm_meal_form,
     remember_preference,
     get_my_preferences,
 ]
