@@ -33,13 +33,13 @@ def run_with(steps_per_turn, tool_calls=()):
     return {"turns": turns, "tool_calls": list(tool_calls)}
 
 
-def test_csv_has_twelve_queries_in_four_categories(queries):
-    """SERVICE.md 10.1대로 positive 5, negative 2, edge 3, guardrail 2건이다."""
-    assert len(queries) == 12
+def test_csv_has_fifteen_queries_in_four_categories(queries):
+    """SERVICE.md 10.1대로 positive 8, negative 2, edge 3, guardrail 2건이다."""
+    assert len(queries) == 15
     counts = {}
     for q in queries.values():
         counts[q["category"]] = counts.get(q["category"], 0) + 1
-    assert counts == {"positive": 5, "negative": 2, "edge": 3, "guardrail": 2}
+    assert counts == {"positive": 8, "negative": 2, "edge": 3, "guardrail": 2}
     assert all(q["user_id"] == "dad" for q in queries.values())
 
 

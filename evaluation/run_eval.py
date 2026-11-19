@@ -1,4 +1,4 @@
-"""평가 하네스: `evaluation/test_queries.csv` 12문항을 API로 실행하고 지표를 낸다 (SERVICE.md 10장).
+"""평가 하네스: `evaluation/test_queries.csv` 15문항을 API로 실행하고 지표를 낸다 (SERVICE.md 10장).
 
 - 문항마다 `FRIDGE_TODAY`를 고정하고 임시 폴더에 `fridge.db`(시드)와 `checkpoints.db`를 새로 만든다.
   `data/` 아래 실제 DB는 건드리지 않는다.
@@ -580,7 +580,7 @@ def main(argv: list[str] | None = None) -> int:
 
     `ragas`는 불러올 때 이벤트 루프를 패치(nest_asyncio)하므로, 문항 실행 루프가 끝난 뒤 따로 계산한다.
     """
-    parser = argparse.ArgumentParser(description="냉장고 Agent 12문항 평가")
+    parser = argparse.ArgumentParser(description="냉장고 Agent 15문항 평가")
     parser.add_argument("--only", help="실행할 문항 id 목록(쉼표 구분)")
     parser.add_argument("--compare", type=Path, help="도구 일치 결과를 비교할 이전 결과 JSON")
     args = parser.parse_args(argv)

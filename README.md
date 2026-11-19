@@ -139,7 +139,7 @@ pytest                                  # 결정적 로직 테스트 (Bedrock �
 
 ### 평가 (구현 예정)
 
-평가 스크립트는 `evaluation/test_queries.csv`의 12문항을 실행하고 결과를 `evaluation/report.md`에 남깁니다.
+평가 스크립트는 `evaluation/test_queries.csv`의 15문항을 실행하고 결과를 `evaluation/report.md`에 남깁니다.
 
 ## 진행 상황
 
