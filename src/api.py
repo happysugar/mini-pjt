@@ -261,7 +261,11 @@ def extract_contexts(outputs: list[tuple[str, str]]) -> list[str]:
             for item in data.get("items", []):
                 add(recommendation_context(item))
         elif name == "get_storage_days" and data.get("source"):
-            add(f"[{data['source']}#{data.get('item', '')}] {json.dumps(data, ensure_ascii=False)}")
+            # 답에 그대로 옮길 수 있게 문장으로 담는다(RAGAS가 JSON 키보다 문장을 근거로 잘 찾는다)
+            add(
+                f"[{data['source']}#{data.get('item', '')}] {data.get('item', '')}의 권장 보관일수는 "
+                f"{data.get('basis', '')} {data['storage_days']}일이에요 (보관 가이드 품목 {data.get('guide_item', '')})"
+            )
     return contexts
 
 

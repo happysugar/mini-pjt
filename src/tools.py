@@ -1723,7 +1723,10 @@ def rank_recipes(runtime: ToolRuntime[FridgeContext], category: str | None = Non
     try:
         notes: list[str] = []
         if category is not None and category not in CUISINES:
-            notes.append(f"{category}는 지원하지 않아요. 한식·일식·이탈리아식·중식 중에서 골랐어요")
+            notes.append(
+                f"{category}는 지원하지 않아요. {category} 요리의 레시피는 드릴 수 없어요. "
+                "대신 지금 재고를 활용할 수 있는 요리를 한식·일식·이탈리아식·중식 중에서 골랐어요"
+            )
             category = None
         others: list[str] = []
         if diners:
@@ -1765,6 +1768,8 @@ def calc_kcal_tool(servings_eaten: float, dish: str | None = None, kcal_per_serv
 
 # 보관 가이드에 없는 품목 안내의 앞부분. API가 이 문구로 시작하는 결과를 근거(contexts)로 담는다
 NOT_IN_GUIDE = "보관 가이드에 없는 품목이에요"
+# 권장 보관일수의 보관 조건. 가이드 표는 따로 적지 않으면 냉장 기준이다(storage_guide.md 단위 규칙)
+STORAGE_BASIS = "냉장 보관 기준"
 
 
 @tool
@@ -1772,9 +1777,9 @@ def get_storage_days(item: str) -> str:
     """보관 가이드에서 품목의 권장 보관일수와 기준 단위를 찾는다. 가이드에 없으면 그렇다고 알려준다."""
     info = guide_info(item)
     if info is None:
-        return f"{NOT_IN_GUIDE}: {item}. 유효기간을 직접 알려 주세요"
+        return f"{NOT_IN_GUIDE}: {item}. 권장 보관일수를 알 수 없어요. 유효기간을 직접 알려 주세요"
     return _to_json({"item": item, "guide_item": resolve_item(item), "storage_days": info["storage_days"],
-                     "base_unit": info["base_unit"], "source": STORAGE_GUIDE.name})
+                     "basis": STORAGE_BASIS, "base_unit": info["base_unit"], "source": STORAGE_GUIDE.name})
 
 
 @tool
