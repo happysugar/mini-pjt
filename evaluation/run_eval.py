@@ -43,6 +43,7 @@ from langchain_aws import BedrockEmbeddings, ChatBedrockConverse  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 import src.agent as agent_module  # noqa: E402
+from src.agent import HEALTH_QUERY_TOOLS  # noqa: E402
 from src.api import create_app, parse_user_tokens  # noqa: E402
 from src.tools import AGENT_TOOLS, reset_db  # noqa: E402
 
@@ -110,8 +111,8 @@ def load_queries(path: Path = QUERIES_CSV) -> list[dict[str, Any]]:
 
 
 def registered_tool_names() -> set[str]:
-    """에이전트에 등록된 도구 이름 집합. 서브 에이전트·MCP 도구가 생기면 여기에 더한다."""
-    return {t.name for t in AGENT_TOOLS}
+    """에이전트에 등록된 도구 이름 집합. 워치 MCP 조회 도구(TASK-14)를 포함한다. 서브 에이전트 도구가 생기면 더한다."""
+    return {t.name for t in AGENT_TOOLS} | set(HEALTH_QUERY_TOOLS)
 
 
 def unknown_tools(query: dict[str, Any], registered: set[str]) -> list[str]:
@@ -194,12 +195,15 @@ async def run_query(query: dict[str, Any], model: Any = None) -> dict[str, Any]:
 
 
 def called_tools(turns: list[dict[str, Any]]) -> list[str]:
-    """모든 턴의 `trace.steps`에서 도구 이름을 모은다. `transfer_to_*` 핸드오프는 뺀다."""
+    """모든 턴의 `trace.steps`에서 도구 이름을 모은다.
+
+    `transfer_to_*` 핸드오프와, 에이전트 도구가 아니라 코드가 부른 MCP 호출(`via: mcp`, 예: record_meal)은 뺀다.
+    """
     names = []
     for turn in turns:
         for step in turn["trace"].get("steps", []):
             name = step.get("tool")
-            if name and not name.startswith(HANDOFF_PREFIX):
+            if name and not name.startswith(HANDOFF_PREFIX) and step.get("via") != "mcp":
                 names.append(name)
     return names
 

@@ -22,6 +22,20 @@ def offline_index():
 
 
 @pytest.fixture(autouse=True)
+def _no_health_mcp(monkeypatch):
+    """`.env`의 `HEALTH_MCP_URL`과 상관없이 워치 MCP 연동을 끈 상태로 시작한다.
+
+    워치 서버가 필요한 테스트는 `tools.set_health_target()`으로 같은 프로세스의 서버를 넣는다.
+    """
+    from src import tools
+
+    monkeypatch.delenv("HEALTH_MCP_URL", raising=False)
+    tools.set_health_target(None)
+    yield
+    tools.set_health_target(None)
+
+
+@pytest.fixture(autouse=True)
 def _use_offline_index(offline_index):
     """모든 테스트에서 서버 단위 인덱스를 오프라인 인덱스로 바꿔 둔다."""
     previous = retriever._INDEX
