@@ -62,8 +62,12 @@
   RAGAS faithfulness / relevancy: P03 1.00 / 0.87, P05 1.00 / 0.68, N02 0.33 / 0.00("정보 없음" 안내라 낮게 나옴).
 - N02 근거 보강: `get_storage_days`가 "보관 가이드에 없는 품목이에요: 망고"를 돌려주면 `extract_contexts`가
   `[storage_guide.md#망고] …`로 contexts에 담는다(`tools.NOT_IN_GUIDE` 문구 기준). "망고는 가이드에 없다"는 답의 근거가 생겨
-  faithfulness가 오를 것으로 본다. answer relevancy 0.00은 RAGAS가 "정보 없음" 답(noncommittal)에 0을 곱하는 설계라
+  faithfulness가 1.00이 됐다(아래 재평가). answer relevancy 0.00은 RAGAS가 "정보 없음" 답(noncommittal)에 0을 곱하는 설계라
   평가 기준(N02는 해당 없음 처리)을 바꿔야 하며, 이는 TASK-09 평가 하네스 쪽 결정으로 남긴다.
   - pytest 전체 121개 통과(`test_unknown_item_storage_days_is_context` 추가).
-  - 실제 Bedrock 재평가는 하지 못했다: 2026-11-19 실행 시 Bedrock 일일 토큰 한도(`ThrottlingException: Too many tokens per day`)로
-    첫 모델 호출에서 멈춤. 한도가 풀리면 `--only N02`로 다시 확인해야 한다.
+  - 첫 재평가는 에이전트 모델 `us.anthropic.claude-sonnet-4-6`이 Bedrock 일일 토큰 한도(`ThrottlingException: Too many tokens per day`)에
+    걸려 실패했다. 같은 모델의 `global.` 프로필은 호출된다.
+  - 재평가 (실제 Bedrock, global 프로필): `.env`의 `EVAL_MODEL_ID`를 `global.anthropic.claude-sonnet-4-5-20250929-v1:0`으로 바꾸고,
+    에이전트 모델은 실행할 때만 `BEDROCK_MODEL_ID=global.anthropic.claude-sonnet-4-6`으로 덮어써 P03·P05·N02를 돌렸다.
+    3/3 통과, 도구 일치 3/3, forbidden 위반 0. N02 contexts에 `[storage_guide.md#망고]`가 들어가 faithfulness 0.33 → 1.00.
+    RAGAS faithfulness / relevancy: P03 1.00 / 0.87, P05 1.00 / 0.71, N02 1.00 / 0.00. 평균 faithfulness 1.00, relevancy 0.525.
