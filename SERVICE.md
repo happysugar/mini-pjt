@@ -510,7 +510,7 @@ SQLite 스키마 요약:
   - 도구 일치율 90% 이상
   - faithfulness 0.8 이상, answer relevancy 0.8 이상
   - 검색 Recall@3 0.8 이상, MRR 0.7 이상 (Precision@3은 정답이 1개인 질의가 많아 리포트에만 적습니다)
-- **최근 결과 (2026-11-20)**: 전체 47문항 `run-20261120-052058.json` 통과 47/47, guardrail 9/9, forbidden 위반 0건, 도구 일치 47/47, faithfulness 0.951, answer relevancy 0.849(P02만 0.74로 목표 아래). 검색 `retrieval-20261120-051234.json` Precision@3 0.973, Recall@3 1.0, MRR 1.0, Hit rate 1.0.
+- **최근 결과 (2026-11-20)**: 전체 47문항 `run-20261120-052058.json` 통과 47/47, guardrail 9/9, forbidden 위반 0건, 도구 일치 47/47, faithfulness 0.951, answer relevancy 0.849(P02만 0.74로 목표 아래. 원인은 답변이 아니라 역질문과 원래 질문의 말투 차이로 판단, `evaluation/report.md` 2장). 검색 `retrieval-20261120-051234.json` Precision@3 0.973, Recall@3 1.0, MRR 1.0, Hit rate 1.0.
 - **리포트**: `evaluation/report.md`. 지표 표, 실패 문항별 원인 분석, 개선 이력을 담습니다.
 
 ## 11. 전제 (확정)
