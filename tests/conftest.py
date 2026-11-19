@@ -36,6 +36,14 @@ def _no_health_mcp(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _trace_file(tmp_path, monkeypatch):
+    """요청 이벤트(`trace.jsonl`)를 `data/` 대신 테스트마다 임시 파일에 쓴다."""
+    path = tmp_path / "trace.jsonl"
+    monkeypatch.setenv("TRACE_FILE", str(path))
+    return path
+
+
+@pytest.fixture(autouse=True)
 def _use_offline_index(offline_index):
     """모든 테스트에서 서버 단위 인덱스를 오프라인 인덱스로 바꿔 둔다."""
     previous = retriever._INDEX

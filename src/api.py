@@ -20,10 +20,10 @@ from typing import Any, Literal
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header
-from langchain_core.callbacks import BaseCallbackHandler
 from pydantic import BaseModel, Field
 
 from src import guardrails, retriever
+from src.tracer import RequestTracer, configure_langsmith
 from src.agent import open_agent, pending_interrupt, run_turn
 from src.middleware import is_model_unavailable
 from src.tools import (
@@ -136,57 +136,8 @@ def new_thread_id(user_id: str) -> str:
     return f"{user_id}-{time.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}"
 
 
-HANDOFF_PREFIX = "transfer_to_"  # langgraph-supervisor 핸드오프 도구 이름 앞부분
-
-
-class StepRecorder(BaseCallbackHandler):
-    """한 턴 동안 실행된 도구 이름·소요 시간과 도구 결과를 모은다 (`trace.steps`, `contexts`용)."""
-
-    def __init__(self) -> None:
-        """기록을 비운다."""
-        self.steps: list[dict[str, Any]] = []
-        self.outputs: list[tuple[str, str]] = []
-        self._started: dict[Any, tuple[str, float]] = {}
-
-    def on_tool_start(self, serialized: dict, input_str: str, *, run_id: Any, **kwargs: Any) -> None:
-        """도구 시작 시각을 기록한다. Supervisor의 `transfer_to_*` 호출은 handoff 이벤트로 남긴다."""
-        name = (serialized or {}).get("name") or kwargs.get("name") or "tool"
-        if name.startswith(HANDOFF_PREFIX):
-            self.steps.append({"agent": "supervisor", "event": "handoff", "to": name[len(HANDOFF_PREFIX):]})
-            return
-        self._started[run_id] = (name, time.perf_counter())
-
-    def on_tool_end(self, output: Any, *, run_id: Any, **kwargs: Any) -> None:
-        """도구 소요 시간과 결과 문자열을 기록한다."""
-        if run_id not in self._started:
-            return  # handoff
-        name, ms = self._finish(run_id)
-        self.steps.append({"tool": name, "ms": ms})
-        self.outputs.append((name, str(getattr(output, "content", output))))
-
-    def on_tool_error(self, error: BaseException, *, run_id: Any, **kwargs: Any) -> None:
-        """승인 대기(interrupt)나 오류로 끝난 도구를 기록한다."""
-        if run_id not in self._started:
-            return  # handoff (Supervisor로 돌아가는 신호도 예외로 올라온다)
-        name, ms = self._finish(run_id)
-        event = "interrupt" if type(error).__name__ == "GraphInterrupt" else "error"
-        self.steps.append({"tool": name, "ms": ms, "event": event})
-
-    def on_custom_event(self, name: str, data: Any, *, run_id: Any, **kwargs: Any) -> None:
-        """식단 Plan-Execute 그래프의 계획(`plan`)·실행 단계(`plan_step`)를 남긴다."""
-        if name in ("plan", "plan_step"):
-            self.steps.append({"agent": "meal_planner_agent", "event": name, **(data or {})})
-
-    def on_chat_model_start(self, serialized: dict, messages: Any, *, run_id: Any, metadata: dict | None = None,
-                            **kwargs: Any) -> None:
-        """대화 이력 요약 미들웨어가 요약 모델을 부르면 `summary` 이벤트를 남긴다."""
-        if (metadata or {}).get("lc_source") == "summarization":
-            self.steps.append({"event": "summary"})
-
-    def _finish(self, run_id: Any) -> tuple[str, int]:
-        """시작 기록을 꺼내 (도구 이름, 경과 ms)를 돌려준다."""
-        name, start = self._started.pop(run_id, ("tool", time.perf_counter()))
-        return name, int((time.perf_counter() - start) * 1000)
+# 요청 한 건의 실행 이벤트 기록은 `src.tracer`가 맡는다. 예전 이름도 남겨 둔다(테스트·외부 코드 호환).
+StepRecorder = RequestTracer
 
 
 def recommendation_context(item: dict[str, Any]) -> str:
@@ -307,11 +258,15 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
     """`/query` 한 건을 처리한다. 신원 → 스레드 소유권 → 승인 상태 → 입력 가드레일 → 에이전트 실행 순서다.
 
     모든 응답은 출력 가드레일(개인정보·다른 가족 칼로리 마스킹)을 거친다. trace의 질문도 같은 방식으로 가린다.
+    실행 이벤트는 `RequestTracer`가 모아 `trace.jsonl`에 남기고, 같은 이벤트로 `trace.steps`·`trace.concepts`를 만든다.
     """
+    tracer = RequestTracer(thread_id=req.thread_id)
+    masked_question = guardrails.mask_output(req.question, "")[0]
+    tracer.request(masked_question, req.resume)
     trace: dict[str, Any] = {
         "thread_id": req.thread_id,
         "user_id": None,
-        "question": guardrails.mask_output(req.question, "")[0],
+        "question": masked_question,
         "resume": req.resume,
         "alerts": [],
         "pending_interrupt": None,
@@ -320,12 +275,18 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
         "errors": [],
         "index": dict(retriever.BUILD_STATS),
         "guardrail": {"input": None, "output": []},
+        "request_id": tracer.request_id,
+        "concepts": {},
     }
 
     def reply(answer: str, contexts: list[str] | None = None) -> QueryResponse:
         """현재 trace로 응답을 만든다. 답은 출력 가드레일로 개인정보를 가린 뒤 돌려준다."""
         masked, kinds = guardrails.mask_output(answer, trace["user_id"] or "")
         trace["guardrail"]["output"] = kinds
+        tracer.guardrail("output", kinds)
+        tracer.finish("error" if trace["errors"] else "ok", trace["errors"])
+        trace["steps"] = tracer.steps
+        trace["concepts"] = tracer.concept_counts()
         return QueryResponse(answer=masked, contexts=contexts or [], trace=trace)
 
     try:
@@ -337,13 +298,14 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
 
     thread_id = req.thread_id or new_thread_id(user_id)
     trace["thread_id"] = thread_id
+    tracer.bind(thread_id=thread_id, user_id=user_id)
     if not claim_thread(db_path, thread_id, user_id):
         trace["errors"].append(_error("THREAD_OWNER_MISMATCH", "다른 사용자의 thread_id예요"))
         return reply(MSG_THREAD_MISMATCH)
 
     # 지난 요청에서 워치 기록에 실패한 식사를 같은 멱등 키로 다시 보낸다 (SERVICE.md 5.3 4단계).
     resend_steps = await asyncio.to_thread(resend_unsynced_meals, db_path, user_id)
-    trace["steps"] = list(resend_steps)
+    tracer.mcp_calls(resend_steps)
     if _watch_failed(resend_steps):
         trace["errors"].append(_error("WATCH_SYNC_FAILED", "지난 식사의 워치 재전송에 실패했어요. 다음 요청 때 다시 시도해요"))
 
@@ -360,16 +322,16 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
     if not req.resume:
         verdict = guardrails.check_input(req.question, user_id)
         trace["guardrail"]["input"] = verdict.as_trace()
+        tracer.guardrail("input", trace["guardrail"]["input"])
         if verdict.blocked:
             trace["errors"].append(_error(verdict.code, "입력 가드레일에서 막은 요청이에요"))
             return reply(verdict.message)
 
-    recorder = StepRecorder()
     context = FridgeContext(user_id=user_id, db_path=db_path)
     try:
-        turn = await run_turn(agent, req.question, context, thread_id, resume=req.resume, callbacks=[recorder])
+        turn = await run_turn(agent, req.question, context, thread_id, resume=req.resume, callbacks=[tracer])
     except Exception as exc:  # noqa: BLE001 - 어떤 실패든 세 키 형식으로 돌려준다
-        trace["steps"] = resend_steps + recorder.steps + context.mcp_calls
+        tracer.mcp_calls(context.mcp_calls)
         if is_model_unavailable(exc):  # 서브 에이전트 재시도 끝 실패, 또는 Supervisor 모델의 Bedrock 오류
             trace["errors"].append(_error("MODEL_UNAVAILABLE", f"{type(exc).__name__}: {exc}"[:300]))
             return reply(MSG_MODEL_UNAVAILABLE)
@@ -378,22 +340,22 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
 
     answer = turn["answer"]
     # 도구 호출 기록 뒤에, 식사 확정 도구가 코드에서 부른 MCP record_meal 기록을 붙인다.
-    trace["steps"] = resend_steps + recorder.steps + context.mcp_calls
+    tracer.mcp_calls(context.mcp_calls)
     if _watch_failed(context.mcp_calls):
         trace["errors"].append(_error("WATCH_SYNC_FAILED", "워치 기록에 실패했어요. 다음 요청 때 같은 키로 다시 보내요"))
         if not ("워치" in answer and "실패" in answer):  # 모델이 안내를 빼먹어도 답변에 남긴다 (SERVICE.md 5.3 3단계)
             answer = f"{answer}\n{WATCH_FAILED}"
     trace["pending_interrupt"] = turn["pending_interrupt"]
-    if any(output.strip() == GUEST_DENIED for _, output in recorder.outputs):
+    if any(output.strip() == GUEST_DENIED for _, output in tracer.outputs):
         trace["errors"].append(_error("GUEST_READ_ONLY", "guest는 조회만 할 수 있어요"))
         answer = GUEST_DENIED
     # 거절로 재개해 승인 도구가 취소 문장을 돌려줬으면, 모델이 바꿔 쓴 답 대신 그 문장을 그대로 쓴다
-    rejected = next((o.strip() for _, o in recorder.outputs if o.strip() in REJECT_ANSWERS), None)
+    rejected = next((o.strip() for _, o in tracer.outputs if o.strip() in REJECT_ANSWERS), None)
     if req.resume and rejected and not turn["pending_interrupt"]:
         answer = rejected
     trace.update(_domain_trace(db_path))
     trace["index"] = dict(retriever.BUILD_STATS)  # 질문 처리 중에 인덱스를 다시 만들지 않았는지 확인용
-    return reply(answer, extract_contexts(recorder.outputs))
+    return reply(answer, extract_contexts(tracer.outputs))
 
 
 def ensure_domain_db(db_path: str | None = None) -> None:
@@ -420,6 +382,7 @@ def create_app(model: Any = None, db_path: str | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         """체크포인터를 연 에이전트를 서버가 떠 있는 동안 유지한다."""
         ensure_domain_db(db_path)
+        configure_langsmith()  # .env에 LangSmith 키가 있으면 같은 실행을 LangSmith에도 보낸다
         retriever.warm_up()
         async with open_agent(model=model) as agent:
             app.state.agent = agent
