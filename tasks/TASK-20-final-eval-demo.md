@@ -10,7 +10,7 @@
 최종 코드로 평가를 실행해 리포트를 확정하고, 대표 시나리오를 끊김 없이 시연할 수 있게 한다.
 
 ## 작업 내용
-- [ ] `FRIDGE_TODAY=2026-11-20`으로 15문항 최종 실행
+- [ ] `FRIDGE_TODAY=2026-11-20`으로 평가 문항 전체 최종 실행
 - [ ] `evaluation/report.md` 작성
   - 지표 표: 문항 통과, guardrail, forbidden 위반, 도구 일치, faithfulness, answer relevancy (ragas 대안 사용 시 "RAGAS 방식" 표기)
   - 목표치 대비 결과, 실패 문항별 원인, 단계별 개선 이력

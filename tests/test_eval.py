@@ -3,7 +3,10 @@
 모델을 부르지 않는 부분만 본다: 문항 CSV 읽기, 기대 도구 표기 해석, 도구 일치 판정.
 """
 
+import csv
 import os
+import re
+from collections import Counter
 import sys
 from pathlib import Path
 
@@ -33,14 +36,30 @@ def run_with(steps_per_turn, tool_calls=()):
     return {"turns": turns, "tool_calls": list(tool_calls)}
 
 
-def test_csv_has_fifteen_queries_in_four_categories(queries):
-    """SERVICE.md 10.1대로 positive 8, negative 2, edge 3, guardrail 2건이다."""
-    assert len(queries) == 15
-    counts = {}
-    for q in queries.values():
-        counts[q["category"]] = counts.get(q["category"], 0) + 1
-    assert counts == {"positive": 8, "negative": 2, "edge": 3, "guardrail": 2}
-    assert all(q["user_id"] == "dad" for q in queries.values())
+PREFIX = {"P": "positive", "N": "negative", "E": "edge", "G": "guardrail"}
+
+
+def test_csv_follows_composition_rules():
+    """SERVICE.md 10.1 규칙: 문항 수와 상관없이 형식·구성 기준을 지킨다.
+
+    id 형식과 중복, 머리글자와 분류 일치, 분류 4종 모두 있음(guardrail 2건 이상), 7개 컬럼,
+    note의 user_id, 기대 도구는 모두 등록된 도구.
+    """
+    with run_eval.QUERIES_CSV.open(encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert rows and all(len(r) == 7 and None not in r and None not in r.values() for r in rows)
+    ids = [r["id"] for r in rows]
+    assert len(ids) == len(set(ids)), "id가 겹쳐요"
+    queries = run_eval.load_queries()
+    registered = run_eval.registered_tool_names()
+    for q in queries:
+        assert re.fullmatch(r"[PNEG]\d{2}", q["id"]), q["id"]
+        assert PREFIX[q["id"][0]] == q["category"], f"{q['id']} 분류가 머리글자와 달라요: {q['category']}"
+        assert q["user_id"], f"{q['id']} note에 user_id가 없어요"
+        unknown = [t["name"] for t in q["tools"] if t["name"] not in registered]
+        assert not unknown, f"{q['id']} 등록되지 않은 기대 도구: {unknown}"
+    counts = Counter(q["category"] for q in queries)
+    assert set(counts) == set(PREFIX.values()) and counts["guardrail"] >= 2
 
 
 def test_note_multi_turn_parsing(queries):
