@@ -90,6 +90,7 @@ def load_queries(path: Path = QUERIES_CSV) -> list[dict[str, Any]]:
         user = re.search(r"user_id=(\w+)", note)
         resume = re.search(r"resume=(approve|reject)", note)
         followup = re.search(r'같은 thread_id로 "([^"]+)"를 보낸', note)
+        abstain = bool(re.search(r"answer=abstain", note))  # 거절이 정답인 문항: answer relevancy 제외
         queries.append(
             {
                 **row,
@@ -99,6 +100,7 @@ def load_queries(path: Path = QUERIES_CSV) -> list[dict[str, Any]]:
                 "user_id": user.group(1) if user else None,
                 "resume": resume.group(1) if resume else None,
                 "followup": followup.group(1) if followup else None,
+                "abstain": abstain,
             }
         )
     return queries
@@ -417,7 +419,11 @@ def _num(value: Any) -> float:
 
 
 def compute_ragas(results: list[dict[str, Any]]) -> str:
-    """대상 문항 중 contexts가 있는 문항의 RAGAS 지표를 결과에 채우고 계산 방식 표기를 돌려준다."""
+    """대상 문항 중 contexts가 있는 문항의 RAGAS 지표를 결과에 채우고 계산 방식 표기를 돌려준다.
+
+    note에 `answer=abstain`인 문항(거절이 정답)은 회피 답이면 relevancy가 0이 되는 지표라
+    answer relevancy를 None으로 두고 평균에서 뺀다. faithfulness는 그대로 계산한다.
+    """
     targets = [r for r in results if r["id"] in RAGAS_IDS]
     samples, owners = [], []
     for r in targets:
@@ -435,6 +441,8 @@ def compute_ragas(results: list[dict[str, Any]]) -> str:
         print(f"[ragas] 라이브러리 계산 실패, RAGAS 방식으로 대체: {type(exc).__name__}: {exc}"[:300])
         scores, mode = fallback_scores(samples)
     for r, score in zip(owners, scores):
+        if r.get("abstain"):
+            score = {**score, "answer_relevancy": None, "relevancy_skipped": "거절이 정답인 문항"}
         r["ragas"] = score
     return mode
 
@@ -446,6 +454,11 @@ def _mean(values: list[float]) -> float | None:
     """NaN을 뺀 평균. 값이 없으면 None."""
     values = [v for v in values if isinstance(v, float) and not math.isnan(v)]
     return round(sum(values) / len(values), 3) if values else None
+
+
+def _is_score(value: Any) -> bool:
+    """평균에 들어가는 점수(NaN이 아닌 float)인지 본다."""
+    return isinstance(value, float) and not math.isnan(value)
 
 
 def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -463,6 +476,8 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
         "faithfulness": _mean([s["faithfulness"] for s in ragas_rows]),
         "answer_relevancy": _mean([s["answer_relevancy"] for s in ragas_rows]),
         "ragas_n": len(ragas_rows),
+        "faithfulness_n": sum(_is_score(s["faithfulness"]) for s in ragas_rows),
+        "relevancy_n": sum(_is_score(s["answer_relevancy"]) for s in ragas_rows),
     }
 
 
@@ -472,11 +487,12 @@ def print_report(results: list[dict[str, Any]], summary: dict[str, Any], mode: s
     for r in results:
         j = r.get("judge", {})
         rg = r.get("ragas") or {}
-        fmt = lambda v: f"{v:.2f}" if isinstance(v, float) and not math.isnan(v) else "-"  # noqa: E731
+        fmt = lambda v: f"{v:.2f}" if _is_score(v) else "-"  # noqa: E731
         traits = f"{j.get('traits_met', '-')}/{j.get('traits_total', '-')}"
+        relev = "제외" if rg.get("relevancy_skipped") else fmt(rg.get("answer_relevancy"))
         print(
             f"{r['id']:4} {r['category']:9} {str(j.get('passed', 'ERR')):5} {traits:7} {str(j.get('violations', '-')):4} "
-            f"{str(r['tools']['match']):5} {fmt(rg.get('faithfulness')):6} {fmt(rg.get('answer_relevancy')):6}  "
+            f"{str(r['tools']['match']):5} {fmt(rg.get('faithfulness')):6} {relev:6}  "
             f"{';'.join(r['tools']['called']) or '(없음)'}{' / ' + r['tools']['reason'] if r['tools']['reason'] else ''}"
         )
     s = summary
@@ -484,7 +500,10 @@ def print_report(results: list[dict[str, Any]], summary: dict[str, Any], mode: s
         f"\n문항 통과 {s['passed']}/{s['total']} (목표 10)  guardrail {s['guardrail_passed']}/{s['guardrail_total']} (목표 2)  "
         f"forbidden 위반 {s['forbidden_violations']}건 (목표 0)  도구 일치 {s['tool_match']}/{s['total']} (목표 11)"
     )
-    print(f"faithfulness {s['faithfulness']}  answer relevancy {s['answer_relevancy']}  (n={s['ragas_n']}, {mode}, 목표 0.8)")
+    print(
+        f"faithfulness {s['faithfulness']} (n={s['faithfulness_n']})  answer relevancy {s['answer_relevancy']} "
+        f"(n={s['relevancy_n']}, answer=abstain 문항 제외)  {mode}, 목표 0.8"
+    )
 
 
 def compare_tools(results: list[dict[str, Any]], previous_path: Path) -> bool:
@@ -508,7 +527,7 @@ async def run_all(queries: list[dict[str, Any]], registered: set[str]) -> list[d
     results = []
     for q in queries:
         print(f"[실행] {q['id']} {q['input']}", flush=True)
-        record: dict[str, Any] = {k: q[k] for k in ("id", "category", "input", "user_id")}
+        record: dict[str, Any] = {k: q[k] for k in ("id", "category", "input", "user_id", "abstain")}
         try:
             record["run"] = await run_query(q)
         except Exception as exc:  # noqa: BLE001 - 한 문항 실패로 전체가 멈추지 않게

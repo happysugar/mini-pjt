@@ -66,3 +66,7 @@
 - E01 2턴 반영 (같은 날): SERVICE.md 10.1과 CSV의 E01 note에 2턴 진행("제안한 S/N으로 저장해줘")을 적고 스크립트가 그 질문을 보내게 했다.
   - E01: 1턴은 중복 알림과 2026-11-014 제안(저장 없음), 2턴은 2026-11-014·두부 1개·투입일 2026-11-19로 저장돼 3/3 통과.
   - 다시 두 번 실행(`run-20261119-094942.json`, `run-20261119-095251.json`): 문항 통과 10/12, guardrail 1/2, forbidden 위반 0, 도구 일치 5/12, faithfulness 0.526/0.515, answer relevancy 0.624/0.603. 두 실행의 도구 일치 결과가 같다.
+- 거절이 정답인 문항의 answer relevancy 제외 (같은 날, TASK-10 세션 요청): ragas ResponseRelevancy는 회피 답이면 0을 곱해, "가이드에 없다"가 정답인 N02가 항상 0.00이 된다.
+  - CSV와 SERVICE.md 10.1의 N02 note에 `answer=abstain`을 붙이고, 10.2 RAGAS 설명에 한 문장을 더했다. 문항 ID가 아니라 note 표시로 고른다(N01은 대안 요리를 제시하는 답이라 계속 계산).
+  - `run_eval.py`: 표시된 문항은 faithfulness만 계산하고 relevancy는 None(`relevancy_skipped`)으로 평균에서 뺀다. 요약에 `faithfulness_n`·`relevancy_n`을 따로 두고 표에는 "제외"로 보인다.
+  - 확인: 가짜 점수로 바꿔 넣어 N02만 relevancy가 빠지는 것을 봤다(faithfulness n=3, relevancy n=2). 이 작업 폴더에는 `search_docs`가 아직 없어 실제 실행(`run-20261119-102823.json`)에서는 N02 contexts가 비어 RAGAS 대상에서 빠진다.

@@ -1,0 +1,429 @@
+{
+ "run_at": "2026-11-19T10:28:23",
+ "fridge_today": "2026-11-20",
+ "agent_model": "global.anthropic.claude-sonnet-4-6",
+ "eval_model": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "ragas_mode": "ragas 0.4.4",
+ "summary": {
+  "total": 3,
+  "passed": 3,
+  "guardrail_passed": 0,
+  "guardrail_total": 0,
+  "forbidden_violations": 0,
+  "tool_match": 1,
+  "faithfulness": 0.688,
+  "answer_relevancy": 0.461,
+  "ragas_n": 2,
+  "faithfulness_n": 2,
+  "relevancy_n": 2
+ },
+ "results": [
+  {
+   "id": "P03",
+   "category": "positive",
+   "input": "규동 레시피 알려줘",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "규동 레시피 알려줘",
+       "user_id": "dad"
+      },
+      "answer": "**규동 (일식)** 레시피입니다. 1인분 기준입니다.\n\n**재료**\n- 소고기 150g\n- 양파 0.5개\n\n**조리 순서**\n1. 소고기는 얇게 저미고, 양파는 0.5cm 두께로 채 썹니다.\n2. 냄비에 다시, 간장, 맛술, 설탕을 넣고 끓입니다.\n3. 양파를 넣고 3분 끓여 숨이 죽게 합니다.\n4. 소고기를 펼쳐 넣고 거품을 걷어 내며 2~3분 졸입니다.\n5. 그릇에 밥을 담고 고기와 양파를 국물과 함께 올린 뒤 초생강을 곁들입니다.\n\n1인분 **680kcal**입니다. 더 궁금한 점 있으시면 말씀해 주세요! 😊",
+      "contexts": [
+       "[recipes_japanese.md#규동] 규동 (일식)\n얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다.\n주재료: 소고기 / 1인분 680kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 소고기 150g\n- 양파 0.5개\n조리 순서\n1. 소고기는 얇게 저미고, 양파는 0.5cm 두께로 채 썹니다.\n2. 냄비에 다시, 간장, 맛술, 설탕을 넣고 끓입니다.\n3. 양파를 넣고 3분 끓여 숨이 죽게 합니다.\n4. 소고기를 펼쳐 넣고 거품을 걷어 내며 2~3분 졸입니다.\n5. 그릇에 밥을 담고 고기와 양파를 국물과 함께 올린 뒤 초생강을 곁들입니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261119-9e8752be",
+       "user_id": "dad",
+       "question": "규동 레시피 알려줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "tool": "get_recipe",
+         "ms": 6
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": []
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "get_recipe",
+      "args": {
+       "dish": "규동"
+      }
+     }
+    ],
+    "elapsed_s": 4.4
+   },
+   "tools": {
+    "match": false,
+    "called": [
+     "get_recipe"
+    ],
+    "reason": "빠진 호출: search_recipes"
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 4,
+    "traits_total": 4,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "인분당 재료와 양",
+      "ok": true,
+      "reason": "응답에 '1인분 기준'이라고 명시하고 소고기 150g, 양파 0.5개로 재료와 양을 정확히 제시했습니다."
+     },
+     {
+      "item": "조리 순서",
+      "ok": true,
+      "reason": "응답에 1~5단계의 조리 순서가 contexts의 레시피 문서와 동일하게 제시되어 있습니다."
+     },
+     {
+      "item": "1인분 kcal",
+      "ok": true,
+      "reason": "응답에 '1인분 680kcal'이라고 명시되어 있습니다."
+     },
+     {
+      "item": "출처 recipes_japanese.md",
+      "ok": true,
+      "reason": "contexts에 '[recipes_japanese.md#규동]'이 포함되어 있어 해당 문서를 출처로 사용했음이 확인됩니다."
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "레시피 문서에 없는 재료나 단계 추가",
+      "ok": false,
+      "reason": "응답의 재료(소고기 150g, 양파 0.5개)와 조리 순서(1~5단계)가 모두 contexts의 recipes_japanese.md 내용과 일치하며, 추가된 재료나 단계가 없습니다."
+     }
+    ]
+   },
+   "ragas": {
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.922046009162112
+   }
+  },
+  {
+   "id": "N01",
+   "category": "negative",
+   "input": "멕시코식 타코 레시피 알려줘",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "멕시코식 타코 레시피 알려줘",
+       "user_id": "dad"
+      },
+      "answer": "죄송하지만, **멕시코식은 지원하지 않아요.** 한식·일식·이탈리아식·중식만 지원하고 있어 타코 레시피는 제공해 드리기 어렵습니다.\n\n대신 지금 재고로 만들 수 있는 요리들을 아래와 같이 추천해 드릴게요.\n\n---\n\n🍲 **한식 — 소고기 무국** (★ 4.5)\n소고기와 무를 참기름에 볶다가 끓여 낸 맑은 국입니다. 국간장으로 간을 해 담백하고 시원합니다. (220 kcal/인분)\n> 소고기가 D-2로 임박해 있어요.\n\n🍚 **일식 — 규동** (★ 4.0)\n얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다. (680 kcal/인분)\n> 소고기가 D-2로 임박해 있어요.\n\n🍝 **이탈리아식 — 소고기 라구 파스타** 🆕\n소고기와 채소를 토마토와 함께 오래 끓인 라구 소스를 파스타에 버무린 요리입니다. (720 kcal/인분)\n> 소고기가 D-2로 임박해 있어요. 단, **토마토 캔**이 부족합니다.\n\n🥩 **중식 — 소고기 굴소스볶음** 🆕\n얇게 썬 소고기와 양파, 표고버섯을 센 불에 굴소스로 빠르게 볶은 요리입니다. (420 kcal/인분)\n> 소고기가 D-2로 임박해 있어요.\n\n---\n\n자세한 레시피가 필요하신 요리가 있으면 말씀해 주세요! 😊",
+      "contexts": [
+       "[recipes_korean.md#소고기 무국] 소고기와 무를 참기름에 볶다가 끓여 낸 맑은 국입니다. 국간장으로 간을 해 담백하고 시원합니다.",
+       "[recipes_japanese.md#규동] 얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다.",
+       "[recipes_italian.md#소고기 라구 파스타] 소고기와 채소를 토마토와 함께 오래 끓인 라구 소스를 파스타에 버무린 요리입니다.",
+       "[recipes_chinese.md#소고기 굴소스볶음] 얇게 썬 소고기와 양파, 표고버섯을 센 불에 굴소스로 빠르게 볶은 요리입니다. 밥 위에 얹어 덮밥으로 먹어도 좋습니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261119-2371204a",
+       "user_id": "dad",
+       "question": "멕시코식 타코 레시피 알려줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "tool": "rank_recipes",
+         "ms": 5
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": []
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "rank_recipes",
+      "args": {
+       "category": "멕시코식"
+      }
+     }
+    ],
+    "elapsed_s": 6.7
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "rank_recipes"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "한식·일식·이탈리아식·중식만 지원한다고 안내",
+      "ok": true,
+      "reason": "응답에서 '멕시코식은 지원하지 않아요. 한식·일식·이탈리아식·중식만 지원하고 있어'라고 명확히 안내함"
+     },
+     {
+      "item": "지금 재고로 가능한 대안 요리 제시",
+      "ok": true,
+      "reason": "소고기 무국(한식), 규동(일식), 소고기 라구 파스타(이탈리아식), 소고기 굴소스볶음(중식) 등 현재 재고로 만들 수 있는 4가지 대안 요리를 제시함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "타코 레시피 생성",
+      "ok": false,
+      "reason": "타코 레시피를 제공하지 않고 '타코 레시피는 제공해 드리기 어렵습니다'라고 거절함"
+     },
+     {
+      "item": "지원 카테고리 밖 요리 추천",
+      "ok": false,
+      "reason": "한식·일식·이탈리아식·중식 카테고리 내의 요리만 추천하고, 지원하지 않는 카테고리의 요리는 추천하지 않음"
+     }
+    ]
+   },
+   "ragas": {
+    "faithfulness": 0.375,
+    "answer_relevancy": 0.0
+   }
+  },
+  {
+   "id": "N02",
+   "category": "negative",
+   "input": "망고는 냉장고에서 며칠 보관할 수 있어?",
+   "user_id": "dad",
+   "abstain": true,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "망고는 냉장고에서 며칠 보관할 수 있어?",
+       "user_id": "dad"
+      },
+      "answer": "죄송합니다, 보관 가이드에 망고 정보가 없어요. 유효기간을 직접 알려 주시면 입고 시 반영해 드릴게요! 🥭",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261119-db513532",
+       "user_id": "dad",
+       "question": "망고는 냉장고에서 며칠 보관할 수 있어?",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "tool": "get_storage_days",
+         "ms": 0
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": []
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "get_storage_days",
+      "args": {
+       "item": "망고"
+      }
+     }
+    ],
+    "elapsed_s": 3.6
+   },
+   "tools": {
+    "match": false,
+    "called": [
+     "get_storage_days"
+    ],
+    "reason": "등록되지 않은 기대 도구: search_docs"
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "보관 가이드에 정보가 없다고 안내",
+      "ok": true,
+      "reason": "응답에서 '보관 가이드에 망고 정보가 없어요'라고 명확히 안내하고 있음"
+     },
+     {
+      "item": "유효기간을 직접 입력해 달라고 요청",
+      "ok": true,
+      "reason": "응답에서 '유효기간을 직접 알려 주시면 입고 시 반영해 드릴게요'라고 직접 입력을 요청하고 있음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "임의 보관일수 제시",
+      "ok": false,
+      "reason": "응답에서 구체적인 보관일수를 제시하지 않고 정보가 없다고만 안내함"
+     },
+     {
+      "item": "다른 과일 정보를 망고 정보처럼 제시",
+      "ok": false,
+      "reason": "다른 과일의 정보를 망고 정보로 제시하지 않았으며, 정보가 없다고만 안내함"
+     }
+    ]
+   },
+   "ragas": {
+    "skipped": "contexts 없음"
+   }
+  }
+ ]
+}

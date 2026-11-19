@@ -304,7 +304,7 @@ SQLite 스키마 요약:
 | P04 | positive | 규동 2인분 만들어서 1인분 먹었어, 4점 | 승인 요청(pending_interrupt) 반환; 평가 4점·한우 300g·양파 1개 차감·680kcal 기록을 요약해 확인 요청; 승인 전 DB 변경 없음 | 승인 없이 평가·차감·워치 기록 저장; 2인분 kcal(1,360kcal)을 본인 섭취로 기록 | get_recipe; calc_kcal; confirm_meal | user_id=dad. 같은 thread_id로 resume=approve를 보낸 뒤 trace의 MCP 호출 기록에서 record_meal(코드 호출)과 trace.rescued_g_week=300 확인 |
 | P05 | positive | 두부는 냉장 며칠 보관해? | 보관 가이드의 권장 일수; 보관 팁 한 가지; 출처 storage_guide.md | 가이드와 다른 일수; 출처 없는 일반 상식 단정 | search_docs | user_id=dad |
 | N01 | negative | 멕시코식 타코 레시피 알려줘 | 한식·일식·이탈리아식·중식만 지원한다고 안내; 지금 재고로 가능한 대안 요리 제시 | 타코 레시피 생성; 지원 카테고리 밖 요리 추천 | rank_recipes(category=멕시코식) | user_id=dad. 도구 notes의 "지원하지 않아요" 안내를 첫 문장에 |
-| N02 | negative | 망고는 냉장고에서 며칠 보관할 수 있어? | 보관 가이드에 정보가 없다고 안내; 유효기간을 직접 입력해 달라고 요청 | 임의 보관일수 제시; 다른 과일 정보를 망고 정보처럼 제시 | search_docs; get_storage_days | user_id=dad. 망고는 storage_guide.md에 없음 |
+| N02 | negative | 망고는 냉장고에서 며칠 보관할 수 있어? | 보관 가이드에 정보가 없다고 안내; 유효기간을 직접 입력해 달라고 요청 | 임의 보관일수 제시; 다른 과일 정보를 망고 정보처럼 제시 | search_docs; get_storage_days | user_id=dad. answer=abstain. 망고는 storage_guide.md에 없음 |
 | E01 | edge | 어제 산 두부 1모 넣었어, S/N은 2026-11-001 | 투입일자를 어제(2026-11-19)로 기록; 1모를 1개로 환산; S/N 중복을 알리고 자동 발번 S/N 제안 | 중복 S/N 그대로 저장; LLM이 날짜를 직접 계산한 흔적(도구 미사용) | add_items_from_text | user_id=dad. 시드에 2026-11-001이 이미 있음. 상대 날짜 변환은 도구 내부 함수. 2턴 진행: 1턴은 저장하지 않고 suggested_sn을 제안(sn_invalid). 같은 thread_id로 "제안한 S/N으로 저장해줘"를 보낸 뒤 새 S/N·투입일자 2026-11-19·두부 1개로 저장됐는지 확인 |
 | E02 | edge | 외식으로 김치찌개 먹었어, 3점 | 레시피에 없는 요리로 처리; 재고 차감 없음; kcal을 되묻거나 모르면 워치 기록 생략 안내; 승인 요청 | 재고 차감; 임의 kcal로 워치 기록 | get_recipe; confirm_meal | user_id=dad |
 | E03 | edge | 오늘 저녁 엄마랑 지민이랑 같이 먹을 거 추천해줘 | 그룹 평점 3점 이상 1개와 그룹 신메뉴 2개; 참여자 알레르기 재료 제외; "모두의 남은 칼로리 안"인지 여부만 언급 | 갑각류가 들어간 요리; 다른 가족의 개별 평점·칼로리 수치 노출 | list_inventory; rank_recipes; get_calorie_budget | user_id=dad. M5 이후 통과 대상 |
@@ -316,7 +316,7 @@ SQLite 스키마 요약:
 - **문항 통과**: LLM-as-Judge가 `expected_traits`를 하나씩 충족 여부로 판정하고, `forbidden` 위반을 검사합니다. 모든 trait을 충족하고 forbidden 위반이 0건이면 통과입니다.
 - **도구 일치**: `expected_tools`가 `trace.steps`의 도구 호출에 모두 포함되면 일치로 봅니다. 순서는 보지 않습니다. 빈 칸이면 도구 호출이 없어야 일치입니다. 서브 에이전트의 도구 호출까지 trace에 남기고(subgraphs 포함), Supervisor의 `transfer_to_*` 핸드오프는 비교에서 제외합니다. 평가 스크립트는 `expected_tools`의 이름이 실제 등록된 도구가 아니면 바로 실패합니다.
 - **문항 격리**: 문항마다 `FRIDGE_TODAY`를 고정하고 `fridge.db`와 `checkpoints.db`를 시드로 새로 만든 뒤 실행합니다. 앞 문항의 쓰기가 다음 문항에 영향을 주지 않습니다.
-- **RAGAS**: `contexts`가 있는 문항(P02, P03, P05, N01, N02)에 정답 문장 없이 쓸 수 있는 지표인 faithfulness와 answer relevancy를 계산합니다. Python 3.14에서 `ragas` 설치가 실패하면 같은 두 지표를 Bedrock 판정 프롬프트로 직접 계산하고 리포트에 "RAGAS 방식"으로 표기합니다.
+- **RAGAS**: `contexts`가 있는 문항(P02, P03, P05, N01, N02)에 정답 문장 없이 쓸 수 있는 지표인 faithfulness와 answer relevancy를 계산합니다. Python 3.14에서 `ragas` 설치가 실패하면 같은 두 지표를 Bedrock 판정 프롬프트로 직접 계산하고 리포트에 "RAGAS 방식"으로 표기합니다. note에 `answer=abstain`인 문항(거절이 정답)은 answer relevancy를 계산하지 않고, 거절이 맞았는지는 LLM-as-Judge 항목으로 채점합니다.
 - **결정적 로직**: S/N, 날짜, 단위, 정렬, 폐기 회피량은 이 12건과 별도로 M1 pytest에서 검증합니다(14장).
 - **평가용 모델**: RAGAS와 Judge는 Bedrock 모델을 쓰고, 모델 ID는 `.env`의 `EVAL_MODEL_ID`에서 읽습니다.
 
