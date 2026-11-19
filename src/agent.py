@@ -26,18 +26,22 @@ from langgraph_supervisor import create_supervisor
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
+from src.memory import open_store
 from src.middleware import HistoryCompactor, build_middleware, build_supervisor_hook
 from src.tools import (
     CHECKPOINT_DB,
+    SEED_USERS,
     FridgeContext,
     add_items_from_text,
     calc_kcal_tool,
     confirm_meal,
     discard_item,
+    get_my_preferences,
     get_recipe,
     get_storage_days,
     list_inventory,
     rank_recipes,
+    remember_preference,
     search_docs,
     search_recipes,
     today,
@@ -66,7 +70,8 @@ SUPERVISOR_PROMPT = """너는 가족이 함께 쓰는 냉장고 비서의 Superv
 직접 도구를 쓰거나 재고·레시피·칼로리 내용을 지어내지 않는다.
 
 - inventory_agent: 입고("~ 샀어", "~ 넣었어"), 출고, 재고 조회, 폐기, 입고 S/N 후속 답("제안한 S/N으로 저장해줘")
-- recommend_agent: 요리 추천("뭐 먹지", "추천해줘"), 레시피, 보관 기간·보관 방법, 칼로리 계산, 오늘 섭취·남은 칼로리(워치)
+- recommend_agent: 요리 추천("뭐 먹지", "추천해줘"), 레시피, 보관 기간·보관 방법, 칼로리 계산, 오늘 섭취·남은 칼로리(워치),
+  내 음식 선호·비선호·알레르기 말하기("나 가지 싫어", "새우 알레르기 있어")와 저장된 선호 확인
 - rating_health_agent: 식사 기록과 평가("~ 먹었어, 4점")
 
 에이전트가 답하면 그 답을 한 글자도 바꾸지 말고 그대로 최종 답으로 쓴다. 덧붙이거나 줄이지 않는다.
@@ -104,6 +109,11 @@ RECOMMEND_PROMPT = """너는 가족 냉장고의 요리추천 에이전트다. �
 - 보관 방법 질문("어떻게 보관해?")은 search_docs로 답한다. 결과의 보관 팁과 출처만 말하고 문서에 없는 내용을 덧붙이지 않는다.
 - 오늘 섭취 칼로리나 남은 칼로리를 물으면 워치 도구 get_daily_intake, get_calorie_budget을 부른다.
   이 도구는 요청자 본인 기록만 돌려준다. 결과 수치를 그대로 쓴다.
+- 사용자가 자기 음식 취향을 말하면("나 가지 싫어", "매운 거 싫어", "새우 알레르기 있어", "규동 좋아해")
+  remember_preference를 kind(like·dislike·allergy)와 사용자가 말한 대상 그대로의 value로 부른다.
+  결과의 applied 문장을 그대로 전한다. 다른 가족의 취향은 저장하지 않는다.
+- "내 선호 뭐로 기억하고 있어?"처럼 저장된 취향을 물으면 get_my_preferences를 부른다. 본인 것만 알려 준다.
+- 추천의 알레르기·비선호 제외는 rank_recipes가 장기 메모리를 읽어 처리한다. 직접 빼거나 더하지 않는다.
 """
 
 RATING_PROMPT = """너는 가족 냉장고의 평가·헬스 에이전트다. 식사 기록과 평가를 맡는다.
@@ -123,7 +133,8 @@ SUB_AGENTS = {
     INVENTORY_AGENT: (INVENTORY_PROMPT, [add_items_from_text, list_inventory, withdraw_item, discard_item]),
     RECOMMEND_AGENT: (
         RECOMMEND_PROMPT,
-        [list_inventory, rank_recipes, search_recipes, search_docs, get_recipe, get_storage_days, calc_kcal_tool],
+        [list_inventory, rank_recipes, search_recipes, search_docs, get_recipe, get_storage_days, calc_kcal_tool,
+         remember_preference, get_my_preferences],
     ),
     RATING_AGENT: (RATING_PROMPT, [get_recipe, confirm_meal, calc_kcal_tool]),
 }
@@ -225,6 +236,7 @@ def build_agent(
     middleware: list | None = None,
     supervisor_hook: Any = None,
     history_compactor: HistoryCompactor | None = None,
+    store: Any = None,
 ):
     """Supervisor와 서브 에이전트 3개로 된 냉장고 에이전트 그래프를 만든다.
 
@@ -233,6 +245,7 @@ def build_agent(
     - `middleware`: 서브 에이전트 미들웨어. 없으면 `build_middleware(summarize=False)`(PII 마스킹·재시도).
     - `supervisor_hook`: Supervisor `pre_model_hook`. 없으면 `build_supervisor_hook()`(PII 마스킹).
     - `history_compactor`: 턴 시작 전 상위 이력 요약. 없으면 `HistoryCompactor(model)`. `run_turn`이 쓴다.
+    - `store`: 장기 메모리 Store(`src.memory`). Supervisor에 붙이면 서브 에이전트 도구도 `runtime.store`로 쓴다.
     서브 에이전트는 자체 체크포인터 없이 만들고, 체크포인터는 Supervisor 그래프 하나만 가진다.
     """
     model = model or build_model()
@@ -264,18 +277,24 @@ def build_agent(
         context_schema=FridgeContext,
         output_mode="full_history",
     )
-    graph = supervisor.compile(checkpointer=checkpointer)
+    graph = supervisor.compile(checkpointer=checkpointer, store=store)
     graph.history_compactor = history_compactor or HistoryCompactor(model)
     return graph
 
 
 @asynccontextmanager
 async def open_agent(model: Any = None) -> AsyncIterator[Any]:
-    """`data/checkpoints.db` 체크포인터와 워치 MCP 조회 도구를 연결한 에이전트를 연다."""
+    """`data/checkpoints.db`의 체크포인터·장기 메모리 Store와 워치 MCP 조회 도구를 연결한 에이전트를 연다.
+
+    Store는 열 때 시드 사용자 선호를 아직 없는 사용자에게만 적재한다(`src.memory.open_store`).
+    """
     CHECKPOINT_DB.parent.mkdir(parents=True, exist_ok=True)
     health_tools = await load_health_tools()
-    async with AsyncSqliteSaver.from_conn_string(str(CHECKPOINT_DB)) as saver:
-        yield build_agent(checkpointer=saver, model=model, extra_tools=health_tools)
+    async with (
+        AsyncSqliteSaver.from_conn_string(str(CHECKPOINT_DB)) as saver,
+        open_store(CHECKPOINT_DB, SEED_USERS) as store,
+    ):
+        yield build_agent(checkpointer=saver, model=model, extra_tools=health_tools, store=store)
 
 
 def pending_interrupt(result: dict) -> dict | None:
