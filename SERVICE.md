@@ -313,6 +313,7 @@ SQLite 스키마 요약:
 - **문항 격리**: 문항마다 `FRIDGE_TODAY`를 고정하고 `fridge.db`와 `checkpoints.db`를 시드로 새로 만든 뒤 실행합니다. 앞 문항의 쓰기가 다음 문항에 영향을 주지 않습니다.
 - **RAGAS**: `contexts`가 있는 문항(목록은 `evaluation/run_eval.py`의 `RAGAS_IDS`)에 정답 문장 없이 쓸 수 있는 지표인 faithfulness와 answer relevancy를 계산합니다. Python 3.14에서 `ragas` 설치가 실패하면 같은 두 지표를 Bedrock 판정 프롬프트로 직접 계산하고 리포트에 "RAGAS 방식"으로 표기합니다. note에 `answer=abstain`인 문항(거절이 정답)은 answer relevancy를 계산하지 않고, 거절이 맞았는지는 LLM-as-Judge 항목으로 채점합니다.
 - **결정적 로직**: S/N, 날짜, 단위, 정렬, 폐기 회피량은 평가 문항과 별도로 M1 pytest에서 검증합니다(14장).
+- **검색 평가**: 에이전트를 거치지 않고 검색기(`HybridIndex.search`)만 따로 채점합니다. 정답 문서 표는 `evaluation/retrieval_queries.csv`(`id, kind, question, relevant, note`, `relevant`는 `source#title`을 세미콜론으로 구분)이고, `python evaluation/run_eval.py --retrieval`로 질의마다 상위 3개(검색 도구와 같은 k)의 Precision@3·Recall@3·MRR·Hit rate를 전체와 종류(recipe·storage)별로 냅니다. `--no-llm`이면 LLM 쿼리 확장·리랭킹 없이 별칭 확장 + RRF만 써서 두 결과를 비교할 수 있습니다. 결과는 `evaluation/results/retrieval-*.json`에 남깁니다.
 - **평가용 모델**: RAGAS와 Judge는 Bedrock 모델을 쓰고, 모델 ID는 `.env`의 `EVAL_MODEL_ID`에서 읽습니다.
 
 ### 10.3 목표치와 리포트
@@ -323,6 +324,7 @@ SQLite 스키마 요약:
   - forbidden 위반 0건
   - 도구 일치율 90% 이상
   - faithfulness 0.8 이상, answer relevancy 0.8 이상
+  - 검색 Recall@3 0.8 이상, MRR 0.7 이상 (Precision@3은 정답이 1개인 질의가 많아 리포트에만 적습니다)
 - **리포트**: `evaluation/report.md`. 지표 표, 실패 문항별 원인 분석, 개선 이력을 담습니다.
 
 ## 11. 전제 (확정)

@@ -1,0 +1,26 @@
+id,kind,question,relevant,note
+R01,recipe,규동 레시피 알려줘,recipes_japanese.md#규동,요리명 그대로
+R02,recipe,차돌로 만드는 일식 덮밥,recipes_japanese.md#규동,별칭 확장(차돌 → 소고기)
+R03,recipe,두부 넣고 끓이는 한식 찌개,recipes_korean.md#된장찌개,재료와 조리 방식
+R04,recipe,닭고기로 만드는 요리 뭐 있어?,recipes_chinese.md#깐풍기; recipes_italian.md#닭고기 카치아토레; recipes_japanese.md#오야코동,주재료가 닭고기인 요리 3개
+R05,recipe,새우 들어간 파스타,recipes_italian.md#새우 로제 파스타,재료 + 요리 종류
+R06,recipe,달걀 들어간 일식 덮밥,recipes_japanese.md#오야코동; recipes_japanese.md#에비텐동,별칭 확장(달걀 → 계란)
+R07,recipe,가지로 만드는 요리,recipes_chinese.md#어향가지; recipes_italian.md#가지 파르미자나,주재료가 가지인 요리
+R08,recipe,표고버섯이 주재료인 요리,recipes_italian.md#버섯 리조또; recipes_japanese.md#표고버섯 솥밥,주재료 기준(부재료로 쓰는 요리는 제외)
+R09,recipe,감자 간장 조림 반찬,recipes_korean.md#감자조림,
+R10,recipe,생크림 없이 계란으로 만드는 파스타,recipes_italian.md#까르보나라,요리명 없이 특징으로
+R11,recipe,돼지고기 매콤하게 볶는 한식,recipes_korean.md#제육볶음,
+R12,recipe,연어로 만드는 요리,recipes_japanese.md#연어 데리야키,
+R13,recipe,우동면 볶음 요리,recipes_japanese.md#야키우동,
+R14,recipe,시금치로 만드는 반찬,recipes_korean.md#시금치나물,
+R15,recipe,탕수육 만드는 법,recipes_chinese.md#탕수육,요리명 그대로
+S01,storage,두부는 어떻게 보관해?,storage_guide.md#두부,품목명 그대로
+S02,storage,한우는 어떻게 보관해?,storage_guide.md#소고기,별칭 확장(한우 → 소고기)
+S03,storage,달걀 냉장 보관 방법,storage_guide.md#계란,별칭 확장(달걀 → 계란)
+S04,storage,대파 오래 두는 법,storage_guide.md#대파,
+S05,storage,파마산 치즈 보관,storage_guide.md#파르메산 치즈,별칭 확장(파마산 → 파르메산 치즈)
+S06,storage,스파게티 면 보관,storage_guide.md#파스타면,별칭 확장(스파게티 → 파스타면)
+S07,storage,생크림 개봉 후 보관,storage_guide.md#생크림,
+S08,storage,표고 보관법,storage_guide.md#표고버섯,별칭 확장(표고 → 표고버섯)
+S09,storage,망고는 어떻게 보관해?,storage_guide.md#보관 가이드 범위와 단위 규칙,가이드에 없는 품목: 범위 안내 청크가 근거
+S10,storage,두부 1모나 우유 1팩은 단위를 어떻게 세?,storage_guide.md#보관 가이드 범위와 단위 규칙,단위 규칙 청크

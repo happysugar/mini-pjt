@@ -195,3 +195,42 @@ def test_average_runs_groups_repeats_per_query():
     assert second["faithfulness"] == 0.6
     assert second["answer_relevancy"] != second["answer_relevancy"]  # 모두 NaN이면 평균도 NaN
     assert second["answer_relevancy_runs"] == [None, None]
+
+
+# ── 검색 평가 (Precision / Recall / MRR) ──────────────────────────
+
+
+def test_retrieval_scores():
+    """돌려준 문서 중 정답 비율, 정답 중 찾은 비율, 첫 정답 순위의 역수를 계산한다."""
+    s = run_eval.retrieval_scores(["a", "b", "c"], ["b", "d"])
+    assert s == {"precision": 0.3333, "recall": 0.5, "rr": 0.5, "hit": 1.0}
+    assert run_eval.retrieval_scores([], ["a"]) == {"precision": 0.0, "recall": 0.0, "rr": 0.0, "hit": 0.0}
+    assert run_eval.retrieval_scores(["a"], ["a"])["rr"] == 1.0
+
+
+def test_retrieval_queries_point_to_real_chunks():
+    """검색 평가 정답은 실제 청크 id(`source#title`)이고, 질의 종류와 정답 문서 종류가 같다."""
+    from src import retriever
+
+    kinds = {f"{d.metadata['source']}#{d.metadata['title']}": d.metadata["kind"] for d in retriever.load_chunks()}
+    queries = run_eval.load_retrieval_queries()
+    ids = [q["id"] for q in queries]
+    assert queries and len(ids) == len(set(ids))
+    for q in queries:
+        assert q["kind"] in (retriever.KIND_RECIPE, retriever.KIND_STORAGE), q["id"]
+        assert q["relevant"], f"{q['id']} 정답 문서가 없어요"
+        for doc in q["relevant"]:
+            assert kinds.get(doc) == q["kind"], f"{q['id']} 정답 문서가 없거나 종류가 달라요: {doc}"
+
+
+def test_run_retrieval_offline(offline_index):
+    """가짜 임베딩 인덱스로 검색 평가를 끝까지 돌려 지표 형식을 확인한다(값은 보지 않는다)."""
+    queries = run_eval.load_retrieval_queries()
+    results = run_eval.run_retrieval(offline_index, queries, k=3)
+    assert len(results) == len(queries)
+    for r in results:
+        assert len(r["retrieved"]) <= 3 and 0 <= r["precision"] <= 1 and 0 <= r["recall"] <= 1
+    summary = run_eval.summarize_retrieval(results)
+    assert summary["all"]["n"] == len(queries)
+    assert summary["recipe"]["n"] + summary["storage"]["n"] == len(queries)
+    assert {"precision", "recall", "mrr", "hit_rate"} <= set(summary["all"])

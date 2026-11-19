@@ -586,15 +586,127 @@ async def run_all(queries: list[dict[str, Any]], registered: set[str]) -> list[d
     return results
 
 
+# ── 검색 평가 (Precision / Recall / MRR) ──────────────────────────
+# 에이전트를 거치지 않고 `HybridIndex.search()` 결과를 정답 문서 표(`retrieval_queries.csv`)와 비교한다.
+# 문서 id는 `contexts` 꼬리표와 같은 `source#title` 형식이다.
+
+RETRIEVAL_CSV = EVAL_DIR / "retrieval_queries.csv"
+RETRIEVAL_K = 3  # 검색 도구가 돌려주는 개수와 같다
+
+
+def load_retrieval_queries(path: Path = RETRIEVAL_CSV) -> list[dict[str, Any]]:
+    """검색 평가 질의를 읽는다. `relevant`는 세미콜론으로 나눈 정답 문서 id(`source#title`) 목록이다."""
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f))
+    return [{**row, "relevant": split_list(row["relevant"])} for row in rows]
+
+
+def retrieval_scores(retrieved: list[str], relevant: list[str]) -> dict[str, float]:
+    """질의 하나의 검색 지표를 계산한다.
+
+    - precision: 돌려준 문서 중 정답 비율(돌려준 것이 없으면 0)
+    - recall: 정답 문서 중 돌려준 비율
+    - rr: 첫 정답 문서 순위의 역수(Reciprocal Rank). 없으면 0
+    - hit: 정답을 하나라도 찾았으면 1
+    """
+    gold = set(relevant)
+    found = [doc for doc in retrieved if doc in gold]
+    first = next((i for i, doc in enumerate(retrieved, 1) if doc in gold), None)
+    return {
+        "precision": round(len(found) / len(retrieved), 4) if retrieved else 0.0,
+        "recall": round(len(set(found)) / len(gold), 4) if gold else 0.0,
+        "rr": round(1 / first, 4) if first else 0.0,
+        "hit": 1.0 if found else 0.0,
+    }
+
+
+def run_retrieval(index: Any, queries: list[dict[str, Any]], k: int = RETRIEVAL_K) -> list[dict[str, Any]]:
+    """질의마다 검색을 실행하고 돌려준 문서 id와 지표를 모은다."""
+    results = []
+    for q in queries:
+        result = index.search(q["question"], q["kind"], k=k)
+        retrieved = [f"{hit.source}#{hit.title}" for hit in result.hits]
+        results.append({
+            "id": q["id"], "kind": q["kind"], "question": q["question"], "relevant": q["relevant"],
+            "retrieved": retrieved, "queries": result.queries, "reranked": result.reranked,
+            **retrieval_scores(retrieved, q["relevant"]),
+        })
+    return results
+
+
+def summarize_retrieval(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """질의 평균(macro) Precision@k, Recall@k, MRR, Hit rate를 전체와 종류(recipe/storage)별로 낸다.
+
+    `reranked`는 LLM 리랭킹이 실제로 된 질의 수다. LLM 모드인데 n보다 작으면 일부가 모델 오류로
+    RRF 순서로 대신 채점된 것이라 LLM 모드 결과로 보면 안 된다.
+    """
+    def mean(rows: list[dict[str, Any]], key: str) -> float | None:
+        return round(sum(r[key] for r in rows) / len(rows), 3) if rows else None
+
+    groups = {"all": results, **{kind: [r for r in results if r["kind"] == kind] for kind in sorted({r["kind"] for r in results})}}
+    return {
+        name: {"n": len(rows), "precision": mean(rows, "precision"), "recall": mean(rows, "recall"),
+               "mrr": mean(rows, "rr"), "hit_rate": mean(rows, "hit"),
+               "reranked": sum(1 for r in rows if r["reranked"])}
+        for name, rows in groups.items()
+    }
+
+
+def print_retrieval_report(results: list[dict[str, Any]], summary: dict[str, Any], k: int, mode: str) -> None:
+    """질의별 결과와 요약 지표를 터미널에 출력한다."""
+    print(f"\n{'id':4} {'kind':8} {'P@k':5} {'R@k':5} {'RR':5}  retrieved (정답 표시 *)")
+    for r in results:
+        marked = [f"{'*' if doc in r['relevant'] else ''}{doc.split('#', 1)[1]}" for doc in r["retrieved"]]
+        print(f"{r['id']:4} {r['kind']:8} {r['precision']:<5} {r['recall']:<5} {r['rr']:<5}  {', '.join(marked) or '(없음)'}")
+    print(f"\n검색 평가 k={k}, {mode}")
+    for name, s in summary.items():
+        print(f"  {name:8} n={s['n']:<3} Precision@{k} {s['precision']}  Recall@{k} {s['recall']}  MRR {s['mrr']}  "
+              f"Hit {s['hit_rate']}  리랭킹 {s['reranked']}/{s['n']}")
+
+
+def retrieval_main(k: int, use_llm: bool) -> int:
+    """검색 평가를 실행해 결과를 `results/retrieval-*.json`으로 저장한다.
+
+    `use_llm=False`면 LLM 쿼리 확장·리랭킹 없이 별칭 확장 + BM25·벡터 RRF만 쓴다(Bedrock 채팅 모델 호출 없음).
+    """
+    from src.retriever import CHROMA_DIR, HybridIndex
+
+    index = HybridIndex(persist_dir=CHROMA_DIR, use_llm=use_llm)
+    mode = "LLM 쿼리 확장·리랭킹 사용" if use_llm else "LLM 없이 별칭 확장 + RRF"
+    results = run_retrieval(index, load_retrieval_queries(), k)
+    summary = summarize_retrieval(results)
+    print_retrieval_report(results, summary, k, mode)
+    RESULTS_DIR.mkdir(exist_ok=True)
+    out = RESULTS_DIR / f"retrieval-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    payload = {
+        "run_at": datetime.now().isoformat(timespec="seconds"),
+        "k": k,
+        "mode": mode,
+        "llm_model": os.environ.get("BEDROCK_MODEL_ID") if use_llm else None,
+        "embed_model": os.environ.get("BEDROCK_EMBED_MODEL_ID"),
+        "summary": summary,
+        "results": results,
+    }
+    out.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"\n결과 저장: {out.relative_to(ROOT)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
-    """문항을 실행·채점하고 RAGAS 지표를 붙여 결과 파일을 저장한다.
+    """문항을 실행·채점하고 RAGAS 지표를 붙여 결과 파일을 저장한다. `--retrieval`이면 검색 평가만 한다.
 
     `ragas`는 불러올 때 이벤트 루프를 패치(nest_asyncio)하므로, 문항 실행 루프가 끝난 뒤 따로 계산한다.
     """
     parser = argparse.ArgumentParser(description="냉장고 Agent 평가 문항 실행")
     parser.add_argument("--only", help="실행할 문항 id 목록(쉼표 구분)")
     parser.add_argument("--compare", type=Path, help="도구 일치 결과를 비교할 이전 결과 JSON")
+    parser.add_argument("--retrieval", action="store_true",
+                        help="에이전트 대신 검색기만 평가한다(retrieval_queries.csv, Precision/Recall/MRR)")
+    parser.add_argument("--k", type=int, default=RETRIEVAL_K, help="검색 평가에서 볼 상위 문서 수")
+    parser.add_argument("--no-llm", action="store_true", help="검색 평가에서 LLM 쿼리 확장·리랭킹을 끈다")
     args = parser.parse_args(argv)
+    if args.retrieval:
+        return retrieval_main(args.k, use_llm=not args.no_llm)
 
     queries = load_queries()
     if args.only:
