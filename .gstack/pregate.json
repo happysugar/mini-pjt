@@ -1,0 +1,10 @@
+{
+  "$schema": "https://github.com/garrytan/gstack/docs/pregate.md#pregate-v1",
+  "runner": ".venv/Scripts/python -m pytest {files}",
+  "dependencies": {
+    "src/tools.py": ["tests/test_tools.py", "tests/test_recommend.py"],
+    "src/agent.py": [],
+    "src/api.py": [],
+    "src/cli.py": []
+  }
+}
