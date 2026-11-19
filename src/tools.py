@@ -1522,9 +1522,10 @@ def search_recipes(query: str) -> str:
 def search_docs(query: str) -> str:
     """식재료 보관 질문("두부는 냉장 며칠 보관해?")에 쓰는 보관 가이드 검색 도구.
 
-    보관 가이드를 하이브리드 검색해 품목별 권장 보관일수·보관 팁과 출처(`[storage_guide.md#품목]`)를
-    돌려준다. 질문 품목이 가이드에 없으면 품목 문서 대신 가이드 범위 안내만 돌아오므로,
-    다른 품목 정보를 그 품목 정보처럼 쓰지 않는다. 검색 뒤에는 항상 get_storage_days로 품목을 확인한다.
+    보관 가이드를 하이브리드 검색해 품목별 보관 팁과 출처(`[storage_guide.md#품목]`)를 돌려준다.
+    보관 기간이나 유효기간을 묻는 질문이면 이 도구 다음에 get_storage_days를 함께 불러 품목 기준표의
+    권장 보관일수를 확인한다. 보관 팁에는 기간이 없다. 질문 품목이 가이드에 없으면 품목 문서 대신 가이드 범위
+    안내만 돌아오므로, 다른 품목 정보를 그 품목 정보처럼 쓰지 않고 get_storage_days로 품목을 확인한다.
     """
     result = get_index().search(query, KIND_STORAGE)
     hits = [h.text for h in result.hits]
