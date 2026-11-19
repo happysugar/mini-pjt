@@ -1524,13 +1524,17 @@ def search_docs(query: str) -> str:
 
     보관 가이드를 하이브리드 검색해 품목별 권장 보관일수·보관 팁과 출처(`[storage_guide.md#품목]`)를
     돌려준다. 질문 품목이 가이드에 없으면 품목 문서 대신 가이드 범위 안내만 돌아오므로,
-    다른 품목 정보를 그 품목 정보처럼 쓰지 않는다.
+    다른 품목 정보를 그 품목 정보처럼 쓰지 않는다. 검색 뒤에는 항상 get_storage_days로 품목을 확인한다.
     """
     result = get_index().search(query, KIND_STORAGE)
     hits = [h.text for h in result.hits]
     payload: dict = {"results": hits, "search": _search_meta(result)}
     if not any(h.title in load_storage_guide() for h in result.hits):
-        payload["note"] = "보관 가이드에서 이 품목을 찾지 못했어요. 유효기간을 직접 알려 달라고 안내하세요"
+        # 여기서 답을 끝내지 않도록, 품목 확인(get_storage_days)을 다음 단계로 안내한다
+        payload["note"] = (
+            "보관 가이드 문서에서 이 품목을 찾지 못했어요. 답하기 전에 get_storage_days로 품목을 확인하고, "
+            "그 결과도 가이드에 없으면 유효기간을 직접 알려 달라고 안내하세요"
+        )
     return _to_json(payload)
 
 
