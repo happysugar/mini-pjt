@@ -1,7 +1,9 @@
-"""미들웨어 조립 테스트 (TASK-13, SERVICE.md 6장 #8).
+"""미들웨어 조립 테스트 (TASK-13, TASK-15, SERVICE.md 6장 #8).
 
 가짜 채팅 모델로 Bedrock 없이 확인한다: 모델 입력의 전화번호 마스킹, 긴 대화의 요약 이벤트,
 모델 재시도 최종 실패 시 `trace.errors`의 `MODEL_UNAVAILABLE`.
+M4부터 마스킹은 Supervisor `pre_model_hook`, 요약은 턴 시작 전 상위 이력(`HistoryCompactor`), 재시도는 서브 에이전트 미들웨어가 한다.
+대본이 답뿐인 가짜 모델은 Supervisor가 에이전트에 넘기지 않고 바로 답한다.
 """
 
 import asyncio
@@ -9,9 +11,11 @@ import re
 import sys
 from pathlib import Path
 
+import botocore.exceptions
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.checkpoint.memory import InMemorySaver
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -35,12 +39,36 @@ class RecordingModel(GenericFakeChatModel):
         return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
 
+THROTTLED = botocore.exceptions.ClientError(
+    {"Error": {"Code": "ThrottlingException", "Message": "Too many tokens per day"}}, "Converse"
+)
+
+
 class FailingModel(RecordingModel):
-    """호출할 때마다 실패하는 가짜 채팅 모델 (Bedrock 장애 흉내)."""
+    """호출할 때마다 Bedrock 한도 오류를 내는 가짜 채팅 모델 (Supervisor 모델 장애 흉내)."""
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
         """입력을 기록하고 항상 실패한다."""
         self.seen.append(list(messages))
+        raise THROTTLED
+
+
+class AgentFailingModel(RecordingModel):
+    """Supervisor 자리에서는 재고 에이전트로 넘기고, 서브 에이전트 자리에서는 항상 실패하는 가짜 모델."""
+
+    role: str = "agent"
+
+    def bind_tools(self, tools, **kwargs):
+        """핸드오프 도구가 있으면 Supervisor 자리로 본다."""
+        names = [getattr(t, "name", "") for t in tools]
+        return self.model_copy(update={"role": "supervisor" if any(n.startswith("transfer_to_") for n in names) else "agent"})
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        """Supervisor면 핸드오프, 서브 에이전트면 실패."""
+        self.seen.append((self.role, list(messages)))
+        if self.role == "supervisor":
+            call = {"name": "transfer_to_inventory_agent", "args": {}, "id": f"h-{len(messages)}"}
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="", tool_calls=[call]))])
         raise ConnectionError("bedrock down")
 
 
@@ -117,8 +145,8 @@ def test_long_conversation_leaves_summary_event(env):
     model = RecordingModel(messages=answers(*[f"답변 {i}. " + "재고 설명 " * 200 for i in range(4)]))
     model.seen = []
     summarizer = RecordingModel(messages=answers(*["요약: 사용자가 재고를 여러 번 물었다."] * 5))
-    mw = middleware.build_middleware(model, summarizer=summarizer, trigger_tokens=300, keep_tokens=100)
-    agent = build_agent(checkpointer=InMemorySaver(), model=model, middleware=mw)
+    compactor = middleware.HistoryCompactor(model, summarizer=summarizer, trigger_tokens=300, keep_tokens=100)
+    agent = build_agent(checkpointer=InMemorySaver(), model=model, history_compactor=compactor)
     events = []
     for i in range(3):
         recorder = api.StepRecorder()
@@ -133,6 +161,8 @@ def test_long_conversation_leaves_summary_event(env):
 def test_keep_must_be_smaller_than_trigger():
     with pytest.raises(ValueError):
         middleware.build_middleware(object(), trigger_tokens=100, keep_tokens=100)
+    with pytest.raises(ValueError):
+        middleware.HistoryCompactor(object(), trigger_tokens=100, keep_tokens=100)
 
 
 def test_short_conversation_has_no_summary(env):
@@ -146,12 +176,23 @@ def test_short_conversation_has_no_summary(env):
 # ── 재시도 ──────────────────────────────────────────────────────
 
 
-def test_model_failure_after_retries_is_model_unavailable(env):
-    model = FailingModel(messages=answers())
+def test_sub_agent_model_failure_after_retries_is_model_unavailable(env):
+    model = AgentFailingModel(messages=answers())
     model.seen = []
-    mw = middleware.build_middleware(model, initial_delay=0)
+    mw = middleware.build_middleware(model, summarize=False, initial_delay=0)
     agent = build_agent(checkpointer=InMemorySaver(), model=model, middleware=mw)
     resp = asyncio.run(api.handle_query(agent, api.QueryRequest(question="냉장고에 뭐 있어?"), None, env))
     assert [e["code"] for e in resp.trace["errors"]] == ["MODEL_UNAVAILABLE"]
     assert resp.answer == api.MSG_MODEL_UNAVAILABLE
-    assert len(model.seen) == 1 + middleware.MAX_RETRIES  # 첫 시도 + 재시도 2번
+    agent_calls = [role for role, _ in model.seen if role == "agent"]
+    assert len(agent_calls) == 1 + middleware.MAX_RETRIES  # 서브 에이전트 첫 시도 + 재시도 2번
+    assert resp.trace["steps"][0] == {"agent": "supervisor", "event": "handoff", "to": "inventory_agent"}
+
+
+def test_supervisor_bedrock_error_is_model_unavailable(env):
+    model = FailingModel(messages=answers())
+    model.seen = []
+    agent = build_agent(checkpointer=InMemorySaver(), model=model)
+    resp = asyncio.run(api.handle_query(agent, api.QueryRequest(question="냉장고에 뭐 있어?"), None, env))
+    assert [e["code"] for e in resp.trace["errors"]] == ["MODEL_UNAVAILABLE"]
+    assert "ThrottlingException" in resp.trace["errors"][0]["message"]

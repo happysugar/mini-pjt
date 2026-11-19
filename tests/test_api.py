@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -26,11 +27,66 @@ DAD, MOM = "tok-dad", "tok-mom"
 
 
 class FakeModel(GenericFakeChatModel):
-    """도구 목록을 무시하고 정해진 메시지를 차례로 돌려주는 가짜 채팅 모델."""
+    """정해진 서브 에이전트 메시지(대본)를 차례로 돌려주는 가짜 채팅 모델 (M4 Supervisor 구조용).
+
+    대본은 서브 에이전트의 도구 호출과 답만 적는다. Supervisor 자리에서는 대본을 쓰지 않고
+    - 다음 대본이 도구 호출이면 그 도구들을 가진 서브 에이전트로 `transfer_to_*` 핸드오프를 하고,
+    - 서브 에이전트가 답하고 돌아오면 그 답을 그대로 최종 답으로 돌려주고,
+    - 다음 대본이 답이면(인사 등) 그 답을 직접 돌려준다.
+    """
+
+    role: str = "agent"
+    tool_names: tuple = ()
+    script: list = []
+    pos: list = [0]
+
+    def __init__(self, messages, **kwargs):
+        """대본 반복자를 목록으로 받아 Supervisor·서브 에이전트 복사본이 함께 쓴다."""
+        script = list(messages)
+        super().__init__(messages=iter(()), script=script, pos=[0], **kwargs)
 
     def bind_tools(self, tools, **kwargs):
-        """도구 바인딩 요청을 받아도 자기 자신을 돌려준다."""
-        return self
+        """도구 이름으로 Supervisor 자리인지 서브 에이전트 자리인지 정한 복사본을 돌려준다."""
+        names = tuple(getattr(t, "name", None) or t.get("name") or t.get("function", {}).get("name") for t in tools)
+        role = "supervisor" if any(n.startswith("transfer_to_") for n in names) else "agent"
+        return self.model_copy(update={"role": role, "tool_names": names})
+
+    def _next(self, consume: bool = True) -> AIMessage:
+        """다음 대본 메시지. 다 쓰면 오류를 낸다."""
+        if self.pos[0] >= len(self.script):
+            raise RuntimeError("가짜 모델 대본이 끝났어요")
+        msg = self.script[self.pos[0]]
+        if consume:
+            self.pos[0] += 1
+        return msg
+
+    def _agent_for_next_calls(self) -> str:
+        """다음 대본의 연속 도구 호출을 모두 가진 서브 에이전트 이름."""
+        names = []
+        for msg in self.script[self.pos[0]:]:
+            if not msg.tool_calls:
+                break
+            names += [c["name"] for c in msg.tool_calls]
+        for agent_name, (_, agent_tools) in agent_module.SUB_AGENTS.items():
+            if set(names) <= {t.name for t in agent_tools}:
+                return agent_name
+        raise RuntimeError(f"대본 도구를 모두 가진 서브 에이전트가 없어요: {names}")
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        """자리에 맞는 다음 메시지를 돌려준다."""
+        if self.role == "supervisor":
+            last = messages[-1]
+            if isinstance(last, ToolMessage) and str(last.name).startswith("transfer_back_to_"):
+                answer = next(m for m in reversed(messages) if isinstance(m, AIMessage) and not m.tool_calls)
+                msg = AIMessage(content=answer.content)
+            elif self._next(consume=False).tool_calls:
+                target = self._agent_for_next_calls()
+                msg = AIMessage(content="", tool_calls=[{"name": f"transfer_to_{target}", "args": {}, "id": f"handoff-{len(messages)}"}])
+            else:
+                msg = self._next()
+        else:
+            msg = self._next()
+        return ChatResult(generations=[ChatGeneration(message=msg.model_copy())])
 
 
 def call(name: str, args: dict, call_id: str = "call-1") -> AIMessage:
@@ -102,10 +158,14 @@ def counts(db: str) -> dict:
 
 
 def tool_outputs(client: TestClient, thread_id: str) -> list[str]:
-    """체크포인트에 저장된 스레드의 도구 결과 문자열 목록."""
+    """체크포인트에 저장된 스레드의 도구 결과 문자열 목록. Supervisor 핸드오프(`transfer_*`) 결과는 뺀다."""
     agent = client.app.state.agent
     state = client.portal.call(agent.aget_state, {"configurable": {"thread_id": thread_id}})
-    return [str(m.content) for m in state.values["messages"] if isinstance(m, ToolMessage)]
+    return [
+        str(m.content)
+        for m in state.values["messages"]
+        if isinstance(m, ToolMessage) and not str(m.name).startswith("transfer_")
+    ]
 
 
 # ── 응답 형식과 신원 ─────────────────────────────────────────────
@@ -329,7 +389,9 @@ def test_small_withdraw_needs_no_approval(make_client, env):
 def test_recommendation_contexts(make_client):
     _, ask = make_client(call("rank_recipes", {}), say("추천해요."))
     r = ask({"question": "오늘 저녁 뭐 먹지?"}, DAD)
-    assert [s["tool"] for s in r["trace"]["steps"]] == ["rank_recipes"]
+    handoff = {"agent": "supervisor", "event": "handoff", "to": "recommend_agent"}
+    assert r["trace"]["steps"][0] == handoff  # Supervisor가 요리추천 에이전트로 넘긴 기록
+    assert [s["tool"] for s in r["trace"]["steps"] if "tool" in s] == ["rank_recipes"]
     assert any(c.startswith("[recipes_korean.md#소고기 무국]") for c in r["contexts"])
     assert any(a["sn"] == HANWOO and a["level"] == "imminent" for a in r["trace"]["alerts"])
 
@@ -365,7 +427,7 @@ def test_search_contexts_and_no_index_rebuild(make_client):
         say("규동은 이렇게 만들어요."),
     )
     first = ask({"question": "두부는 냉장 며칠 보관해?", "thread_id": "dad-t-rag"}, DAD)
-    assert [s["tool"] for s in first["trace"]["steps"]] == ["search_docs", "get_storage_days"]
+    assert [s["tool"] for s in first["trace"]["steps"] if "tool" in s] == ["search_docs", "get_storage_days"]
     assert any(c.startswith("[storage_guide.md#두부]") for c in first["contexts"])
     second = ask({"question": "규동 레시피 알려줘", "thread_id": "dad-t-rag"}, DAD)
     assert second["contexts"][0].startswith("[recipes_japanese.md#규동]")

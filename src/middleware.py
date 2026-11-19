@@ -3,12 +3,17 @@
 langchain 1.x 내장 미들웨어(요약, PII 마스킹, 모델·도구 재시도)를 설정만 해서 붙인다.
 직접 구현하지 않는다. `build_middleware`가 목록을 만들고, M4에서는 서브 에이전트마다
 이 함수를 다시 부른다(SERVICE.md 6장 #8).
+
+M4 Supervisor는 `langgraph-supervisor`가 만든 그래프라 미들웨어를 받지 않는다. 그래서
+`build_supervisor_hook`이 내장 PII 미들웨어 훅을 Supervisor의 `pre_model_hook`에서 부르고,
+대화 이력 요약은 `HistoryCompactor`가 턴 시작 전에 상위 그래프 상태에 적용한다.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+import botocore.exceptions
 from langchain.agents.middleware import (
     AgentMiddleware,
     ModelRetryMiddleware,
@@ -16,6 +21,8 @@ from langchain.agents.middleware import (
     SummarizationMiddleware,
     ToolRetryMiddleware,
 )
+from langchain_core.runnables import RunnableLambda
+from langchain_core.runnables.config import var_child_runnable_config
 
 # 한국 휴대전화·지역번호 전화. 숫자·하이픈이 앞뒤로 붙어 있으면 잡지 않아 S/N(`2026-11-001`)과
 # 날짜(`2026-11-20`)와 겹치지 않는다. 모든 번호가 0으로 시작한다.
@@ -85,3 +92,73 @@ def build_middleware(
     )
     middleware.append(ToolRetryMiddleware(max_retries=max_retries, on_failure="continue", initial_delay=initial_delay))
     return middleware
+
+
+def is_model_unavailable(exc: BaseException) -> bool:
+    """모델 호출 실패인지 판단한다.
+
+    서브 에이전트는 `ModelRetryMiddleware`가 `ModelUnavailableError`로 바꿔 올린다. Supervisor 모델은
+    미들웨어가 없어 Bedrock SDK 재시도(botocore) 끝의 `ClientError`·`BotoCoreError`가 그대로 올라온다.
+    """
+    return isinstance(exc, (ModelUnavailableError, botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError))
+
+
+def build_supervisor_hook() -> RunnableLambda:
+    """Supervisor `pre_model_hook`을 만든다. 내장 PII 미들웨어 훅으로 마지막 사용자 메시지를 가린다.
+
+    가린 메시지는 같은 id로 바뀌어 상위 대화 이력에 그대로 남으므로, 서브 에이전트도 가려진 질문을 받는다.
+    """
+    pii = pii_middleware()
+
+    def hook(state: dict) -> dict:
+        """PII 훅을 차례로 적용하고 마지막 갱신을 돌려준다. 바뀐 것이 없으면 빈 갱신."""
+        update: dict = {}
+        for mw in pii:
+            if out := mw.before_model(state, None):
+                state, update = {**state, **out}, out
+        return update
+
+    return RunnableLambda(hook, name="supervisor_pre_model")
+
+
+class HistoryCompactor:
+    """상위 대화 이력(Supervisor 그래프 상태)을 턴 시작 전에 요약해 줄인다.
+
+    요약 계산은 내장 `SummarizationMiddleware`가 하고, 결과(전체 삭제 + 요약 + 최근 이력)를
+    `aupdate_state`로 상위 그래프에 적용한다. Supervisor·서브 에이전트는 상위 그래프 안의 하위 그래프라
+    그 안의 미들웨어·훅이 이력을 지워도 상위 상태에는 전해지지 않기 때문이다(TASK-15 실험).
+    """
+
+    def __init__(
+        self,
+        model: Any,
+        *,
+        summarizer: Any = None,
+        trigger_tokens: int = SUMMARY_TRIGGER_TOKENS,
+        keep_tokens: int = SUMMARY_KEEP_TOKENS,
+    ) -> None:
+        """요약 미들웨어를 만든다. `keep_tokens`는 `trigger_tokens`보다 작아야 한다."""
+        if keep_tokens >= trigger_tokens:
+            raise ValueError("keep_tokens는 trigger_tokens보다 작아야 해요")
+        self.summary = SummarizationMiddleware(
+            model, trigger=("tokens", trigger_tokens), keep=("tokens", keep_tokens), summarizer=summarizer
+        )
+
+    async def compact(self, graph: Any, config: dict, node: str = "supervisor") -> bool:
+        """스레드 이력이 임계값을 넘으면 요약해 상위 상태에 적용하고 True를 돌려준다.
+
+        `config`의 콜백으로 요약 모델 호출이 기록된다(trace의 summary 이벤트).
+        """
+        snapshot = await graph.aget_state(config)
+        messages = (snapshot.values or {}).get("messages") or []
+        if not messages or snapshot.next:
+            return False  # 새 스레드이거나 승인 대기 중
+        token = var_child_runnable_config.set({"callbacks": config.get("callbacks")})
+        try:
+            update = await self.summary.abefore_model({"messages": messages}, None)
+        finally:
+            var_child_runnable_config.reset(token)
+        if not update:
+            return False
+        await graph.aupdate_state(config, update, as_node=node)
+        return True

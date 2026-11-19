@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 
 from src import guardrails, retriever
 from src.agent import open_agent, pending_interrupt, run_turn
-from src.middleware import ModelUnavailableError
+from src.middleware import is_model_unavailable
 from src.tools import (
     GUEST_DENIED,
     NOT_IN_GUIDE,
@@ -135,6 +135,9 @@ def new_thread_id(user_id: str) -> str:
     return f"{user_id}-{time.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}"
 
 
+HANDOFF_PREFIX = "transfer_to_"  # langgraph-supervisor 핸드오프 도구 이름 앞부분
+
+
 class StepRecorder(BaseCallbackHandler):
     """한 턴 동안 실행된 도구 이름·소요 시간과 도구 결과를 모은다 (`trace.steps`, `contexts`용)."""
 
@@ -145,18 +148,25 @@ class StepRecorder(BaseCallbackHandler):
         self._started: dict[Any, tuple[str, float]] = {}
 
     def on_tool_start(self, serialized: dict, input_str: str, *, run_id: Any, **kwargs: Any) -> None:
-        """도구 시작 시각을 기록한다."""
+        """도구 시작 시각을 기록한다. Supervisor의 `transfer_to_*` 호출은 handoff 이벤트로 남긴다."""
         name = (serialized or {}).get("name") or kwargs.get("name") or "tool"
+        if name.startswith(HANDOFF_PREFIX):
+            self.steps.append({"agent": "supervisor", "event": "handoff", "to": name[len(HANDOFF_PREFIX):]})
+            return
         self._started[run_id] = (name, time.perf_counter())
 
     def on_tool_end(self, output: Any, *, run_id: Any, **kwargs: Any) -> None:
         """도구 소요 시간과 결과 문자열을 기록한다."""
+        if run_id not in self._started:
+            return  # handoff
         name, ms = self._finish(run_id)
         self.steps.append({"tool": name, "ms": ms})
         self.outputs.append((name, str(getattr(output, "content", output))))
 
     def on_tool_error(self, error: BaseException, *, run_id: Any, **kwargs: Any) -> None:
         """승인 대기(interrupt)나 오류로 끝난 도구를 기록한다."""
+        if run_id not in self._started:
+            return  # handoff (Supervisor로 돌아가는 신호도 예외로 올라온다)
         name, ms = self._finish(run_id)
         event = "interrupt" if type(error).__name__ == "GraphInterrupt" else "error"
         self.steps.append({"tool": name, "ms": ms, "event": event})
@@ -348,12 +358,11 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
     context = FridgeContext(user_id=user_id, db_path=db_path)
     try:
         turn = await run_turn(agent, req.question, context, thread_id, resume=req.resume, callbacks=[recorder])
-    except ModelUnavailableError as exc:
-        trace["steps"] = recorder.steps
-        trace["errors"].append(_error("MODEL_UNAVAILABLE", str(exc)[:300]))
-        return reply(MSG_MODEL_UNAVAILABLE)
     except Exception as exc:  # noqa: BLE001 - 어떤 실패든 세 키 형식으로 돌려준다
         trace["steps"] = resend_steps + recorder.steps + context.mcp_calls
+        if is_model_unavailable(exc):  # 서브 에이전트 재시도 끝 실패, 또는 Supervisor 모델의 Bedrock 오류
+            trace["errors"].append(_error("MODEL_UNAVAILABLE", f"{type(exc).__name__}: {exc}"[:300]))
+            return reply(MSG_MODEL_UNAVAILABLE)
         trace["errors"].append(_error("AGENT_ERROR", f"{type(exc).__name__}: {exc}"[:300]))
         return reply(MSG_AGENT_ERROR)
 
