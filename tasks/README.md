@@ -48,3 +48,7 @@ SERVICE.md(APPROVED)와 엔지니어링 리뷰 결정(`.gstack/reviews/eng-revie
 - 화면 입력 방식(조회 버튼 고정 메시지, recipe 평가 결과 JSON 입력 Form)을 SERVICE.md 5.6에 정리했습니다. 평가 문항은 35개로 늘었습니다(TASK-20 참고). 이어서 입고·출고·폐기를 고정된 JSON 재고 입력 Form으로 받기로 해 SERVICE.md 5.1에 정리하고 구현했습니다(`confirm_inventory_form`). 평가 문항은 47개입니다(JSON Form마다 positive 문항: 재고 입고 P08·P11, 출고 P09, 평가 P10). 가족 합의 추천의 참여자는 가족 구성원 정보에 있는 이름만 고려합니다(SERVICE.md 5.5).
 - 권한 관리, 재고 조정 화면, 가족 구성원 관리, 레시피 문서 관리는 이번 구현 범위에서 제외합니다(SERVICE.md 5.7). 이 기능들의 task는 만들지 않았습니다.
 - 평가 입력 Form은 API가 먼저 검사하고, 요청자 한 사람의 승인으로 평가자마다 저장합니다(2026-11-20 결정). 가족은 하나뿐입니다. 남은 결정은 "우리 가족"을 코드에서 해석할지와 guest의 평가 입력 권한입니다(SERVICE.md 17장 열린 질문 2·3).
+
+- 재고·평가 쓰기는 JSON Form으로만 받습니다(2026-11-20 결정, SERVICE.md 5.6). 자연어 입고·출고·폐기와 식사 기록·평가는 API가 `FORM_REQUIRED`로 거절하고, 자연어 쓰기 평가 문항 11개는 negative로 바꿨습니다(47문항 = positive 8, negative 16, edge 14, guardrail 9). TASK-06·07·08·09·11·12·14·15·19에 반영했습니다.
+- 기준표에 없는 품목은 권장 보관일수(양의 정수)가 있어야 등록하고, 등록하면 `storage_items.csv`와 검색 인덱스에 덧붙입니다. 양은 절대값으로 다룹니다(SERVICE.md 5.1, TASK-03·04·10).
+- 2026-11-20 작업은 `design-review` branch에서 진행해 PR #1로 main에 merge했습니다. 최신 전체 평가는 47/47입니다(`run-20261120-052058`). 남은 일은 TASK-20의 리포트와 시연 리허설입니다.

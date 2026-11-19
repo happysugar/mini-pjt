@@ -106,3 +106,8 @@
     평가·헬스 에이전트와 재고 에이전트에 붙였다.
   - 재고 에이전트에 `confirm_inventory_form`과 Form 규칙을, Supervisor에 "재고 입력 Form 확정" 라우팅 문구를 더했다.
   - 확인: E09 재평가(`run-20261120-030614.json`) 통과. Supervisor가 다른 에이전트로 잘못 넘기면 강제가 걸리지 않는 위험은 남는다.
+
+## 후속 변경: 재고·평가 쓰기는 JSON Form으로만 (2026-11-20, PR #1)
+- Supervisor 프롬프트: inventory_agent는 재고 조회·재고 입력 Form 확정, rating_health_agent는 평가 입력 Form 확정을 맡는다. 자연어로 온 쓰기 요청도 담당 에이전트로 넘기고, 에이전트가 Form을 쓰라고 안내한다.
+- 재고·평가 에이전트 프롬프트: 자연어 쓰기 요청에는 `add_items_from_text`·`withdraw_item`·`discard_item`·`confirm_meal`·`get_recipe`를 부르지 않고 고정 문구로 답한다. 도구 목록은 그대로다.
+- API의 형식 가드레일이 먼저 막으므로(TASK-12) 이 프롬프트 규칙은 가드레일을 빠져나간 요청에 대한 두 번째 방어선이다.

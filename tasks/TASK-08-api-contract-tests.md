@@ -49,3 +49,8 @@ Bedrock 없이 몇 초 만에 승인·권한 규칙을 반복 확인할 수 있�
   - 추천: `rank_recipes` 결과가 `contexts`에 레시피 출처로 들어가고 `trace.alerts`에 한우 임박 경고
 - TASK-07 때 쓴 일회성 검증 스크립트의 내용을 이 테스트로 옮겼다.
 
+## 후속 변경: JSON Form 전용 처리 테스트 (2026-11-20, PR #1)
+- `tests/test_api.py`: 자연어 입고·출고·폐기·평가 4건이 모델 호출 없이 `FORM_REQUIRED`로 거절되고 DB가 바뀌지 않는지, 조회 질문은 그대로 에이전트에 가는지 확인한다.
+- 자연어 문장으로 승인·멱등·신원 처리를 검증하던 기존 API 테스트(식사 승인·거절, 대량 출고, guest 쓰기 등)는 `allow_free_text_writes` fixture(`tests/conftest.py`)로 형식 가드레일만 끄고 그대로 둔다. 도구는 등록돼 있으므로 도구 수준 동작은 계속 검증한다.
+- `tests/conftest.py`의 autouse fixture `storage_items_copy`: 테스트마다 품목 기준표 복사본을 쓰게 해 새 품목 등록이 원본에 행을 덧붙이지 않게 한다.
+- pytest 452개 통과.

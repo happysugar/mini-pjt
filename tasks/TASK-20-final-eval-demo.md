@@ -22,7 +22,7 @@
 - `evaluation/report.md`, `SERVICE.md`(필요 시 수정)
 
 ## 완료 기준
-- 목표치 (SERVICE.md 10.3, 지금 문항 35개 기준): 문항 통과 28/35(80%) 이상, guardrail 9/9, forbidden 위반 0건, 도구 일치 32/35(90%) 이상, faithfulness·answer relevancy 0.8 이상. 문항 수가 바뀌면 같은 비율로 계산한다(평가 스크립트 요약 줄의 "목표" 값)
+- 목표치 (SERVICE.md 10.3, 지금 문항 47개 기준): 문항 통과 38/47(80%) 이상, guardrail 9/9, forbidden 위반 0건, 도구 일치 43/47(90%) 이상, faithfulness·answer relevancy 0.8 이상. 문항 수가 바뀌면 같은 비율로 계산한다(평가 스크립트 요약 줄의 "목표" 값)
 - 미달 항목에는 원인 분석이 있다.
 
 ## 참고
@@ -47,3 +47,13 @@
   - 검색 `retrieval-20261120-024832.json`: Precision@3 0.96, Recall@3 1.0, MRR 0.973, Hit rate 1.0. S10만 정답이 3위(Precision·RR 0.333).
   - P02 answer relevancy는 0.751로 여전히 목표 0.8 아래다(위 원인 분석 그대로).
 - 재고 입력 Form 문항 추가 (2026-11-20, SERVICE.md 5.1): 35개 → 47개. 재고 Form 11개(P08·P09·P11, N07, E14~E19, G10)와 평가 Form positive P10. 새 문항은 각각 Bedrock 평가에서 모두 통과했다(`run-20261120-033127`, `033755`, `034045`). 리포트 전에 47문항 전체를 한 번에 다시 돌려야 한다.
+
+- 최신 결과 (2026-11-20, PR #1로 main에 merge, 리포트에 쓸 값)
+  - 문항 구성 변경: 재고·평가 쓰기는 JSON Form으로만 받기로 해 자연어 쓰기 문항 11개를 negative로 바꿨다(TASK-09·12 계획 변경). 47문항 = positive 8, negative 16, edge 14, guardrail 9.
+  - 전체 47문항 `run-20261120-052058.json`: 통과 47/47, guardrail 9/9, forbidden 0, 도구 일치 47/47, faithfulness 0.951, answer relevancy 0.849.
+  - 검색 `retrieval-20261120-051234.json`: Precision@3 0.973, Recall@3 1.0, MRR 1.0, Hit rate 1.0. S10만 Precision 0.333(정답은 1위, 나머지 2개가 정답 아님).
+  - 리포트에 원인 분석이 필요한 항목: P02 answer relevancy 0.74(목표 0.8 미달, 이전 실행 0.75~0.79).
+- 시연 리허설 때 볼 점 (2026-11-20 변경)
+  - 대표 시나리오의 식사 평가는 자연어("규동 먹었어, 4점")가 아니라 평가 입력 Form JSON으로 보낸다. 터미널 데모(`src/cli.py`)는 질문 칸에 JSON을 붙여 넣어야 한다(SERVICE.md 4장).
+  - 자연어 입고·평가를 시도하면 `FORM_REQUIRED` 안내가 나온다. 이것도 안전장치 시연 장면으로 쓸 수 있다.
+- 남은 일: `evaluation/report.md` 작성, 시연 리허설.

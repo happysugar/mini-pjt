@@ -41,10 +41,10 @@ Mode: Builder (Learning, 교육 과정 개인 미니 프로젝트)
    - 이탈리아식: 신메뉴 "소고기 라구 파스타". 부족한 재료는 토마토 캔이라고 함께 알려줍니다.
    - 중식: 신메뉴 "소고기 굴소스볶음". 슬롯의 신메뉴가 이미 2개라 추가 신메뉴는 붙지 않습니다.
    - 레시피와 출처 문서는 `contexts`로 돌려줍니다.
-4. 식사 후 `dad`: "규동 먹었어, 4점"
-5. 인분 정보가 없으므로 Agent가 되묻습니다(5.3의 확인 질문). "몇 인분 만들었고, 본인은 몇 인분 드셨나요?"
-6. `dad`: "2인분 만들어서 1인분 먹었어"
-7. Agent가 HITL로 승인을 요청합니다. "규동 평가 4점 저장, 2인분 기준 한우 300g·양파 1개 차감, dad 식사 1인분 680kcal를 Galaxy Watch에 기록. 진행할까요?"
+4. 식사 후 `dad`가 화면의 평가 입력 Form을 보냅니다: `{"recipe": "규동", "cooked": "2 인분", "ratings": [{"evaluator": "dad", "eaten": "1 인분", "score": 4}]}` (자연어 평가는 받지 않습니다, 5.6)
+5. API가 모델을 부르기 전에 Form의 형식과 값(인분 형식, 가족 구성원 여부, 점수 1~5, 식사량 합계)을 검사하고, 통과하면 Form을 그 스레드에 보관합니다.
+6. 평가·헬스 에이전트가 확정 도구 `confirm_meal_form`을 부릅니다. 도구는 보관된 Form만 읽습니다.
+7. 도구가 HITL로 승인을 요청합니다. "규동 평가 4점 저장, 2인분 기준 한우 300g·양파 1개 차감, dad 식사 1인분 680kcal를 Galaxy Watch에 기록. 진행할까요?"
 8. 승인하면 SQLite에 평가, 식사 기록, 재고 차감을 한 트랜잭션으로 남기고, 이어서 헬스케어 MCP 서버에 `record_meal`을 호출합니다(실패 처리는 5.3).
 9. CLI는 `trace.rescued_g_week`를 읽어 "이번 주 폐기 회피 300g"을 화면 하단에 보여줍니다. 한우가 차감 시점에 D-day 2였으므로 300g이 집계됩니다.
 
@@ -161,6 +161,7 @@ Mode: Builder (Learning, 교육 과정 개인 미니 프로젝트)
 
 ### 5.3 평가·식사 실적·헬스케어 연동
 
+- 평가는 화면의 평가 입력 Form(JSON)으로만 받습니다(5.6 "JSON Form으로만"). "~ 먹었어, 4점" 같은 자연어 평가는 API가 `FORM_REQUIRED`로 거절합니다. 아래 자연어 경로 규칙(인분 되묻기, 다른 가족 구성원 계정 요청)은 `confirm_meal` 도구에 남아 있고 pytest로만 검증합니다.
 - 평가는 1~5점이며, `user_id`별로 저장합니다.
 - **평가 입력은 곧 식사 완료**로 봅니다. 하나의 HITL 승인으로 다음 세 가지를 처리합니다.
   - (a) 식사 실적 기록
@@ -330,8 +331,8 @@ Mode: Builder (Learning, 교육 과정 개인 미니 프로젝트)
 
 | # | 개념 | 이 서비스에서의 쓰임 | 위치 | 시연 장면 |
 |---|---|---|---|---|
-| 1 | LCEL + Pydantic | 자연어 입고 문장을 `InventoryInput` 목록으로 파싱합니다(`prompt \| llm.with_structured_output`). 추천 결과 `RecommendationResult`는 결정적 함수 `rank_recipes`가 만들고 LLM은 설명만 합니다(R6 결정) | `src/chains.py` | "한우 600g, 두부 1모, 우유 1L 샀어" |
-| 2 | ReAct (bind_tools) | 재고 에이전트가 입고·출고·조회·폐기 도구를 스스로 골라 호출합니다 | `src/agent.py`, `src/tools.py` | trace의 tool 호출 순서 |
+| 1 | LCEL + Pydantic | 자연어 입고 문장을 `InventoryInput` 목록으로 파싱합니다(`prompt \| llm.with_structured_output`). 2026-11-20부터 API는 자연어 입고를 받지 않으므로 이 체인은 `add_items_from_text` 도구와 pytest에서만 씁니다. 추천 결과 `RecommendationResult`는 결정적 함수 `rank_recipes`가 만들고 LLM은 설명만 합니다(R6 결정) | `src/chains.py` | "한우 600g, 두부 1모, 우유 1L 샀어" |
+| 2 | ReAct (bind_tools) | 재고 에이전트가 재고 조회·재고 입력 Form 확정 도구를, 요리추천 에이전트가 재고·칼로리·레시피 도구를 스스로 골라 호출합니다 | `src/agent.py`, `src/tools.py` | trace의 tool 호출 순서 |
 | 3 | RAG (하이브리드·리랭킹·쿼리 확장) | 레시피 32~40개와 보관 가이드를 대상으로 kiwi 형태소 BM25와 Chroma 벡터 검색을 RRF로 결합하고, LLM 기반 리랭커로 상위 문서를 다시 고릅니다. 쿼리 확장은 "소고기 → 한우, 우둔, 차돌" 식입니다 | `src/retriever.py` | `contexts` 필드 |
 | 4 | 도구 다중 | "오늘 저녁 뭐 먹지?" 한 번에 재고 DB 조회, D-day·칼로리 계산기, 레시피 검색을 결합합니다(M2부터). M4부터는 요리추천 에이전트에도 워치 MCP `get_calorie_budget`(외부 시스템 역할)을 붙여, DB·계산기·외부 API 세 종류를 한 질의에서 함께 씁니다. 에이전트의 `get_calorie_budget` 호출은 도구 인자에 `user_id`가 없어 요청자 본인 것만 조회되고, 칼로리 제약 계산은 `rank_recipes`가 코드에서 직접 남은 칼로리를 읽어 합니다(혼자 먹으면 요청자, 같이 먹으면 참여자 전원). 그래서 에이전트 호출은 이 개념을 trace에 보이기 위한 단계이고 수치는 답에 쓰지 않습니다 | `src/tools.py` | 대표 시나리오 3단계 (M4 이후 완전한 형태) |
 | 5 | MCP 연동 | 헬스케어 시스템(Galaxy Watch mock)을 FastMCP 서버로 노출합니다. 에이전트는 `langchain-mcp-adapters`로 조회 도구(`get_calorie_budget`, `get_daily_intake`)를 쓰고, `record_meal`은 식사 확정 도구가 코드에서 MCP 클라이언트로 호출합니다 | `src/health_mcp_server.py` | 대표 시나리오 8단계 |
@@ -509,6 +510,7 @@ SQLite 스키마 요약:
   - 도구 일치율 90% 이상
   - faithfulness 0.8 이상, answer relevancy 0.8 이상
   - 검색 Recall@3 0.8 이상, MRR 0.7 이상 (Precision@3은 정답이 1개인 질의가 많아 리포트에만 적습니다)
+- **최근 결과 (2026-11-20)**: 전체 47문항 `run-20261120-052058.json` 통과 47/47, guardrail 9/9, forbidden 위반 0건, 도구 일치 47/47, faithfulness 0.951, answer relevancy 0.849(P02만 0.74로 목표 아래). 검색 `retrieval-20261120-051234.json` Precision@3 0.973, Recall@3 1.0, MRR 1.0, Hit rate 1.0.
 - **리포트**: `evaluation/report.md`. 지표 표, 실패 문항별 원인 분석, 개선 이력을 담습니다.
 
 ## 11. 전제 (확정)

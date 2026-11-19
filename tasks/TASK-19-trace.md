@@ -40,3 +40,6 @@
   - `middleware` 이벤트가 모델 호출마다 6개(PII 3종 × before/after)라 jsonl의 절반 이상을 차지한다. 리포트에서 개념별로 볼 때는 `concepts`로 거르면 되지만, 파일 크기가 문제가 되면 미들웨어 이벤트를 모델 호출당 하나로 묶는다.
   - LangSmith 전송은 키가 없어 실제로 확인하지 못했다. 키를 `.env`에 넣으면 서버 시작 때 켜진다.
   - `trace.jsonl`은 회전 없이 계속 덧붙인다. 시연 전 지우거나 `TRACE_FILE`로 실행별 파일을 지정한다.
+
+## 후속 변경 (2026-11-20, PR #1)
+- `guardrail.format`(#6) 이벤트를 더했다. 형식 가드레일이 자연어 재고·평가 쓰기 요청을 막으면 `{"code": "FORM_REQUIRED", "reasons": [...]}`를 남긴다. 응답 `trace.guardrail.format`과 같은 값이다.

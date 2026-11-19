@@ -47,3 +47,10 @@
 - 검증 (CLI, 실제 Bedrock): 추천 → "규동 먹었어, 4점" → 인분 되묻기 → "2인분 만들어서 1인분 먹었어" → 승인 요약 → y → 저장 → 하단 폐기 회피량까지 9단계를 끝까지 진행했다.
 - 참고: Windows Git Bash에서 `curl -d '{"question":"한글"}'`은 본문이 UTF-8로 가지 않아 400이 난다. 본문을 파일로 저장해 `--data-binary @q.json`으로 보내야 한다.
 - 남은 점: 입력·출력 가드레일은 TASK-12, `watch_synced = 0` 재전송은 TASK-14, 상세 trace는 TASK-19.
+
+## 후속 변경: 재고 Form·JSON Form 전용·기준표 동기화 (2026-11-20, PR #1)
+- 요청 처리 순서에 두 단계를 더했다: … → 입력 가드레일 → 평가 입력 Form 검사 → 재고 입력 Form 검사(형식 + 지금 재고) → **형식 가드레일**(`guardrails.check_free_text_write`) → 에이전트.
+  - 형식 가드레일은 JSON Form이 아닌 자연어 재고 입고·출고·폐기와 식사 기록·평가 요청을 모델 호출 없이 거절하고 `FORM_REQUIRED`를 남긴다(SERVICE.md 5.6, 8장).
+  - 응답 `trace.guardrail`에 `format`을 더했다(걸리지 않으면 null).
+- 서버 시작(lifespan) 때 `tools.sync_guide_db()`로 `item_units`에 등록된 품목 중 기준표에 빠진 것을 덧붙인 뒤 검색 인덱스를 만든다(SERVICE.md 5.1 "기준표 자동 추가").
+- 터미널 데모는 그대로다. 식사 평가와 재고 쓰기는 질문 칸에 JSON Form을 붙여 넣어야 한다.

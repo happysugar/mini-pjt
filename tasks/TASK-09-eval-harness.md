@@ -135,4 +135,4 @@
   - id는 머리글자 규칙에 맞춰 바꿨다: P01→N08, P04→N09, P06→N10, E01→N11, E02→N12, E04→N13, E05→N14, E06→N15, G04→N16. N04·N05는 그대로.
   - 기대 특성: "~ Form(JSON)으로만 받는다고 안내; 저장하지 않았다고 안내". 기대 도구: 없음. note에 `FORM_REQUIRED`와 대신 쓸 Form 문항을 적었다.
   - 구성: positive 8, negative 16, edge 14, guardrail 9 (전체 47문항). `tests/test_eval.py` 80개 통과.
-- Bedrock 평가는 아직 돌리지 않았다.
+- Bedrock 평가: 바뀐 11문항 `run-20261120-050652.json` 11/11(모두 `FORM_REQUIRED`로 거절, 도구 호출 없음). 전체 47문항 `run-20261120-052058.json` 47/47(`539d5e7`). 평가 뒤 원본 `data/storage_items.csv`는 바뀌지 않았다(문항별 기준표 격리 확인).

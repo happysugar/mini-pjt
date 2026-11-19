@@ -58,3 +58,7 @@
 ### 다음 task에 넘기는 점
 - P02 평가의 `expected_tools`는 `list_inventory; search_recipes; rank_recipes`인데, 지금 에이전트는 `rank_recipes`만 부른다. 결과는 맞지만 도구 일치 점수와 `contexts`(레시피 출처)를 위해 TASK-09에서 프롬프트나 도구 구성을 조정해야 한다.
 - **결정 (2026-11-18): (a) 결정적 함수.** 추천 결과는 `rank_recipes`가 만들고 LLM은 설명만 한다. SERVICE.md 6장 #1과 tasks/README.md "남은 결정"에 반영했다.
+
+## 후속 변경 (2026-11-20, PR #1)
+- 화면 입력이 JSON Form으로 바뀌면서 API로 들어오는 승인(HITL)은 `confirm_meal_form`(평가 입력 Form)과 `confirm_inventory_form`(대량 출고·폐기)이 받는다. 같은 승인 구현 규칙(읽기 → `interrupt()` → 한 트랜잭션 저장, 멱등 키)을 쓴다.
+- 자연어용 승인 도구(`confirm_meal`, `withdraw_item`, `discard_item`)는 등록해 두지만 API는 자연어 쓰기 요청을 받지 않는다(SERVICE.md 5.6). 이 도구들의 승인·멱등 동작은 pytest(`allow_free_text_writes`)로 계속 검증한다.

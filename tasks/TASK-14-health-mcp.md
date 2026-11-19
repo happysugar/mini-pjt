@@ -48,3 +48,7 @@ Galaxy Watch 헬스케어 모듈을 흉내 내는 MCP 서버를 만들고, 식�
   - E03은 아직 `get_calorie_budget`을 부르지 않는다. 가족 저녁 추천에서 참여자별 남은 칼로리를 `rank_recipes(calorie_budgets=...)`로 넘기는 연결은 TASK-17에서 한다. 지금 조회 도구는 요청자 본인 것만 읽는다.
   - 워치 조회 도구는 서버 시작 때 한 번 불러온다. API를 먼저 띄우고 워치 서버를 나중에 켜면 API를 다시 시작해야 조회 도구가 붙는다(`record_meal` 동기화는 요청마다 연결하므로 영향 없음).
   - M4 Supervisor 분할(TASK-15) 뒤에도 `FridgeContext.mcp_calls`가 서브 에이전트까지 같은 객체로 전달되는지 확인이 필요하다.
+
+## 후속 변경 (2026-11-20, PR #1)
+- API로 들어오는 식사 기록은 평가 입력 Form(`confirm_meal_form`)뿐이다. 평가자마다 워치 기록을 남기고, 같은 멱등 키·재전송 규칙을 쓴다.
+- 자연어 식사 기록으로 워치 기록·재전송을 검증하던 테스트(`tests/test_health_mcp.py`)는 `allow_free_text_writes` fixture로 형식 가드레일만 끄고 그대로 둔다.
