@@ -97,15 +97,20 @@ def test_p01_hanwoo_auto_sn_and_guide_expiry(conn):
     assert (r["expiry_date"], r["expiry_source"]) == ("2026-11-23", "guide")
 
 
-def test_e01_duplicate_sn_saved_with_auto_sn(conn):
-    [r] = tools.add_parsed_items(
-        conn, _inputs({"item": "두부", "qty": 1, "unit": "모", "input_date": "-1", "sn": "2026-11-001"})
-    )
-    assert r["status"] == "added" and r["sn_replaced"] is True
-    assert r["requested_sn"] == "2026-11-001" and "이미 있는 S/N" in r["sn_reason"]
-    assert r["sn"] != "2026-11-001" and tools.SN_PATTERN.match(r["sn"])
+def test_e01_duplicate_sn_suggests_then_saves_next_turn(conn):
+    tofu = {"item": "두부", "qty": 1, "unit": "모", "input_date": "-1"}
+    before = conn.execute("SELECT COUNT(*) FROM inventory").fetchone()[0]
+    # 1턴: 중복 S/N이면 저장하지 않고 제안한다. 안내용 투입일자·기준 단위 수량을 함께 준다.
+    [r] = tools.add_parsed_items(conn, _inputs({**tofu, "sn": "2026-11-001"}))
+    assert r["status"] == "sn_invalid" and "이미 있는 S/N" in r["reason"]
+    assert tools.SN_PATTERN.match(r["suggested_sn"]) and r["suggested_sn"] != "2026-11-001"
     assert (r["qty"], r["unit"], r["input_date"]) == (1, "개", "2026-11-19")
-    assert r["expiry_date"] == "2026-11-26"  # 어제 + 두부 권장 7일
+    assert conn.execute("SELECT COUNT(*) FROM inventory").fetchone()[0] == before
+    # 2턴: 사용자가 동의하면 제안 S/N으로 다시 입고한다.
+    [added] = tools.add_parsed_items(conn, _inputs({**tofu, "sn": r["suggested_sn"]}))
+    assert added["status"] == "added" and added["sn"] == r["suggested_sn"]
+    assert (added["qty"], added["unit"], added["input_date"]) == (1, "개", "2026-11-19")
+    assert added["expiry_date"] == "2026-11-26"  # 어제 + 두부 권장 7일
     # 기존 2026-11-001(양파)은 그대로다.
     row = conn.execute("SELECT item FROM inventory WHERE sn = '2026-11-001'").fetchone()
     assert row["item"] == "양파"

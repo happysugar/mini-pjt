@@ -1332,19 +1332,17 @@ NO_ITEMS_FOUND = "입고할 품목을 찾지 못했어요. 품목과 양을 다�
 def add_parsed_items(conn: sqlite3.Connection, items: list[InventoryInput]) -> list[dict]:
     """파싱된 입고 목록을 `add_inventory`로 한 건씩 입고한다. 커밋은 호출한 쪽이 한다.
 
-    사용자가 준 S/N이 중복이거나 형식이 틀리면 그 S/N은 쓰지 않고 자동 발번 S/N으로 저장한다
-    (SERVICE.md 5.1: S/N은 유일한 식별자이고, 쓸 수 있는 값이 없으면 자동 발번).
-    이때 결과에 `sn_replaced=True`, 요청한 `requested_sn`, 거절 이유 `sn_reason`을 남긴다.
+    사용자가 준 S/N이 중복이거나 형식이 틀리면 저장하지 않고 `sn_invalid`와 자동 발번
+    `suggested_sn`을 돌려준다(SERVICE.md 5.1 "중복 S/N 처리"). 사용자가 확인한 뒤 다음 턴에
+    그 S/N으로 다시 입고한다. 안내에 쓰도록 계산한 투입일자와 기준 단위 수량도 함께 담는다.
     """
     results = []
     for it in items:
         try:
             result = add_inventory(conn, it.item, it.qty, it.unit, it.input_date, it.expiry_date, it.sn)
             if result["status"] == "sn_invalid":
-                rejected = result
-                result = add_inventory(conn, it.item, it.qty, it.unit, it.input_date, it.expiry_date, None)
-                if result["status"] == "added":
-                    result.update(sn_replaced=True, requested_sn=rejected["sn"], sn_reason=rejected["reason"])
+                qty, unit = convert_to_base(it.item, it.qty, it.unit, conn)
+                result.update(input_date=resolve_date(it.input_date).isoformat(), qty=qty, unit=unit)
             results.append(result)
         except ValueError as e:
             results.append({"status": "invalid", "item": it.item, "message": str(e)})
@@ -1358,8 +1356,9 @@ def add_items_from_text(runtime: ToolRuntime[FridgeContext], text: str) -> str:
     text에는 사용자의 입고 문장을 고치지 말고 그대로 넣는다(예: "어제 두부 1모 샀어").
     도구가 문장을 품목 목록으로 파싱하고, 날짜·S/N·유효기간·단위 환산을 직접 계산한다.
     결과 항목마다 input_date, qty·unit(기준 단위), sn, expiry_date를 그대로 안내한다.
-    `sn_replaced`가 true면 요청한 S/N(requested_sn)이 쓸 수 없어(sn_reason) 자동 발번 S/N으로
-    저장했다고 알리고, 다른 번호를 원하면 말해 달라고 한다. status가 `unit_mismatch`면
+    status가 `sn_invalid`면 저장하지 않았다. 이유(reason)와 suggested_sn을 알리고 그 S/N으로
+    저장할지 묻는다. 사용자가 동의하면 원래 입고 문장의 S/N만 suggested_sn으로 바꾼 문장을
+    text로 다시 넘긴다(예: "어제 산 두부 1모 넣었어, S/N은 2026-11-014"). status가 `unit_mismatch`면
     기준 단위로 다시 물어본다. expiry_source가 `unknown`이면 유효기간 미상으로 저장됐다고 알린다.
     """
     from src.chains import parse_inventory_text

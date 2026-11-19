@@ -274,13 +274,15 @@ def test_add_items_from_text_runs_parse_chain(make_client, env, monkeypatch):
     text = "어제 산 두부 1모 넣었어, S/N은 2026-11-001"
     parser = FakeParser([{"item": "두부", "qty": 1, "unit": "모", "input_date": "-1", "sn": "2026-11-001"}])
     monkeypatch.setattr(chains, "build_parse_model", lambda: parser)
-    client, ask = make_client(call("add_items_from_text", {"text": text}), say("넣었어요."))
+    client, ask = make_client(call("add_items_from_text", {"text": text}), say("이미 있는 S/N이에요."))
+    before = counts(env)
     r = ask({"question": text})
     assert parser.texts == [text]
     [out] = json.loads(tool_outputs(client, r["trace"]["thread_id"])[0])
-    assert out["status"] == "added" and out["sn_replaced"] and out["requested_sn"] == "2026-11-001"
+    # 중복 S/N이면 저장하지 않고 제안한다(2턴째 저장은 test_chains에서 확인).
+    assert out["status"] == "sn_invalid" and out["suggested_sn"] != "2026-11-001"
     assert (out["qty"], out["unit"], out["input_date"]) == (1, "개", "2026-11-19")
-    assert r["trace"]["errors"] == []
+    assert counts(env) == before and r["trace"]["errors"] == []
 
 
 def test_guest_cannot_add_items(make_client, env, monkeypatch):
