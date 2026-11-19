@@ -332,6 +332,11 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
     def reply(answer: str, contexts: list[str] | None = None) -> QueryResponse:
         """현재 trace로 응답을 만든다. 답은 출력 가드레일로 개인정보를 가린 뒤 돌려준다."""
         masked, kinds = guardrails.mask_output(answer, trace["user_id"] or "")
+        pending = trace["pending_interrupt"]
+        if pending and pending.get("summary"):  # 승인 대기 요약도 응답의 일부이므로 같은 방식으로 가린다
+            summary, pending_kinds = guardrails.mask_output(pending["summary"], trace["user_id"] or "")
+            trace["pending_interrupt"] = {**pending, "summary": summary}
+            kinds += [k for k in pending_kinds if k not in kinds]
         trace["guardrail"]["output"] = kinds
         tracer.guardrail("output", kinds)
         tracer.finish("error" if trace["errors"] else "ok", trace["errors"])
@@ -388,8 +393,16 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
     # confirm_meal_form이 보관된 값만 읽어 요청자 한 사람의 승인으로 평가자마다 저장한다.
     # 걸리면 저장하지 않고 고정 문구로 답한다.
     question = req.question
+
+    def refuse_guest_form() -> QueryResponse:
+        """guest의 쓰기 Form은 보관하지 않고 모델도 부르지 않고 거절한다 (SERVICE.md 8장 GUEST_READ_ONLY)."""
+        trace["errors"].append(_error("GUEST_READ_ONLY", "guest는 조회만 할 수 있어요"))
+        return reply(GUEST_DENIED)
+
     if not req.resume:
         form = guardrails.check_rating_form(req.question, user_id)
+        if form.is_form and user_id == GUEST_USER:
+            return refuse_guest_form()
         if form.is_form:
             trace["form"] = form.as_trace()
             if form.code:
@@ -402,6 +415,8 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
     # (S/N 중복, 보유량 등), 통과하면 보관한 Form을 재고 에이전트의 confirm_inventory_form이 읽어 처리한다.
     if not req.resume and question == req.question:
         stock_form = guardrails.check_inventory_form(req.question)
+        if stock_form.is_form and user_id == GUEST_USER:
+            return refuse_guest_form()
         if stock_form.is_form:
             if not stock_form.code:
                 problems = await asyncio.to_thread(check_inventory_form_stock, db_path, stock_form.form)

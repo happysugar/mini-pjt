@@ -388,6 +388,28 @@ def test_guest_cannot_add_items(make_client, env, monkeypatch):
     assert codes(r) == ["GUEST_READ_ONLY"]
 
 
+# Regression: ISSUE-002 — a guest's JSON form was stored on the thread and sent to the model before refusal
+# Found by /qa on 2026-11-20
+# Report: ~/.gstack/projects/happysugar-mini-pjt/qa-reports/run-20261119T205310Z/qa-report-api-2026-11-20.md
+@pytest.mark.parametrize("kind", ["stock", "meal"])
+def test_guest_form_refused_before_model(make_client, env, monkeypatch, kind):
+    """guest가 보낸 재고·평가 입력 Form은 모델을 부르지 않고 거절하고, Form도 보관하지 않는다(SERVICE.md 8장)."""
+    monkeypatch.delenv("DEFAULT_USER")
+    _, ask = make_client(say("모델을 부르면 안 돼요."))
+    before = counts(env)
+    question = stock_form(item="두부", qty=2, unit="개", status="stored") if kind == "stock" else FORM_OK
+    r = ask({"question": question})
+    assert r["trace"]["user_id"] == "guest" and codes(r) == ["GUEST_READ_ONLY"]
+    assert r["answer"] == tools.GUEST_DENIED and r["trace"]["steps"] == []
+    assert counts(env) == before
+    conn = tools.connect(env)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM inventory_forms").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM meal_forms").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
 # ── 대량 출고 (HITL) ────────────────────────────────────────────
 
 
@@ -576,6 +598,32 @@ def test_multi_evaluator_form_saved_with_one_approval(make_client, env):
     assert _user_rows(env, "meals") == [("dad", 1.0), ("mom", 1.0)]
     after = counts(env)
     assert after["hanwoo"] == before["hanwoo"] - 300 and after["onion"] == before["onion"] - 1  # 2인분 한 번만 차감
+
+
+# Regression: ISSUE-001 — trace.pending_interrupt.summary exposed another member's kcal unmasked
+# Found by /qa on 2026-11-20
+# Report: ~/.gstack/projects/happysugar-mini-pjt/qa-reports/run-20261119T205310Z/qa-report-api-2026-11-20.md
+def test_pending_summary_masks_other_family_kcal(make_client, env):
+    """승인 대기 요약도 답변처럼 다른 가족 구성원의 칼로리를 가린다(출력 가드레일은 응답 전체에 적용)."""
+    _, ask = make_client(call("confirm_meal_form", {}), say("저장했어요."))
+    r = ask({"question": FORM_TWO, "thread_id": "dad-form-mask"}, DAD)
+    summary = r["trace"]["pending_interrupt"]["summary"]
+    assert "mom 1인분 ***kcal" in r["answer"]
+    assert "mom 1인분 ***kcal" in summary and "dad 1인분 680kcal" in summary
+    again = ask({"question": "규동 몇 점이었지?", "thread_id": "dad-form-mask"}, DAD)  # 대기 중 새 질문(INTERRUPT_PENDING)
+    assert "mom 1인분 ***kcal" in again["trace"]["pending_interrupt"]["summary"]
+
+
+# Regression: ISSUE-003 — the approval summary read "1인분을 kcal을 몰라" for a dish without a recipe
+# Found by /qa on 2026-11-20
+# Report: ~/.gstack/projects/happysugar-mini-pjt/qa-reports/run-20261119T205310Z/qa-report-api-2026-11-20.md
+def test_unknown_recipe_form_summary_reads_naturally(make_client, env):
+    """레시피에 없는 요리는 식사 기록 저장과 워치 기록 생략을 따로 적는다(조사 겹침 없음)."""
+    _, ask = make_client(call("confirm_meal_form", {}), say("저장했어요."))
+    r = ask({"question": FORM_TWO.replace("규동", "에어프라이어 와플"), "thread_id": "dad-form-waffle"}, DAD)
+    summary = r["trace"]["pending_interrupt"]["summary"]
+    assert "식사 기록 dad 1인분·mom 1인분 저장, kcal을 몰라 워치 기록은 생략" in summary
+    assert "을 kcal을" not in summary
 
 
 def test_multi_evaluator_form_reject_saves_nothing(make_client, env):
