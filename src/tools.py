@@ -1205,6 +1205,7 @@ WATCH_PENDING = "워치 기록은 아직 연결 전이라 대기 중이에요"
 WATCH_OK = "워치에 기록했어요"
 WATCH_FAILED = "워치 기록 실패, 다음 요청 때 다시 시도할게요"
 WATCH_TIMEOUT_S = 10
+CALORIE_UNKNOWN = "워치 칼로리 정보를 확인하지 못해 칼로리 제약 없이 골랐어요"
 
 # 테스트에서 MCP 서버 객체(FastMCP)를 직접 넣을 때 쓴다. None이면 `HEALTH_MCP_URL`을 쓴다.
 _HEALTH_TARGET_OVERRIDE: object | None = None
@@ -1289,6 +1290,43 @@ def sync_meals_to_watch(conn: sqlite3.Connection, user_id: str, caller: str, mea
             with conn:
                 conn.execute("UPDATE meals SET watch_synced = 1 WHERE id = ?", (row["id"],))
     return steps
+
+
+async def _calorie_budgets_mcp(target: object, members: list[str]) -> dict[str, float]:
+    """MCP 클라이언트 하나로 참여자마다 `get_calorie_budget`을 불러 `{user_id: 남은 kcal}`을 돌려준다."""
+    from fastmcp import Client  # 서버를 쓰지 않는 테스트에서 import 비용을 피한다
+
+    async def call() -> dict[str, float]:
+        budgets: dict[str, float] = {}
+        async with Client(target) as client:
+            for member in members:
+                result = await client.call_tool("get_calorie_budget", {"user_id": member})
+                budgets[member] = float((result.structured_content or {})["remaining_kcal"])
+        return budgets
+
+    return await asyncio.wait_for(call(), timeout=WATCH_TIMEOUT_S)
+
+
+def fetch_calorie_budgets(members: list[str], caller: str) -> tuple[dict[str, float] | None, list[dict]]:
+    """가족 합의 저녁용으로 참여자 전원의 오늘 남은 kcal을 워치 MCP에서 읽는다 (SERVICE.md 5.5).
+
+    코드에서만 부르고 값은 `recommend_family`의 칼로리 제약에만 쓴다. 에이전트(LLM)에는 넘기지 않으므로
+    다른 가족의 수치가 답변에 들어갈 길이 없다. 워치 연동이 꺼져 있거나 한 명이라도 읽지 못하면
+    `(None, 기록)`을 돌려주고 칼로리 제약을 건너뛴다. trace 기록에는 수치를 남기지 않는다.
+    """
+    target = health_target()
+    if target is None:
+        return None, []
+    started = time.perf_counter()
+    step = {"tool": "get_calorie_budget", "via": "mcp", "caller": caller, "members": len(members)}
+    try:
+        budgets = _run_coro(_calorie_budgets_mcp(target, members))
+        step["event"] = "ok"
+    except Exception as exc:  # noqa: BLE001 - 서버 꺼짐·시간 초과면 칼로리 제약 없이 추천한다
+        budgets = None
+        step["event"], step["error"] = "error", f"{type(exc).__name__}: {exc}"[:200]
+    step["ms"] = int((time.perf_counter() - started) * 1000)
+    return budgets, [step]
 
 
 def resend_unsynced_meals(db_path: str | None, user_id: str) -> list[dict]:
@@ -1676,7 +1714,8 @@ def rank_recipes(runtime: ToolRuntime[FridgeContext], category: str | None = Non
 
     - category: 한식·일식·이탈리아식·중식 중 하나. 지정하지 않으면 네 카테고리 슬롯으로 추천한다.
     - diners: 함께 먹는 가족 이름(예: ["엄마", "지민"]). 요청자는 자동 포함이므로 넣지 않는다.
-      주면 가족 합의 저녁 규칙으로 메뉴 1개와 신메뉴 2개를 고른다.
+      주면 가족 합의 저녁 규칙으로 메뉴 1개와 신메뉴 2개를 고른다. 참여자 알레르기·비선호를 빼고,
+      참여자 전원의 남은 칼로리를 워치에서 읽어 within_calorie_budget(모두의 남은 칼로리 안인지)만 돌려준다.
     """
     ctx = _context(runtime)
     conn = _open(runtime)
@@ -1695,7 +1734,12 @@ def rank_recipes(runtime: ToolRuntime[FridgeContext], category: str | None = Non
         store = getattr(runtime, "store", None)
         if others:
             profiles = memory.filter_profiles(store, [ctx.user_id, *others]) if store is not None else None
-            result = recommend_family(conn, ctx.user_id, others, profiles=profiles)
+            # 참여자 전원의 남은 칼로리는 코드에서만 읽어 칼로리 제약에 쓴다(답변에는 "모두의 남은 칼로리 안" 여부만).
+            budgets, steps = fetch_calorie_budgets([ctx.user_id, *others], caller="rank_recipes")
+            ctx.mcp_calls.extend(steps)
+            result = recommend_family(conn, ctx.user_id, others, profiles=profiles, calorie_budgets=budgets)
+            if budgets is None:
+                notes.append(CALORIE_UNKNOWN)
         else:
             profile = memory.profile_or(store, ctx.user_id, seed_profile(ctx.user_id))
             result = recommend(conn, ctx.user_id, category=category,

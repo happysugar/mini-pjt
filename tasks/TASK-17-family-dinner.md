@@ -10,11 +10,11 @@
 "오늘 저녁 엄마랑 지민이랑 같이 먹을 거 추천해줘"에 참여자 모두의 평점·알레르기·남은 칼로리를 반영해 답한다.
 
 ## 작업 내용
-- [ ] 요청 문장에서 참여자 추출 (요청자 자동 포함)
-- [ ] TASK-05의 가족 합의 규칙 함수 연결: 안전 필터 → 칼로리 제약(워치 MCP) → 출력 2개
-- [ ] 답변에는 개인별 평점·칼로리 수치를 넣지 않고 "모두의 남은 칼로리 안"인지만 표시
-- [ ] 후보가 없을 때 이유(재고, 알레르기, 비선호) 안내
-- [ ] 식사 확정은 요청자 본인 기록만 남김
+- [x] 요청 문장에서 참여자 추출 (요청자 자동 포함)
+- [x] TASK-05의 가족 합의 규칙 함수 연결: 안전 필터 → 칼로리 제약(워치 MCP) → 출력 2개
+- [x] 답변에는 개인별 평점·칼로리 수치를 넣지 않고 "모두의 남은 칼로리 안"인지만 표시
+- [x] 후보가 없을 때 이유(재고, 알레르기, 비선호) 안내
+- [x] 식사 확정은 요청자 본인 기록만 남김
 
 ## 대상 파일
 - `src/tools.py`, `src/agent.py`
@@ -24,3 +24,24 @@
 
 ## 참고
 - SERVICE.md 4장 확장 시나리오, 5.5
+
+## 결과 (2026-11-19)
+- 작업 브랜치 `task-17-family-dinner`(main `90cfc28`에서 분기). main 병합은 승인 후에 한다.
+- `src/tools.py`
+  - `fetch_calorie_budgets(members, caller)`: 참여자 전원의 오늘 남은 kcal을 워치 MCP `get_calorie_budget`으로 코드에서 읽는다
+    (fastmcp `Client` 하나로 참여자마다 호출, 10초 제한). 값은 칼로리 제약에만 쓰고 에이전트(LLM)에는 넘기지 않는다.
+    trace에는 `{tool: get_calorie_budget, via: mcp, caller: rank_recipes, members, event, ms}`만 남기고 수치는 남기지 않는다.
+    워치 연동이 꺼져 있거나 한 명이라도 읽지 못하면 `None`을 돌려주고 칼로리 제약을 건너뛴다.
+  - `rank_recipes`(diners 있을 때): 위 값을 `recommend_family(calorie_budgets=...)`에 넘긴다. TASK-05 규칙(안전 필터 → 칼로리 제약 →
+    그룹 평점 1개 + 그룹 신메뉴 2개, 후보 없을 때 재고·알레르기·비선호 이유)이 끝까지 동작한다. 결과에는 개인별 수치 없이
+    `within_calorie_budget`만 담긴다. 칼로리를 못 읽으면 notes에 "워치 칼로리 정보를 확인하지 못해 칼로리 제약 없이 골랐어요".
+- `src/agent.py`(`recommend_agent`): 다른 가족과 같이 먹을 추천은 `list_inventory` → `get_calorie_budget`(본인) →
+  `rank_recipes(diners=[다른 가족 이름])` → `search_recipes` 순서. 답변에는 그룹 평점 메뉴·그룹 신메뉴와 "모두의 남은 칼로리 안"
+  여부만 쓰고, 누구의 칼로리 수치(본인 포함)·요리 kcal·사람별 평점도 쓰지 않는다. empty_slots·notes의 이유는 그대로 알린다.
+- 이미 맞게 되어 있던 부분(테스트로 확인만): 참여자 추출(`_resolve_diners`, "지민이" → jimin, 요청자 자동 포함),
+  식사 확정은 요청자 본인 기록만(`confirm_meal`이 `ctx.user_id`로만 저장). 다른 가족 칼로리는 출력 가드레일(TASK-12)도 가린다.
+- 테스트: `tests/test_family_dinner.py` 7개(참여자 칼로리 조회, 워치 꺼짐·다운, 칼로리 안 추천 + 갑각류 제외 + trace에 수치 없음,
+  칼로리 부족 시 가장 가벼운 요리, 워치 없을 때 안내, 다른 가족 칼로리 마스킹, 가족 식사 확정은 본인만). pytest 전체 228개 통과.
+- 실제 Bedrock 평가(E03)는 아직 못 했다. 워치 MCP 서버를 띄우고 E03·P02·E05를 돌렸지만, 에이전트 모델 Sonnet 4.6과 대체로 쓴
+  Sonnet 4.5 모두 일일 토큰 한도(`ThrottlingException: Too many tokens per day`)로 첫 호출에서 실패했다(`MODEL_UNAVAILABLE`).
+  한도가 풀리면 워치 서버(`python -m src.health_mcp_server`)를 먼저 띄운 뒤 `--only E03`으로 확인해야 한다.
