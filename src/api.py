@@ -332,6 +332,11 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
     def reply(answer: str, contexts: list[str] | None = None) -> QueryResponse:
         """현재 trace로 응답을 만든다. 답은 출력 가드레일로 개인정보를 가린 뒤 돌려준다."""
         masked, kinds = guardrails.mask_output(answer, trace["user_id"] or "")
+        pending = trace["pending_interrupt"]
+        if pending and pending.get("summary"):  # 승인 대기 요약도 응답의 일부이므로 같은 방식으로 가린다
+            summary, pending_kinds = guardrails.mask_output(pending["summary"], trace["user_id"] or "")
+            trace["pending_interrupt"] = {**pending, "summary": summary}
+            kinds += [k for k in pending_kinds if k not in kinds]
         trace["guardrail"]["output"] = kinds
         tracer.guardrail("output", kinds)
         tracer.finish("error" if trace["errors"] else "ok", trace["errors"])

@@ -578,6 +578,20 @@ def test_multi_evaluator_form_saved_with_one_approval(make_client, env):
     assert after["hanwoo"] == before["hanwoo"] - 300 and after["onion"] == before["onion"] - 1  # 2인분 한 번만 차감
 
 
+# Regression: ISSUE-001 — trace.pending_interrupt.summary exposed another member's kcal unmasked
+# Found by /qa on 2026-11-20
+# Report: ~/.gstack/projects/happysugar-mini-pjt/qa-reports/run-20261119T205310Z/qa-report-api-2026-11-20.md
+def test_pending_summary_masks_other_family_kcal(make_client, env):
+    """승인 대기 요약도 답변처럼 다른 가족 구성원의 칼로리를 가린다(출력 가드레일은 응답 전체에 적용)."""
+    _, ask = make_client(call("confirm_meal_form", {}), say("저장했어요."))
+    r = ask({"question": FORM_TWO, "thread_id": "dad-form-mask"}, DAD)
+    summary = r["trace"]["pending_interrupt"]["summary"]
+    assert "mom 1인분 ***kcal" in r["answer"]
+    assert "mom 1인분 ***kcal" in summary and "dad 1인분 680kcal" in summary
+    again = ask({"question": "규동 몇 점이었지?", "thread_id": "dad-form-mask"}, DAD)  # 대기 중 새 질문(INTERRUPT_PENDING)
+    assert "mom 1인분 ***kcal" in again["trace"]["pending_interrupt"]["summary"]
+
+
 def test_multi_evaluator_form_reject_saves_nothing(make_client, env):
     before = counts(env)
     _, ask = make_client(call("confirm_meal_form", {}), say("취소했어요."))
