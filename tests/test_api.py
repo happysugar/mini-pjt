@@ -5,6 +5,7 @@
 M4 Supervisor 분할 뒤에도 같은 테스트로 승인·권한 규칙의 회귀를 잡는다.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -243,6 +244,53 @@ def test_guest_write_is_read_only(make_client, env, monkeypatch):
     assert codes(r) == ["GUEST_READ_ONLY"]
     assert r["answer"] == tools.GUEST_DENIED and r["trace"]["pending_interrupt"] is None
     assert counts(env) == before
+
+
+# ── 입고 (TASK-11 파싱 체인) ────────────────────────────────────
+
+
+class FakeParser:
+    """입고 파싱 체인용 가짜 구조화 출력 모델. 받은 문장을 기록한다."""
+
+    def __init__(self, rows: list[dict]):
+        """돌려줄 품목 목록을 받는다."""
+        self.rows, self.texts = rows, []
+
+    def with_structured_output(self, schema, **kwargs):
+        """프롬프트의 사용자 문장을 기록하고 정해진 품목을 돌려주는 러너블을 만든다."""
+        from langchain_core.runnables import RunnableLambda
+
+        def run(prompt_value):
+            """사용자 문장을 기록하고 품목 목록을 스키마로 검증해 돌려준다."""
+            self.texts.append(prompt_value.to_messages()[-1].content)
+            return schema.model_validate({"items": self.rows})
+
+        return RunnableLambda(run)
+
+
+def test_add_items_from_text_runs_parse_chain(make_client, env, monkeypatch):
+    from src import chains
+
+    text = "어제 산 두부 1모 넣었어, S/N은 2026-11-001"
+    parser = FakeParser([{"item": "두부", "qty": 1, "unit": "모", "input_date": "-1", "sn": "2026-11-001"}])
+    monkeypatch.setattr(chains, "build_parse_model", lambda: parser)
+    client, ask = make_client(call("add_items_from_text", {"text": text}), say("넣었어요."))
+    r = ask({"question": text})
+    assert parser.texts == [text]
+    [out] = json.loads(tool_outputs(client, r["trace"]["thread_id"])[0])
+    assert out["status"] == "added" and out["sn_replaced"] and out["requested_sn"] == "2026-11-001"
+    assert (out["qty"], out["unit"], out["input_date"]) == (1, "개", "2026-11-19")
+    assert r["trace"]["errors"] == []
+
+
+def test_guest_cannot_add_items(make_client, env, monkeypatch):
+    from src import chains
+
+    monkeypatch.delenv("DEFAULT_USER")
+    monkeypatch.setattr(chains, "build_parse_model", lambda: pytest.fail("guest는 파싱 전에 막혀야 해요"))
+    _, ask = make_client(call("add_items_from_text", {"text": "두부 1모 샀어"}), say("넣었어요."))
+    r = ask({"question": "두부 1모 샀어"})
+    assert codes(r) == ["GUEST_READ_ONLY"]
 
 
 # ── 대량 출고 (HITL) ────────────────────────────────────────────
