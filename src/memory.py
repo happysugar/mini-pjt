@@ -26,6 +26,8 @@ PROFILE_KEY = "profile"
 # 도구의 kind 값 → profile 목록 이름
 KIND_FIELDS = {"like": "likes", "dislike": "dislikes", "allergy": "allergies"}
 PROFILE_FIELDS = ("likes", "dislikes", "allergies", "notes")
+# 서로 반대인 목록. 한쪽에 넣으면 다른 쪽의 같은 값은 뺀다.
+OPPOSITE_FIELDS = {"likes": "dislikes", "dislikes": "likes"}
 
 
 def namespace(user_id: str) -> tuple[str, str]:
@@ -76,15 +78,22 @@ def filter_profiles(store: BaseStore, members: list[str]) -> dict[str, dict[str,
 def add_preference(store: BaseStore, user_id: str, field: str, value: str) -> tuple[dict[str, list[str]], bool]:
     """사용자 프로필의 한 목록(likes·dislikes·allergies·notes)에 값을 더한다.
 
-    이미 있으면 그대로 둔다. (갱신된 프로필, 새로 더했는지)를 돌려준다.
+    이미 있으면 그대로 둔다. 좋아함과 싫어함은 반대이므로, 한쪽에 넣으면 다른 쪽에 있던 같은 값은 뺀다
+    (예: 시드 likes의 규동을 "나 규동 싫어"로 dislikes에 넣으면 likes에서 빠진다).
+    (갱신된 프로필, 새로 더했는지)를 돌려준다.
     """
     if field not in PROFILE_FIELDS:
         raise ValueError(f"알 수 없는 프로필 항목이에요: {field}")
     value = value.strip()
     profile = get_profile(store, user_id) or empty_profile()
     added = bool(value) and value not in profile[field]
+    opposite = OPPOSITE_FIELDS.get(field)
+    removed = bool(value) and opposite is not None and value in profile[opposite]
+    if removed:
+        profile[opposite] = [v for v in profile[opposite] if v != value]
     if added:
         profile[field].append(value)
+    if added or removed:
         store.put(namespace(user_id), PROFILE_KEY, profile)
     return profile, added
 
