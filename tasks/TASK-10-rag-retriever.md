@@ -51,4 +51,9 @@
   `get_recipe`는 식사 기록 전 확인용으로 설명을 바꾸고, 프롬프트에서 레시피 질문은 `search_recipes`를 쓰게 했다.
   `rank_recipes`는 건드리지 않아 추천 결과는 그대로다.
 - pytest 전체 119개 통과. 테스트는 `tests/conftest.py`가 가짜 임베딩·LLM 없는 인덱스를 세션당 한 번 끼워 넣어 AWS 없이 돈다.
-- 남은 점: 서버 시작 시 인덱스 빌드가 약 25초(청크 64개를 Bedrock 임베딩으로 한 건씩). 필요하면 Chroma를 파일로 저장해 재사용하는 방안을 검토.
+- 시작 시간 단축: Chroma를 `data/chroma/`(`PersistentClient`, git 제외)에 저장한다. 컬렉션 메타데이터에 지문
+  (청크 ID·본문 + 임베딩 모델 ID의 sha256)을 넣고, 다음 시작 때 지문과 문서 수가 같으면 임베딩 없이 다시 쓴다.
+  레시피·가이드 문서나 `BEDROCK_EMBED_MODEL_ID`가 바뀌면 컬렉션을 지우고 새로 만든다. `trace.index.vectors_loaded`로 확인.
+  - 실측(실제 Bedrock): 첫 시작 인덱스 빌드 24.1초(임베딩·저장) → 두 번째 3.7초(저장본 로드, 나머지는 Kiwi·BM25).
+  - `tests/test_retriever.py::test_persisted_vectors_are_reused`: 재사용 시 임베딩 0건, 문서가 바뀌면 전부 다시 임베딩.
+  - 테스트는 `persist_dir` 없이 메모리 인덱스를 써서 `data/`를 건드리지 않는다. pytest 전체 120개 통과.

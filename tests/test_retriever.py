@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+from langchain_core.embeddings import DeterministicFakeEmbedding
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src import retriever, tools  # noqa: E402
@@ -135,9 +137,37 @@ def test_search_docs_tool_returns_tip_with_source():
 
 def test_index_is_built_once(monkeypatch):
     built = []
-    monkeypatch.setattr(retriever, "HybridIndex", lambda: built.append(1) or SimpleNamespace(built_ms=5))
+    monkeypatch.setattr(retriever, "HybridIndex", lambda **kw: built.append(kw) or SimpleNamespace(built_ms=5, vectors_loaded=False))
     monkeypatch.setattr(retriever, "BUILD_STATS", {"builds": 0, "built_ms": 0})
     retriever.set_index(None)
     retriever.warm_up()
     retriever.get_index()
     assert retriever.warm_up()["builds"] == 1 and len(built) == 1
+    assert built[0]["persist_dir"] == retriever.CHROMA_DIR
+
+
+class CountingEmbedding(DeterministicFakeEmbedding):
+    """문서 임베딩 횟수를 세는 가짜 임베딩."""
+
+    embedded: int = 0
+
+    def embed_documents(self, texts):
+        """임베딩한 문서 수를 더하고 가짜 벡터를 돌려준다."""
+        self.embedded += len(texts)
+        return super().embed_documents(texts)
+
+
+def test_persisted_vectors_are_reused(tmp_path, monkeypatch):
+    first = retriever.HybridIndex(embeddings=CountingEmbedding(size=16), use_llm=False, persist_dir=tmp_path)
+    assert not first.vectors_loaded and first.vectors._collection.count() == len(first.ids)
+    again = CountingEmbedding(size=16)
+    second = retriever.HybridIndex(embeddings=again, use_llm=False, persist_dir=tmp_path)
+    assert second.vectors_loaded and again.embedded == 0
+    assert second.search("규동 레시피 알려줘", KIND_RECIPE).hits[0].title == "규동"
+
+    original = retriever.load_chunks
+    monkeypatch.setattr(retriever, "load_chunks", lambda d: original(d)[:-1])  # 문서가 바뀌면 지문이 달라진다
+    changed = CountingEmbedding(size=16)
+    third = retriever.HybridIndex(embeddings=changed, use_llm=False, persist_dir=tmp_path)
+    assert not third.vectors_loaded and changed.embedded == len(third.ids)
+    assert third.vectors._collection.count() == len(third.ids)

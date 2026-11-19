@@ -7,12 +7,13 @@
 - 쿼리 확장: 보관 가이드 별칭 표(소고기 → 한우, 우둔, 차돌)와 LLM이 만든 질의 2~3개.
 - LLM 리랭킹: RRF 상위 후보를 Bedrock 채팅 모델이 질문 관련도로 다시 매겨 상위 k개를 남긴다.
 
-인덱스는 `warm_up()`으로 서버 시작 때 한 번 만들고, 검색 도구는 `get_index()`로 같은 인덱스를 쓴다.
+인덱스는 `warm_up()`으로 서버 시작 때 한 번 만들고(임베딩은 `data/chroma/`에 저장해 다음 시작 때 다시 쓴다), 검색 도구는 `get_index()`로 같은 인덱스를 쓴다.
 쿼리 확장과 리랭킹은 `HybridIndex.search()` 안에서만, 즉 검색 도구가 불릴 때만 실행한다.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -35,6 +36,9 @@ load_dotenv()
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 STORAGE_GUIDE = DATA_DIR / "storage_guide.md"
+# 임베딩을 저장해 두는 Chroma 폴더. 문서나 임베딩 모델이 바뀌면 지문이 달라져 다시 만든다
+CHROMA_DIR = DATA_DIR / "chroma"
+COLLECTION = "fridge-docs"
 RECIPE_GLOB = "recipes_*.md"
 
 KIND_RECIPE = "recipe"
@@ -252,10 +256,12 @@ class HybridIndex:
     """BM25(kiwipiepy) + Chroma 벡터 인덱스. 만들 때 한 번 임베딩하고 이후에는 검색만 한다."""
 
     def __init__(self, embeddings: Embeddings | None = None, llm: Any = None, use_llm: bool = True,
-                 data_dir: Path = DATA_DIR):
+                 data_dir: Path = DATA_DIR, persist_dir: Path | None = None):
         """청크를 읽어 BM25와 Chroma 인덱스를 만든다.
 
         - embeddings: 없으면 Bedrock 임베딩(`BEDROCK_EMBED_MODEL_ID`).
+        - persist_dir: 주면 Chroma를 그 폴더에 저장하고, 문서·임베딩 모델 지문이 같으면 임베딩 없이 다시 쓴다.
+          없으면 메모리에만 만든다(테스트용).
         - llm: 쿼리 확장·리랭킹 모델. 없고 `use_llm`이면 Bedrock 채팅 모델(`BEDROCK_MODEL_ID`).
           `use_llm=False`면 별칭 확장과 RRF 순서만 쓴다(테스트·오프라인용).
         """
@@ -270,15 +276,42 @@ class HybridIndex:
             ids = [i for i, d in zip(self.ids, self.docs) if d.metadata["kind"] == kind]
             corpus = [tokenize(self.kiwi, self._index_text(self.by_id[i])) for i in ids]
             self.bm25[kind] = (BM25Okapi(corpus), ids)
-        self.vectors = Chroma(
-            collection_name=f"fridge-{uuid.uuid4().hex[:8]}",
-            embedding_function=embeddings or default_embeddings(),
-            client=chromadb.EphemeralClient(),
-            collection_metadata={"hnsw:space": "cosine"},
-        )
-        self.vectors.add_documents(self.docs, ids=self.ids)
+        self.vectors, self.vectors_loaded = self._open_vectors(embeddings or default_embeddings(), persist_dir)
         self.llm = llm if llm is not None or not use_llm else default_llm()
         self.built_ms = int((time.perf_counter() - started) * 1000)
+
+    def fingerprint(self, embeddings: Embeddings) -> str:
+        """청크 ID·본문과 임베딩 모델 이름으로 지문(sha256)을 만든다. 하나라도 바뀌면 값이 달라진다."""
+        model = getattr(embeddings, "model_id", None) or getattr(embeddings, "model", None) or type(embeddings).__name__
+        digest = hashlib.sha256(str(model).encode())
+        for doc_id, doc in zip(self.ids, self.docs):
+            digest.update(f"|{doc_id}|{doc.page_content}".encode())
+        return digest.hexdigest()
+
+    def _open_vectors(self, embeddings: Embeddings, persist_dir: Path | None) -> tuple[Chroma, bool]:
+        """Chroma 컬렉션을 연다. `(벡터 저장소, 저장된 임베딩을 다시 썼는지)`를 돌려준다.
+
+        저장 폴더의 컬렉션 지문과 문서 수가 지금 청크와 같으면 그대로 쓰고, 다르면 지우고 새로 임베딩한다.
+        """
+        if persist_dir is None:
+            client, name = chromadb.EphemeralClient(), f"fridge-{uuid.uuid4().hex[:8]}"
+        else:
+            persist_dir.mkdir(parents=True, exist_ok=True)
+            client, name = chromadb.PersistentClient(path=str(persist_dir)), COLLECTION
+        fingerprint = self.fingerprint(embeddings)
+        if persist_dir is not None and name in {c.name for c in client.list_collections()}:
+            existing = client.get_collection(name)
+            if (existing.metadata or {}).get("fingerprint") == fingerprint and existing.count() == len(self.ids):
+                return Chroma(collection_name=name, embedding_function=embeddings, client=client), True
+            client.delete_collection(name)
+        store = Chroma(
+            collection_name=name,
+            embedding_function=embeddings,
+            client=client,
+            collection_metadata={"hnsw:space": "cosine", "fingerprint": fingerprint},
+        )
+        store.add_documents(self.docs, ids=self.ids)
+        return store, False
 
     @staticmethod
     def _index_text(doc: Document) -> str:
@@ -374,7 +407,7 @@ class HybridIndex:
 
 _INDEX: HybridIndex | None = None
 _LOCK = threading.Lock()
-BUILD_STATS = {"builds": 0, "built_ms": 0}
+BUILD_STATS = {"builds": 0, "built_ms": 0, "vectors_loaded": False}
 
 
 def get_index() -> HybridIndex:
@@ -383,9 +416,10 @@ def get_index() -> HybridIndex:
     if _INDEX is None:
         with _LOCK:
             if _INDEX is None:
-                _INDEX = HybridIndex()
+                _INDEX = HybridIndex(persist_dir=CHROMA_DIR)
                 BUILD_STATS["builds"] += 1
                 BUILD_STATS["built_ms"] = _INDEX.built_ms
+                BUILD_STATS["vectors_loaded"] = _INDEX.vectors_loaded
     return _INDEX
 
 
@@ -396,6 +430,6 @@ def set_index(index: HybridIndex | None) -> None:
 
 
 def warm_up() -> dict[str, int]:
-    """서버 시작 때 인덱스를 만든다(이미 있으면 그대로 쓴다). 누적 빌드 횟수와 빌드 시간을 돌려준다."""
+    """서버 시작 때 인덱스를 만든다(이미 있으면 그대로 쓴다). 빌드 횟수·시간·저장 임베딩 재사용 여부를 돌려준다."""
     get_index()
     return dict(BUILD_STATS)
