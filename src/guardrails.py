@@ -5,6 +5,8 @@
   띄어 쓴 글자·숫자 치환 같은 우회를 판정용 사본에서 풀어 검사한다. 키워드가 애매하게 걸린 "의심" 질문만 LLM 인젝션 분류를 부른다.
   정상 질문은 LLM을 부르지 않는다(`llm_checked=False`로 trace에 남는다).
 - 권한: 다른 가족 구성원의 평가 원문·점수·칼로리·건강 수치 조회는 거절하고, 가족 평균·그룹 평점 같은 집계는 허용한다.
+- 형식 검사: 재고 입고·출고·폐기와 recipe 평가(식사 기록·점수)는 화면의 JSON 입력 Form으로만 받는다. 자연어로 온
+  쓰기 요청은 모델을 부르지 않고 Form을 쓰라고 안내한다(`check_free_text_write`, SERVICE.md 5.6).
 - 출력 마스킹: 전화번호, 이메일, 주민등록번호, 다른 가족 구성원 이름 바로 뒤의 칼로리 수치를 가린다.
   S/N(YYYY-MM-NNN)이나 날짜(YYYY-MM-DD)와 겹치지 않는 정규식을 쓴다.
 
@@ -621,10 +623,13 @@ def check_inventory_form(question: str) -> FormVerdict:
     if aliases is not None and (not isinstance(aliases, list)
                                 or not all(isinstance(a, str) and a.strip() for a in aliases)):
         problems.append("별칭은 글자 목록이어야 해요")
+    elif aliases and any("," in a for a in aliases):
+        problems.append("별칭에는 쉼표를 쓸 수 없어요(별칭을 하나씩 나눠 넣어 주세요)")
     sn = data.get("sn")
     if sn is not None and (not isinstance(sn, str) or not _SN.match(sn.strip())):
         problems.append("S/N은 YYYY-MM-NNN 형식이어야 해요(예: 2026-11-014)")
     qty, unit = _number(data.get("qty")), data.get("unit")
+    qty = abs(qty) if qty is not None else None  # 양은 절대값으로 바꿔 양수로만 다룬다(SERVICE.md 5.1)
     if status in ("stored", "consumed"):
         if data.get("qty") is None:
             problems.append("양이 비었어요")
@@ -669,6 +674,60 @@ def check_inventory_form(question: str) -> FormVerdict:
     where = f" (S/N {form['sn']})" if form["sn"] else ""
     question = f"{INVENTORY_FORM_REQUEST}: {INVENTORY_ACTIONS[status]} {form['item']}{amount}{where}"
     return FormVerdict(True, question=question, form=form)
+
+
+# ── 자연어 쓰기 요청 차단 (재고 입고·출고·폐기, recipe 평가는 JSON Form으로만) ─────────────
+
+FORM_REQUIRED = "FORM_REQUIRED"
+MSG_INVENTORY_FORM_REQUIRED = (
+    "재고 입고·출고·폐기는 재고 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. 화면의 재고 입력 Form으로 다시 보내 주세요"
+)
+MSG_RATING_FORM_REQUIRED = (
+    "recipe 평가 결과(식사 기록·점수)는 평가 입력 Form(JSON)으로만 받아요. 저장하지 않았어요. "
+    "화면의 평가 입력 Form으로 다시 보내 주세요"
+)
+# 재고를 바꾸는 말: 입고(넣었어, 샀어), 출고(꺼냈어, 썼어), 폐기(버려줘, 폐기)
+_INVENTORY_WRITE = re.compile(
+    r"넣었|넣어\s*(?:줘|둘|뒀|놨)|넣을게|샀어|샀다|샀는데|사\s*왔|구매했|입고"
+    r"|꺼냈|꺼내\s*(?:줘|쓸|썼)|꺼낼게|출고|썼어|사용했|뺐어|빼\s*줘"
+    r"|버렸|버려\s*줘|버릴게|버려(?!도|야)|폐기"
+)
+# 식사 기록·평가를 남기는 말: "먹었어", "4점", "평점 3", "평가 남겨"
+_RATING_WRITE = re.compile(
+    r"먹었|만들어\s*먹|\d+(?:\.\d+)?\s*점(?![가-힣])|평점\s*\d|식사\s*기록\s*(?:해|남겨|저장)|평가\s*(?:남겨|기록|저장)"
+)
+# 정보를 묻는 말이면 쓰기 요청이 아니다(예: "폐기 알람 언제 와?", "버려도 돼?", "오늘 뭐 먹었어?")
+_INFO_ASK = re.compile(
+    r"방법|어떻게|언제|며칠|얼마나|몇|보여|알려|조회|목록|남았|추천|레시피|검색"
+    r"|해야\s*(?:해|돼|할까|하나)|돼\s*\?|될까|나요|까요|\?\s*$"
+)
+
+
+def free_text_write_kind(question: str) -> str | None:
+    """자연어 쓰기 요청 종류를 판정한다. 재고 입고·출고·폐기면 "inventory", 식사 기록·평가면 "rating", 아니면 None.
+
+    JSON(`{`로 시작)과 정보를 묻는 질문은 쓰기 요청으로 보지 않는다. 결정적 정규식만 쓴다.
+    """
+    text = _normalize(question).strip()
+    if not text or text.startswith("{") or _INFO_ASK.search(text):
+        return None
+    if _RATING_WRITE.search(text):
+        return "rating"
+    if _INVENTORY_WRITE.search(text):
+        return "inventory"
+    return None
+
+
+def check_free_text_write(question: str) -> FormVerdict:
+    """재고·평가 쓰기를 자연어로 보낸 요청이면 막는다(SERVICE.md 5.6 "JSON Form으로만").
+
+    걸리면 `code`가 `FORM_REQUIRED`이고 `message`에 쓸 Form을 안내하는 고정 문구가 있다. 아니면 빈 결과.
+    """
+    kind = free_text_write_kind(question)
+    if kind is None:
+        return FormVerdict()
+    message = MSG_RATING_FORM_REQUIRED if kind == "rating" else MSG_INVENTORY_FORM_REQUIRED
+    return FormVerdict(False, FORM_REQUIRED, [f"{kind}_free_text"], message)
 
 
 def default_classifier(question: str) -> bool:

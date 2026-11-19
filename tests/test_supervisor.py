@@ -9,6 +9,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
@@ -34,6 +36,7 @@ def test_sub_agents_have_separate_tools():
     assert "confirm_meal" not in names["inventory_agent"] | names["recommend_agent"]
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_meal_approval_inside_sub_agent_resumes_once(make_client, env):
     _, ask = make_client(call("confirm_meal", MEAL), say("저장했어요."))
     r1 = ask({"question": "규동 2인분 만들어서 1인분 먹었어, 4점"}, DAD)
@@ -82,6 +85,7 @@ def test_parent_history_is_summarized_once_without_duplicates(tmp_path, monkeypa
     assert questions == ["질문 3 재고 알려줘"]  # 앞선 질문은 요약으로 대체됐다
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_pending_approval_is_not_summarized(make_client, env):
     # 승인 대기 중에는 임계값을 넘어도 이력을 건드리지 않는다(재개할 체크포인트 보호).
     client, ask = make_client(call("confirm_meal", MEAL), say("저장했어요."))

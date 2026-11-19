@@ -61,19 +61,31 @@ LLM이 계산하지 않도록 재고 관련 규칙을 모두 Python 함수로 �
 - 자유 문장 입고·출고·폐기(`add_items_from_text`, `withdraw_item`, `discard_item`)는 그대로 둔다.
 - 확인: pytest 414개 통과(`tests/test_api.py` 재고 Form 흐름 11개 추가). Bedrock 평가 P08·P09·P11·N07·E14~E19·G10 모두 통과.
 
-## 계획 변경: 기준표 자동 추가 (2026-11-20, 구현 전)
+## 계획 변경: 기준표 자동 추가 (2026-11-20, 구현함)
 - `item_units`에 새 품목을 등록하려면 권장 보관일수가 반드시 양의 정수이고, 개당 평균 무게는 값이 있으면 양수여야 한다(SERVICE.md 5.1 "새 품목 등록 조건"). 등록하면 그 품목을 `storage_items.csv`에 덧붙이고 검색 인덱스에도 넣는다("기준표 자동 추가"). 파일·인덱스 쓰기는 TASK-10의 함수를 쓴다.
 - 할 일 (`src/tools.py`)
-  - [ ] `item_units`에 새 행을 넣는 곳을 함수 하나로 모으고, 그 함수가 등록 조건(보관일수 양의 정수, 평균 무게 없음 또는 양수)을 검사한다. 조건에 맞지 않으면 등록도 재고 저장도 하지 않는다.
-  - [ ] 자유 문장 입고(`add_inventory`·`add_items_from_text`): 기준표에 없는 새 품목이면 저장하지 않고 권장 보관일수가 필요하다는 상태(예: `storage_days_required`)를 돌려준다. 에이전트가 되묻고, 받은 값으로 다시 부른다.
-  - [ ] Form 입고(`check_inventory_form_stock`): 기준표에 없는 새 품목인데 `storageDays`가 비면 `FORM_INVALID`로 거절한다.
-  - [ ] 등록 직후(재고 DB 커밋 뒤) 기준표 추가를 부른다.
+  - [x] `item_units`에 새 행을 넣는 곳을 함수 하나로 모으고, 그 함수가 등록 조건(보관일수 양의 정수, 평균 무게 없음 또는 양수)을 검사한다. 조건에 맞지 않으면 등록도 재고 저장도 하지 않는다.
+  - [x] 자유 문장 입고(`add_inventory`·`add_items_from_text`): 기준표에 없는 새 품목이면 저장하지 않고 권장 보관일수가 필요하다는 상태(예: `storage_days_required`)를 돌려준다. 에이전트가 되묻고, 받은 값으로 다시 부른다.
+  - [x] Form 입고(`check_inventory_form_stock`): 기준표에 없는 새 품목인데 `storageDays`가 비면 `FORM_INVALID`로 거절한다.
+  - [x] 등록 직후(재고 DB 커밋 뒤) 기준표 추가를 부른다.
 - 양은 절대값으로 바꿔 양수로만 다룬다(SERVICE.md 5.1, 2026-11-20 계획 변경). 예: `-2` → `2`. 절대값이 0이면 거절한다.
-  - [ ] Form 검사(`check_inventory_form`): 음수 `qty`를 "양은 0보다 큰 숫자여야 해요"로 거절하지 않고 절대값으로 바꿔 정규화한 Form에 담는다. 0은 지금처럼 거절한다.
-  - [ ] 자유 문장 입고·출고와 식사 차감의 양도 같은 규칙(절대값)으로 맞춘다.
-  - [ ] 기준표에 추가된 품목은 이후 기준표 품목으로 다룬다. Form 값보다 기준표 값이 우선이고(다르면 `notes`), 기준표에서 비어 있는 값만 Form 값으로 채운다.
-  - [ ] 추가 뒤 기준표 캐시(`guide_info` 등 `lru_cache`)를 비운다. 파일 쓰기가 실패해도 재고 저장은 되돌리지 않는다.
-  - [ ] 서버 시작 때 `item_units`에서 보관일수가 있는데 기준표에 없는 품목을 다시 덧붙인다.
-  - [ ] Form 검사(`src/guardrails.py`): 기준표가 별칭을 쉼표로 나누므로 쉼표가 든 별칭을 거절한다.
+  - [x] Form 검사(`check_inventory_form`): 음수 `qty`를 "양은 0보다 큰 숫자여야 해요"로 거절하지 않고 절대값으로 바꿔 정규화한 Form에 담는다. 0은 지금처럼 거절한다.
+  - [x] 자유 문장 입고·출고와 식사 차감의 양도 같은 규칙(절대값)으로 맞춘다.
+  - [x] 기준표에 추가된 품목은 이후 기준표 품목으로 다룬다. Form 값보다 기준표 값이 우선이고(다르면 `notes`), 기준표에서 비어 있는 값만 Form 값으로 채운다.
+  - [x] 추가 뒤 기준표 캐시(`guide_info` 등 `lru_cache`)를 비운다. 파일 쓰기가 실패해도 재고 저장은 되돌리지 않는다.
+  - [x] 서버 시작 때 `item_units`에서 보관일수가 있는데 기준표에 없는 품목을 다시 덧붙인다.
+  - [x] Form 검사(`src/guardrails.py`): 기준표가 별칭을 쉼표로 나누므로 쉼표가 든 별칭을 거절한다.
 - 바뀌는 동작: 지금은 표에 없는 품목을 유효기간 미상(`expiry_source = unknown`)으로 저장하지만, 앞으로는 보관일수를 받기 전에는 저장하지 않는다. `unknown` 재고는 이 변경 전 데이터(시드의 피클 재고)에만 남는다.
 - 바뀌지 않는 것: `item_units` 행은 지우지 않는다.
+
+- 구현 결과 (`src/tools.py`)
+  - `is_new_item()`, `registration_problems()`: 새 품목 판정과 등록 조건 검사. `add_inventory(..., storage_days, avg_weight_g, aliases)`가
+    새 품목이면 조건을 검사해 `storage_days_required`·`avg_weight_invalid`로 돌려주거나, 통과하면 `item_units`에 모든 기준과 함께 등록하고
+    `registered=True`를 담는다. 유효기간이 비면 `투입일자 + 보관일수`(출처 `user`). 양이 0이면 `qty_invalid`.
+  - `normalize_unit()`이 양을 절대값으로 바꾼다(입고·출고·차감 모두). Form 검사(`guardrails.check_inventory_form`)도 절대값으로 정규화한다.
+  - `sync_guide()`(·`sync_guide_db()`): 보관일수가 있는 `item_units` 행을 기준표에 덧붙이거나 빈 값만 채우고, 캐시(`clear_guide_cache`)와
+    검색 인덱스(`retriever.refresh_storage_index`)를 맞춘다. `add_items_from_text`·`confirm_inventory_form`(입고) 커밋 뒤와 API 시작 때 부른다.
+  - `store_from_form()`: 등록으로 덧붙은 기준표 품목(`item_units`에도 있음)만 빈 별칭·평균 무게를 Form 값으로 채우고 `notes`에 알린다.
+    원래 기준표 품목의 빈 값은 채우지 않는다.
+  - 기준표 캐시는 경로(`retriever.storage_items_path()`, 환경변수 `FRIDGE_STORAGE_ITEMS`)별로 둔다.
+- 확인: pytest 432개 통과(새 테스트: 등록 조건, 양 절대값, `sync_guide`, Form 등록·채우기, Form 재고 검사).

@@ -9,6 +9,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src import health_mcp_server as health  # noqa: E402
@@ -21,6 +23,7 @@ def read_events(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_representative_scenario_shows_concepts_2_to_9(make_client, _trace_file, tmp_path, monkeypatch):
     monkeypatch.setenv("HEALTH_DB", str(tmp_path / "health.db"))
     tools.set_health_target(health.mcp)

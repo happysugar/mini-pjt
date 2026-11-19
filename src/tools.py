@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -25,7 +26,19 @@ from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
 from src import memory
-from src.retriever import KIND_RECIPE, KIND_STORAGE, STORAGE_ITEMS, SearchResult, get_index, load_storage_items
+from src.retriever import (
+    KIND_RECIPE,
+    KIND_STORAGE,
+    STORAGE_ITEMS,
+    SearchResult,
+    get_index,
+    load_storage_items,
+    refresh_storage_index,
+    storage_items_path,
+    upsert_storage_item,
+)
+
+log = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 FRIDGE_DB = DATA_DIR / "fridge.db"
@@ -262,8 +275,8 @@ def load_seed(conn: sqlite3.Connection, base: date | None = None) -> dict:
         inventory_rows,
     )
     conn.executemany(
-        "INSERT INTO item_units (item, base_unit) VALUES (?, ?)",
-        [(u["item"], u["base_unit"]) for u in inv.get("item_units", [])],
+        "INSERT INTO item_units (item, base_unit, storage_days, avg_weight_g) VALUES (?, ?, ?, ?)",
+        [(u["item"], u["base_unit"], u.get("storage_days"), u.get("avg_weight_g")) for u in inv.get("item_units", [])],
     )
     conn.executemany(
         "INSERT INTO users (user_id, name, family_id) VALUES (?, ?, ?)",
@@ -321,20 +334,37 @@ def _name_key(name: str) -> str:
     return re.sub(r"\s+", "", name).lower()
 
 
-@lru_cache(maxsize=4)
-def load_storage_guide(path: str = str(STORAGE_ITEMS)) -> dict[str, dict]:
-    """품목 기준표(`storage_items.csv`)를 읽는다. 결과를 캐시한다.
+def load_storage_guide(path: str | None = None) -> dict[str, dict]:
+    """품목 기준표(`storage_items.csv`)를 읽는다. 결과를 경로별로 캐시한다.
 
     품목명을 키로, 별칭 목록·기준 단위·권장 보관일수·개당 평균 무게 g(없으면 None)를
     값으로 하는 사전을 돌려준다. 읽기와 형식 검사는 검색 인덱스와 같은 `retriever.load_storage_items`가 맡는다.
+    경로를 주지 않으면 `retriever.storage_items_path()`(평가·테스트는 임시 복사본)를 읽는다.
     """
-    return load_storage_items(path)
+    return _read_guide(str(path or storage_items_path()))
 
 
 @lru_cache(maxsize=4)
-def _alias_index(path: str = str(STORAGE_ITEMS)) -> dict[str, str]:
+def _read_guide(path: str) -> dict[str, dict]:
+    """`load_storage_guide`의 캐시 본체."""
+    return load_storage_items(path)
+
+
+def _alias_index(path: str | None = None) -> dict[str, str]:
     """품목명과 별칭을 품목명으로 잇는 색인을 만든다. 품목명이 별칭보다 우선한다."""
-    guide = load_storage_guide(path)
+    return _alias_index_at(str(path or storage_items_path()))
+
+
+def clear_guide_cache() -> None:
+    """기준표 캐시를 비운다. 기준표에 행이 덧붙었거나 기준표 경로가 바뀌었을 때 부른다."""
+    _read_guide.cache_clear()
+    _alias_index_at.cache_clear()
+
+
+@lru_cache(maxsize=4)
+def _alias_index_at(path: str) -> dict[str, str]:
+    """`_alias_index`의 캐시 본체."""
+    guide = _read_guide(path)
     index: dict[str, str] = {}
     for name, info in guide.items():
         for alias in info["aliases"]:
@@ -395,13 +425,14 @@ def normalize_unit(qty: float, unit: str) -> tuple[float, str]:
     """수량과 단위를 `g`, `L`, `개` 중 하나로 바꾼다.
 
     `kg`→`g`, `ml`→`L`, `모·팩·봉·알·단·대·캔`→`개`. 모르는 단위면 ValueError.
+    양은 절대값으로 바꿔 양수로만 다룬다(`-2` → `2`, SERVICE.md 5.1).
     """
     key = unit.strip()
     key = key.lower() if key.isascii() else key
     if key not in UNIT_TABLE:
         raise ValueError(f"지원하지 않는 단위예요: {unit}")
     base, factor = UNIT_TABLE[key]
-    return _round(float(qty) * factor), base
+    return _round(abs(float(qty)) * factor), base
 
 
 def base_unit_of(item: str, conn: sqlite3.Connection | None = None) -> str | None:
@@ -577,6 +608,31 @@ def check_sn(conn: sqlite3.Connection, sn: str) -> dict:
 # ── 입고 ─────────────────────────────────────────────────────────
 
 
+STORAGE_DAYS_REQUIRED = "storage_days_required"
+MSG_STORAGE_DAYS_REQUIRED = "기준표에 없는 품목이라 권장 보관일수(1 이상의 정수)가 필요해요"
+MSG_AVG_WEIGHT_INVALID = "개당 평균 무게는 양수여야 해요"
+
+
+def is_new_item(conn: sqlite3.Connection, item: str) -> bool:
+    """기준표에도 `item_units`에도 없는 품목인지 본다(새로 등록해야 하는 품목)."""
+    return resolve_item(item) is None and item_profile(conn, item) is None
+
+
+def registration_problems(storage_days: object, avg_weight_g: object) -> list[str]:
+    """새 품목 등록 조건(SERVICE.md 5.1)을 검사해 어긋난 점을 돌려준다(없으면 빈 목록).
+
+    권장 보관일수는 반드시 양의 정수, 개당 평균 무게는 없거나 양수여야 한다.
+    """
+    problems = []
+    if isinstance(storage_days, bool) or not isinstance(storage_days, int) or storage_days <= 0:
+        problems.append(MSG_STORAGE_DAYS_REQUIRED)
+    if avg_weight_g is not None and (
+        isinstance(avg_weight_g, bool) or not isinstance(avg_weight_g, (int, float)) or avg_weight_g <= 0
+    ):
+        problems.append(MSG_AVG_WEIGHT_INVALID)
+    return problems
+
+
 def add_inventory(
     conn: sqlite3.Connection,
     item: str,
@@ -585,17 +641,33 @@ def add_inventory(
     input_date: date | int | str | None = None,
     expiry_date: date | int | str | None = None,
     sn: str | None = None,
+    storage_days: int | None = None,
+    avg_weight_g: float | None = None,
+    aliases: list[str] | None = None,
 ) -> dict:
     """재고 한 건을 입고한다. 커밋은 호출한 쪽이 한다.
 
     - 투입일자: 상대 토큰("어제", "-1")이나 날짜. 없으면 오늘.
+    - 양: 절대값으로 바꾼다. 0이면 저장하지 않고 `status="qty_invalid"`.
     - 단위: 기준 단위로 환산. 환산할 수 없으면 저장하지 않고 `status="unit_mismatch"`.
     - S/N: 주면 형식·중복을 검사하고, 어긋나면 저장하지 않고 `status="sn_invalid"`와
       자동 발번 S/N(`suggested_sn`)을 돌려준다. 없으면 자동 발번.
-    - 유효기간: 주면 출처 `user`, 없으면 가이드로 계산(`guide`), 가이드에도 없으면 미상(`unknown`).
-    - 가이드에 없는 품목은 첫 등록 단위를 `item_units`에 기준 단위로 기록한다.
+    - 유효기간: 주면 출처 `user`, 없으면 가이드로 계산(`guide`). 새 품목은 `투입일자 + storage_days`(`user`).
+      가이드에 없고 보관일수도 없는 예전 등록 품목만 미상(`unknown`).
+    - 새 품목(기준표에도 `item_units`에도 없음)은 등록 조건을 지켜야 한다(SERVICE.md 5.1 "새 품목 등록 조건").
+      `storage_days`가 양의 정수가 아니면 저장하지 않고 `status="storage_days_required"`, 개당 평균 무게가
+      양수가 아니면 `status="avg_weight_invalid"`. 통과하면 첫 등록 단위·보관일수·평균 무게·별칭을 `item_units`에
+      기록하고 결과에 `registered=True`를 담는다. 기준표 반영은 커밋 뒤 `sync_guide`가 한다.
     """
     in_date = resolve_date(input_date)
+    if float(qty) == 0:
+        return {"status": "qty_invalid", "item": item, "message": "양이 0이에요. 0보다 큰 양을 알려 주세요"}
+    new = is_new_item(conn, item)
+    if new:
+        problems = registration_problems(storage_days, avg_weight_g)
+        if problems:
+            status = STORAGE_DAYS_REQUIRED if MSG_STORAGE_DAYS_REQUIRED in problems else "avg_weight_invalid"
+            return {"status": status, "item": item.strip(), "message": "; ".join(problems)}
     try:
         q, u = convert_to_base(item, qty, unit, conn)
     except UnitMismatchError as e:
@@ -612,11 +684,16 @@ def add_inventory(
 
     if expiry_date is not None:
         expiry, source = resolve_date(expiry_date), "user"
+    elif new:
+        expiry, source = in_date + timedelta(days=storage_days), "user"
     else:
         expiry, source = default_expiry(item, in_date)
 
-    if resolve_item(item) is None and base_unit_of(item, conn) is None:
-        conn.execute("INSERT INTO item_units (item, base_unit) VALUES (?, ?)", (item.strip(), u))
+    if new:
+        conn.execute(
+            "INSERT INTO item_units (item, base_unit, aliases, avg_weight_g, storage_days) VALUES (?, ?, ?, ?, ?)",
+            (item.strip(), u, json.dumps(aliases, ensure_ascii=False) if aliases else None, avg_weight_g, storage_days),
+        )
 
     conn.execute(
         "INSERT INTO inventory (sn, item, qty, unit, expiry_date, expiry_source, input_date, status)"
@@ -633,7 +710,44 @@ def add_inventory(
         "expiry_date": expiry.isoformat() if expiry else None,
         "expiry_source": source,
         "d_day": d_day(expiry),
+        **({"registered": True} if new else {}),
     }
+
+
+def sync_guide(conn: sqlite3.Connection) -> list[str]:
+    """`item_units`에 등록된 품목을 품목 기준표에 맞춘다(SERVICE.md 5.1 "기준표 자동 추가"). 바뀐 품목명 목록을 돌려준다.
+
+    권장 보관일수가 있는 행은 기준표에 없으면 덧붙이고, 있으면 비어 있는 별칭·개당 평균 무게만 채운다.
+    바뀐 품목이 있으면 기준표 캐시를 비우고 검색 인덱스의 보관 청크를 다시 맞춘다. 재고 DB 커밋 뒤와 서버 시작 때
+    부른다. 파일 쓰기가 실패해도 재고 저장은 되돌리지 않고 기록만 남긴다(다음 시작 때 다시 맞춘다).
+    """
+    changed = []
+    rows = conn.execute("SELECT * FROM item_units WHERE storage_days IS NOT NULL ORDER BY item").fetchall()
+    for row in rows:
+        canonical = resolve_item(row["item"])
+        if canonical not in (None, row["item"]):
+            continue  # 기준표의 다른 품목 별칭과 같은 이름이면 덧붙이지 않는다
+        try:
+            status = upsert_storage_item(row["item"], row["base_unit"], int(row["storage_days"]), row["avg_weight_g"],
+                                         json.loads(row["aliases"] or "[]"))
+        except (ValueError, OSError) as e:
+            log.warning("기준표에 %s을(를) 반영하지 못했어요: %s", row["item"], e)
+            continue
+        if status != "unchanged":
+            changed.append(row["item"])
+    if changed:
+        clear_guide_cache()
+        refresh_storage_index()
+    return changed
+
+
+def sync_guide_db(db_path: str | None = None) -> list[str]:
+    """도메인 DB를 열어 `sync_guide`를 부른다. 서버 시작 때 쓴다."""
+    conn = connect(db_path)
+    try:
+        return sync_guide(conn)
+    finally:
+        conn.close()
 
 
 # ── 차감 (FEFO) ──────────────────────────────────────────────────
@@ -1459,6 +1573,9 @@ class InventoryInput(BaseModel):
     )
     expiry_date: str | None = Field(default=None, description="사용자가 말한 유효기간(YYYY-MM-DD). 말하지 않았으면 비운다")
     sn: str | None = Field(default=None, description="사용자가 직접 준 S/N(YYYY-MM-NNN). 말하지 않았으면 비운다")
+    storage_days: int | None = Field(
+        default=None, description="사용자가 말한 권장 보관일수(일 수, 정수). 말하지 않았으면 비운다"
+    )
 
 
 def _context(runtime: ToolRuntime[FridgeContext]) -> FridgeContext:
@@ -1603,7 +1720,8 @@ def add_parsed_items(conn: sqlite3.Connection, items: list[InventoryInput]) -> l
     results = []
     for it in items:
         try:
-            result = add_inventory(conn, it.item, it.qty, it.unit, it.input_date, it.expiry_date, it.sn)
+            result = add_inventory(conn, it.item, it.qty, it.unit, it.input_date, it.expiry_date, it.sn,
+                                   storage_days=it.storage_days)
             if result["status"] == "sn_invalid":
                 qty, unit = convert_to_base(it.item, it.qty, it.unit, conn)
                 result.update(input_date=resolve_date(it.input_date).isoformat(), qty=qty, unit=unit)
@@ -1623,7 +1741,10 @@ def add_items_from_text(runtime: ToolRuntime[FridgeContext], text: str) -> str:
     status가 `sn_invalid`면 저장하지 않았다. 이유(reason)와 suggested_sn을 알리고 그 S/N으로
     저장할지 묻는다. 사용자가 동의하면 원래 입고 문장의 S/N만 suggested_sn으로 바꾼 문장을
     text로 다시 넘긴다(예: "어제 산 두부 1모 넣었어, S/N은 2026-11-014"). status가 `unit_mismatch`면
-    기준 단위로 다시 물어본다. expiry_source가 `unknown`이면 유효기간 미상으로 저장됐다고 알린다.
+    기준 단위로 다시 물어본다. status가 `storage_days_required`면 기준표에 없는 품목이라 저장하지 않았다.
+    권장 보관일수(며칠)를 사용자에게 묻고, 답을 받으면 원래 입고 문장에 그 보관일수를 붙여 text로 다시 넘긴다
+    (예: "고등어 600g 넣었어, 권장 보관일수 2일"). 보관일수를 지어내지 않는다. registered가 true인 품목은
+    품목 기준표에 새로 등록됐다고 알린다.
     """
     from src.chains import parse_inventory_text
 
@@ -1637,6 +1758,8 @@ def add_items_from_text(runtime: ToolRuntime[FridgeContext], text: str) -> str:
     try:
         with conn:
             results = add_parsed_items(conn, items)
+        if any(r.get("registered") for r in results):
+            sync_guide(conn)
         return _to_json(results)
     finally:
         conn.close()
@@ -2161,6 +2284,8 @@ def check_inventory_form_stock(db_path: str | None, form: dict) -> list[str]:
                         f"이미 있는 S/N이에요: {sn}. {suggested}로 저장하려면 S/N 칸을 그 번호로 바꾸거나 비워 주세요"
                         if check["reason"].startswith("이미") else check["reason"]
                     )
+            if is_new_item(conn, name):
+                problems.extend(registration_problems(form.get("storage_days"), form.get("avg_weight_g")))
             try:
                 convert_to_base(name, form["qty"], form["unit"], conn)
             except UnitMismatchError as e:
@@ -2209,7 +2334,7 @@ def save_inventory_form(db_path: str | None, thread_id: str, user_id: str, form:
 
 
 def _update_profile(conn: sqlite3.Connection, name: str, form: dict) -> None:
-    """기준표에 없는 품목의 기준(`item_units`)을 Form 값으로 고친다. Form에서 비운 값은 그대로 둔다."""
+    """기준표에 없는 예전 등록 품목의 기준(`item_units`)을 Form 값으로 고친다. Form에서 비운 값은 그대로 둔다."""
     aliases = json.dumps(form["aliases"], ensure_ascii=False) if form.get("aliases") else None
     conn.execute(
         "UPDATE item_units SET aliases = COALESCE(?, aliases), avg_weight_g = COALESCE(?, avg_weight_g),"
@@ -2218,19 +2343,43 @@ def _update_profile(conn: sqlite3.Connection, name: str, form: dict) -> None:
     )
 
 
-def _guide_notes(info: dict, form: dict) -> list[str]:
-    """기준표 품목인데 Form의 별칭·개당 평균 무게·권장 보관일수가 기준표와 다르면 기준표 값을 썼다는 안내를 만든다."""
+def _registered_row(conn: sqlite3.Connection, info_name: str | None) -> sqlite3.Row | None:
+    """새 품목 등록으로 기준표에 덧붙은 품목이면 그 `item_units` 행을 돌려준다(아니면 None)."""
+    if not info_name:
+        return None
+    return conn.execute("SELECT * FROM item_units WHERE item = ?", (info_name,)).fetchone()
+
+
+def _fill_registered(conn: sqlite3.Connection, name: str, form: dict) -> None:
+    """등록으로 덧붙은 기준표 품목의 비어 있는 별칭·개당 평균 무게만 Form 값으로 채운다(이미 있는 값은 그대로)."""
+    aliases = json.dumps(form["aliases"], ensure_ascii=False) if form.get("aliases") else None
+    conn.execute(
+        "UPDATE item_units SET aliases = COALESCE(aliases, ?), avg_weight_g = COALESCE(avg_weight_g, ?) WHERE item = ?",
+        (aliases, form.get("avg_weight_g"), name),
+    )
+
+
+def _guide_notes(info: dict, form: dict, fillable: bool = False) -> list[str]:
+    """기준표 품목인데 Form의 별칭·개당 평균 무게·권장 보관일수가 기준표와 다르면 기준표 값을 썼다는 안내를 만든다.
+
+    `fillable`(등록으로 덧붙은 품목)이면 기준표에서 비어 있는 별칭·개당 평균 무게는 Form 값으로 채웠다고 알린다.
+    """
     notes = []
     days = form.get("storage_days")
     if days is not None and days != info["storage_days"]:
         notes.append(f"권장 보관일수는 기준표 값({info['storage_days']}일)을 썼어요")
     weight = form.get("avg_weight_g")
-    if weight is not None and weight != info["avg_weight_g"]:
+    if weight is not None and fillable and info["avg_weight_g"] is None:
+        notes.append(f"개당 평균 무게 {_fmt_qty(weight)}g을 기준표에 채웠어요")
+    elif weight is not None and weight != info["avg_weight_g"]:
         base = f"{_fmt_qty(info['avg_weight_g'])}g" if info["avg_weight_g"] else "없음"
         notes.append(f"개당 평균 무게는 기준표 값({base})을 썼어요")
-    known = {_name_key(a) for a in info["aliases"]}
-    if any(_name_key(a) not in known for a in form.get("aliases") or []):
-        notes.append("별칭은 기준표 값을 썼어요")
+    if form.get("aliases") and fillable and not info["aliases"]:
+        notes.append("별칭을 기준표에 채웠어요")
+    else:
+        known = {_name_key(a) for a in info["aliases"]}
+        if any(_name_key(a) not in known for a in form.get("aliases") or []):
+            notes.append("별칭은 기준표 값을 썼어요")
     return notes
 
 
@@ -2241,23 +2390,29 @@ class _FormRejected(Exception):
 def store_from_form(conn: sqlite3.Connection, form: dict) -> dict:
     """재고 입력 Form으로 입고한다. 커밋은 호출한 쪽이 한다.
 
-    기준표 품목은 기준표 값으로 계산하고 Form 값이 다르면 `notes`에 알린다. 기준표에 없는 품목은 Form의 별칭·개당 평균
-    무게·권장 보관일수를 그 품목의 기준으로 저장하고, 유효기간이 비면 권장 보관일수로 계산한다(출처 `user`).
+    기준표 품목은 기준표 값으로 계산하고 Form 값이 다르면 `notes`에 알린다. 새 품목 등록으로 덧붙은 기준표 품목은
+    비어 있는 별칭·개당 평균 무게만 Form 값으로 채운다. 처음 보는 품목은 새 품목 등록 조건(권장 보관일수 필수)을 지켜
+    Form의 별칭·개당 평균 무게·권장 보관일수로 등록하고, 유효기간이 비면 권장 보관일수로 계산한다(출처 `user`).
+    기준표 반영은 커밋 뒤 `sync_guide`가 한다.
     """
     info = guide_info(form["item"])
     name = form_item_name(conn, form["item"])
-    notes = _guide_notes(info, form) if info else []
+    registered = _registered_row(conn, resolve_item(form["item"])) if info else None
+    notes = _guide_notes(info, form, fillable=registered is not None) if info else []
     expiry = form.get("expiry_date")
-    if info is None:
+    profile = None if info else item_profile(conn, name)
+    if registered is not None:
+        _fill_registered(conn, registered["item"], form)
+    elif profile:  # 새 품목 등록 조건 전에 보관일수 없이 등록된 품목
         _update_profile(conn, name, form)
-        days = form.get("storage_days") or (item_profile(conn, name) or {}).get("storage_days")
+        days = form.get("storage_days") or profile.get("storage_days")
         if expiry is None and days:
             expiry = (resolve_date(form.get("input_date")) + timedelta(days=int(days))).isoformat()
-    result = add_inventory(conn, name, form["qty"], form["unit"], form.get("input_date"), expiry, form.get("sn"))
+    result = add_inventory(conn, name, form["qty"], form["unit"], form.get("input_date"), expiry, form.get("sn"),
+                           storage_days=form.get("storage_days"), avg_weight_g=form.get("avg_weight_g"),
+                           aliases=form.get("aliases"))
     if result["status"] != "added":
         raise _FormRejected(result.get("message") or result.get("reason") or STOCK_CHANGED)
-    if info is None:
-        _update_profile(conn, name, form)  # 처음 보는 품목은 add_inventory가 만든 기준 행에 값을 채운다
     return {**result, "action": "stored", "notes": notes}
 
 
@@ -2301,9 +2456,11 @@ def confirm_inventory_form(runtime: ToolRuntime[FridgeContext]) -> str:
         if action == "stored":
             try:
                 with conn:
-                    return finish(_to_json(store_from_form(conn, form)))
+                    answer = finish(_to_json(store_from_form(conn, form)))
             except _FormRejected as e:
                 return drop(f"{e}. 재고 입력 Form을 다시 보내 주세요")
+            sync_guide(conn)  # 새로 등록했거나 비어 있던 값을 채운 품목을 기준표·검색 인덱스에 반영한다
+            return answer
 
         name = form_item_name(conn, item)
         rows = stock_rows(conn, name)

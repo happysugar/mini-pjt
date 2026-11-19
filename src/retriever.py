@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
 import json
 import os
 import re
@@ -45,6 +46,8 @@ BASE_UNITS = ("g", "L", "개")
 # 임베딩을 저장해 두는 Chroma 폴더. 문서나 임베딩 모델이 바뀌면 지문이 달라져 다시 만든다
 CHROMA_DIR = DATA_DIR / "chroma"
 COLLECTION = "fridge-docs"
+# 품목 기준표 경로를 바꾸는 환경변수. 평가·테스트가 원본 대신 임시 복사본을 쓰게 한다(SERVICE.md 5.1 "기준표 자동 추가")
+STORAGE_ITEMS_ENV = "FRIDGE_STORAGE_ITEMS"
 RECIPE_GLOB = "recipes_*.md"
 
 KIND_RECIPE = "recipe"
@@ -88,13 +91,24 @@ def _recipe_chunks(path: Path) -> list[Document]:
     return docs
 
 
-def load_storage_items(path: Path | str = STORAGE_ITEMS) -> dict[str, dict]:
+def storage_items_path() -> Path:
+    """지금 쓰는 품목 기준표 경로. 환경변수 `FRIDGE_STORAGE_ITEMS`가 있으면 그 파일, 없으면 `data/storage_items.csv`."""
+    return Path(os.environ.get(STORAGE_ITEMS_ENV) or STORAGE_ITEMS)
+
+
+def _items_path(data_dir: Path) -> Path:
+    """데이터 폴더의 기준표 경로. 기본 데이터 폴더면 `storage_items_path()`(환경변수 반영)를 쓴다."""
+    return storage_items_path() if Path(data_dir) == DATA_DIR else Path(data_dir) / STORAGE_ITEMS.name
+
+
+def load_storage_items(path: Path | str | None = None) -> dict[str, dict]:
     """품목 기준표 CSV를 읽는다. 품목명을 키로 별칭 목록·기준 단위·권장 보관일수·개당 평균 무게 g(없으면 None)를 돌려준다.
 
+    경로를 주지 않으면 `storage_items_path()`를 읽는다.
     열 이름이 다르거나, 품목명이 비거나 겹치거나, 기준 단위가 g·L·개가 아니거나, 숫자가 양수가 아니면
     몇 번째 줄인지 밝혀 ValueError를 낸다. 표가 조용히 잘못 읽혀 유효기간·단위 환산이 틀어지지 않게 하려는 것이다.
     """
-    path = Path(path)
+    path = Path(path) if path else storage_items_path()
     with path.open(encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         if tuple(reader.fieldnames or ()) != ITEM_COLUMNS:
@@ -128,6 +142,64 @@ def load_storage_items(path: Path | str = STORAGE_ITEMS) -> dict[str, dict]:
     return items
 
 
+_ITEMS_WRITE_LOCK = threading.Lock()
+
+
+def upsert_storage_item(name: str, base_unit: str, storage_days: int, avg_weight_g: float | None = None,
+                        aliases: list[str] | None = None, path: Path | str | None = None) -> str:
+    """품목 기준표에 품목 한 행을 덧붙이거나, 이미 있으면 비어 있는 값(별칭, 개당 평균 무게)만 채운다.
+
+    `added`·`filled`·`unchanged` 중 하나를 돌려준다. 이미 있는 값은 바꾸지 않는다(기준표 수정은 admin 기능).
+    권장 보관일수는 양의 정수, 개당 평균 무게는 None이나 양수, 별칭에는 쉼표가 없어야 한다(SERVICE.md 5.1
+    "새 품목 등록 조건"). 잠금 안에서 임시 파일에 전체를 쓰고 원본과 바꿔치기한 뒤 `load_storage_items`로
+    다시 읽어 검사하고, 검사에 실패하면 원래 내용으로 되돌리고 ValueError를 낸다.
+    """
+    path = Path(path) if path else storage_items_path()
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("품목명이 비었어요")
+    if base_unit not in BASE_UNITS:
+        raise ValueError(f"기준 단위는 {'·'.join(BASE_UNITS)} 중 하나여야 해요 ({base_unit!r})")
+    if isinstance(storage_days, bool) or not isinstance(storage_days, int) or storage_days <= 0:
+        raise ValueError(f"권장 보관일수는 양의 정수여야 해요 ({storage_days!r})")
+    if avg_weight_g is not None and not float(avg_weight_g) > 0:
+        raise ValueError(f"개당 평균 무게는 양수여야 해요 ({avg_weight_g!r})")
+    aliases = [a.strip() for a in aliases or [] if a and a.strip()]
+    if any("," in a for a in aliases):
+        raise ValueError("별칭에는 쉼표를 쓸 수 없어요")
+    weight_text = "-" if avg_weight_g is None else f"{float(avg_weight_g):g}"
+    with _ITEMS_WRITE_LOCK:
+        with path.open(encoding="utf-8", newline="") as f:
+            raw = f.read()
+        rows = list(csv.reader(io.StringIO(raw)))
+        header, body = rows[0], rows[1:]
+        hit = next((r for r in body if r and r[0].strip() == name), None)
+        if hit is None:
+            body.append([name, ", ".join(aliases), base_unit, str(storage_days), weight_text])
+            status = "added"
+        else:
+            status = "unchanged"
+            if aliases and hit[1].strip() in ("", "-"):
+                hit[1], status = ", ".join(aliases), "filled"
+            if avg_weight_g is not None and hit[4].strip() == "-":
+                hit[4], status = weight_text, "filled"
+            if status == "unchanged":
+                return status
+        out = io.StringIO()
+        csv.writer(out, lineterminator="\r\n" if "\r\n" in raw else "\n").writerows([header, *body])
+        tmp = path.with_name(path.name + ".tmp")
+        with tmp.open("w", encoding="utf-8", newline="") as f:
+            f.write(out.getvalue())
+        os.replace(tmp, path)
+        try:
+            load_storage_items(path)
+        except ValueError:
+            with path.open("w", encoding="utf-8", newline="") as f:
+                f.write(raw)
+            raise
+    return status
+
+
 def _guide_rows(items: dict[str, dict]) -> dict[str, str]:
     """품목 기준표를 검색 청크에 붙일 `{품목: "별칭 ... / 권장 보관일수 N일 ..."}` 문장으로 바꾼다."""
     rows: dict[str, str] = {}
@@ -141,10 +213,11 @@ def _guide_rows(items: dict[str, dict]) -> dict[str, str]:
     return rows
 
 
-def _storage_chunks(path: Path, items_path: Path = STORAGE_ITEMS) -> list[Document]:
+def _storage_chunks(path: Path, items_path: Path | None = None) -> list[Document]:
     """보관 가이드를 품목 단위(기준표 행 + 보관 팁) 청크와 문서 규칙 청크로 나눈다.
 
     보관 팁은 `storage_guide.md`, 기준표 행은 `storage_items.csv`에서 읽는다. 청크 출처(`source`)는 보관 팁 문서다.
+    보관 팁이 없는 기준표 품목(새 품목 등록으로 덧붙은 행)은 기준표 행만으로 청크를 만든다.
     """
     text = path.read_text(encoding="utf-8")
     rows = _guide_rows(load_storage_items(items_path))
@@ -159,6 +232,10 @@ def _storage_chunks(path: Path, items_path: Path = STORAGE_ITEMS) -> list[Docume
         row = rows.get(name, "")
         content = f"{name} 보관\n{row}\n{body}" if row else f"{name} 보관\n{body}"
         docs.append(Document(page_content=content, metadata={**meta, "title": name}))
+    tipped = {d.metadata["title"] for d in docs}
+    for name, row in rows.items():
+        if name not in tipped:
+            docs.append(Document(page_content=f"{name} 보관\n{row}", metadata={**meta, "title": name}))
     return docs
 
 
@@ -167,11 +244,11 @@ def load_chunks(data_dir: Path = DATA_DIR) -> list[Document]:
     docs: list[Document] = []
     for path in sorted(data_dir.glob(RECIPE_GLOB)):
         docs.extend(_recipe_chunks(path))
-    docs.extend(_storage_chunks(data_dir / STORAGE_GUIDE.name, data_dir / STORAGE_ITEMS.name))
+    docs.extend(_storage_chunks(data_dir / STORAGE_GUIDE.name, _items_path(data_dir)))
     return docs
 
 
-def alias_table(path: Path = STORAGE_ITEMS) -> dict[str, list[str]]:
+def alias_table(path: Path | None = None) -> dict[str, list[str]]:
     """품목 기준표에서 쿼리 확장용 별칭 표를 만든다.
 
     품목명과 별칭 어느 쪽으로 찾아도 같은 묶음(품목명 + 별칭들)을 돌려준다.
@@ -296,6 +373,11 @@ class SearchResult:
     notes: list[str] = field(default_factory=list)
 
 
+def doc_id(doc: Document) -> str:
+    """청크 ID. `종류:출처#제목` 형식이다(예: `storage:storage_guide.md#두부`)."""
+    return f"{doc.metadata['kind']}:{doc.metadata['source']}#{doc.metadata['title']}"
+
+
 class HybridIndex:
     """BM25(kiwipiepy) + Chroma 벡터 인덱스. 만들 때 한 번 임베딩하고 이후에는 검색만 한다."""
 
@@ -310,19 +392,49 @@ class HybridIndex:
           `use_llm=False`면 별칭 확장과 RRF 순서만 쓴다(테스트·오프라인용).
         """
         started = time.perf_counter()
+        self.data_dir = Path(data_dir)
         self.docs = load_chunks(data_dir)
-        self.ids = [f"{d.metadata['kind']}:{d.metadata['source']}#{d.metadata['title']}" for d in self.docs]
+        self.ids = [doc_id(d) for d in self.docs]
         self.by_id = dict(zip(self.ids, self.docs))
-        self.aliases = alias_table(data_dir / STORAGE_ITEMS.name)
+        self.aliases = alias_table(_items_path(data_dir))
         self.kiwi = Kiwi()
         self.bm25: dict[str, tuple[BM25Okapi, list[str]]] = {}
         for kind in (KIND_RECIPE, KIND_STORAGE):
-            ids = [i for i, d in zip(self.ids, self.docs) if d.metadata["kind"] == kind]
-            corpus = [tokenize(self.kiwi, self._index_text(self.by_id[i])) for i in ids]
-            self.bm25[kind] = (BM25Okapi(corpus), ids)
+            self._build_bm25(kind)
         self.vectors, self.vectors_loaded = self._open_vectors(embeddings or default_embeddings(), persist_dir)
         self.llm = llm if llm is not None or not use_llm else default_llm()
         self.built_ms = int((time.perf_counter() - started) * 1000)
+
+    def _build_bm25(self, kind: str) -> None:
+        """한 종류(recipe·storage) 청크로 BM25 색인을 만든다."""
+        ids = [i for i, d in zip(self.ids, self.docs) if d.metadata["kind"] == kind]
+        corpus = [tokenize(self.kiwi, self._index_text(self.by_id[i])) for i in ids]
+        self.bm25[kind] = (BM25Okapi(corpus), ids)
+
+    def sync_storage(self) -> list[str]:
+        """보관 청크를 지금 기준표·보관 가이드에 맞춘다. 더하거나 바꾸거나 지운 청크 ID 목록을 돌려준다.
+
+        새 품목 등록으로 기준표에 행이 덧붙었을 때와, 평가·테스트가 기준표를 원본으로 되돌렸을 때 부른다.
+        바뀐 청크만 Chroma에서 지우고 다시 넣고, 보관 BM25와 쿼리 확장용 별칭 표를 다시 만든다.
+        """
+        fresh = _storage_chunks(self.data_dir / STORAGE_GUIDE.name, _items_path(self.data_dir))
+        new = {doc_id(d): d for d in fresh}
+        old = {i: d for i, d in self.by_id.items() if d.metadata["kind"] == KIND_STORAGE}
+        removed = [i for i in old if i not in new]
+        changed = [i for i, d in new.items() if i not in old or old[i].page_content != d.page_content]
+        if not removed and not changed:
+            return []
+        stale = removed + [i for i in changed if i in old]
+        if stale:
+            self.vectors.delete(ids=stale)
+        if changed:
+            self.vectors.add_documents([new[i] for i in changed], ids=changed)
+        self.docs = [d for d in self.docs if d.metadata["kind"] != KIND_STORAGE] + fresh
+        self.ids = [doc_id(d) for d in self.docs]
+        self.by_id = dict(zip(self.ids, self.docs))
+        self.aliases = alias_table(_items_path(self.data_dir))
+        self._build_bm25(KIND_STORAGE)
+        return removed + changed
 
     def fingerprint(self, embeddings: Embeddings) -> str:
         """청크 ID·본문과 임베딩 모델 이름으로 지문(sha256)을 만든다. 하나라도 바뀌면 값이 달라진다."""
@@ -392,7 +504,7 @@ class HybridIndex:
     def _vector_ranking(self, query: str, kind: str, n: int) -> list[str]:
         """Chroma 벡터 유사도 상위 n개 문서 ID."""
         hits = self.vectors.similarity_search(query, k=n, filter={"kind": kind})
-        return [f"{d.metadata['kind']}:{d.metadata['source']}#{d.metadata['title']}" for d in hits]
+        return [doc_id(d) for d in hits]
 
     def _title_ranking(self, question: str, kind: str) -> list[str]:
         """질문에 제목(요리명·품목명)이 그대로 들어 있는 문서 ID. 긴 제목을 먼저 둔다."""
@@ -471,6 +583,15 @@ def set_index(index: HybridIndex | None) -> None:
     """인덱스를 바꿔 끼운다. 테스트에서 가짜 임베딩 인덱스를 넣을 때 쓴다."""
     global _INDEX
     _INDEX = index
+
+
+def refresh_storage_index() -> list[str]:
+    """서버 단위 인덱스가 있으면 보관 청크를 지금 기준표에 맞춘다. 바뀐 청크 ID 목록을 돌려준다.
+
+    인덱스를 아직 만들지 않았으면 아무것도 하지 않는다(만들 때 그때의 기준표를 읽는다).
+    """
+    with _LOCK:
+        return _INDEX.sync_storage() if _INDEX is not None else []
 
 
 def warm_up() -> dict[str, int]:

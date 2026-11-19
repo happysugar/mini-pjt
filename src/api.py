@@ -42,6 +42,7 @@ from src.tools import (
     save_inventory_form,
     save_meal_form,
     resend_unsynced_meals,
+    sync_guide_db,
     resolve_item,
     WATCH_FAILED,
 )
@@ -323,7 +324,7 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
         "rescued_g_week": 0,
         "errors": [],
         "index": dict(retriever.BUILD_STATS),
-        "guardrail": {"input": None, "output": []},
+        "guardrail": {"input": None, "format": None, "output": []},
         "request_id": tracer.request_id,
         "concepts": {},
     }
@@ -414,6 +415,16 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
             await asyncio.to_thread(save_inventory_form, db_path, thread_id, user_id, stock_form.form)
             question = stock_form.question
 
+    # 재고 입고·출고·폐기와 recipe 평가는 JSON Form으로만 받는다 (SERVICE.md 5.6). Form이 아닌 자연어 쓰기 요청은
+    # 모델을 부르지 않고 Form을 쓰라고 안내한다. 조회·추천·보관 질문은 그대로 에이전트에 넘긴다.
+    if not req.resume and question == req.question:
+        write = guardrails.check_free_text_write(req.question)
+        trace["guardrail"]["format"] = {"code": write.code, "reasons": write.problems} if write.code else None
+        if write.code:
+            tracer.guardrail("format", trace["guardrail"]["format"])
+            trace["errors"].append(_error(write.code, "재고·평가 쓰기 요청은 JSON 입력 Form으로만 받아요"))
+            return reply(write.message)
+
     context = FridgeContext(user_id=user_id, db_path=db_path)
     try:
         turn = await run_turn(agent, question, context, thread_id, resume=req.resume, callbacks=[tracer])
@@ -473,6 +484,7 @@ def create_app(model: Any = None, db_path: str | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         """체크포인터를 연 에이전트를 서버가 떠 있는 동안 유지한다."""
         ensure_domain_db(db_path)
+        sync_guide_db(db_path)  # 등록된 품목 중 기준표에 빠진 것을 덧붙인다(검색 인덱스를 만들기 전에)
         configure_langsmith()  # .env에 LangSmith 키가 있으면 같은 실행을 LangSmith에도 보낸다
         retriever.warm_up()
         async with open_agent(model=model) as agent:

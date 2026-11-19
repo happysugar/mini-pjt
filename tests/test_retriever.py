@@ -67,7 +67,8 @@ def test_storage_tips_have_no_period():
     for doc in retriever.load_chunks():
         if doc.metadata["kind"] != KIND_STORAGE or doc.metadata["title"] == retriever.SCOPE_TITLE:
             continue
-        tip = doc.page_content.split("\n", 2)[-1]  # 첫 줄(제목)과 둘째 줄(기준표 행)을 뺀 보관 팁 본문
+        lines = doc.page_content.split("\n", 2)
+        tip = lines[2] if len(lines) == 3 else ""  # 첫 줄(제목)과 둘째 줄(기준표 행)을 뺀 보관 팁 본문(없으면 빈 글)
         assert not re.search(r"\d+\s*(일|개월|년)|하루|이틀|당일에 먹", tip), (doc.metadata["title"], tip)
 
 
@@ -240,3 +241,57 @@ def test_persisted_vectors_are_reused(tmp_path, monkeypatch):
     third = retriever.HybridIndex(embeddings=changed, use_llm=False, persist_dir=tmp_path)
     assert not third.vectors_loaded and changed.embedded == len(third.ids)
     assert third.vectors._collection.count() == len(third.ids)
+
+
+# ── 기준표 자동 추가 (SERVICE.md 5.1 "기준표 자동 추가") ───────────
+
+
+def test_upsert_storage_item_adds_then_fills_only_blanks(storage_items_copy):
+    path = storage_items_copy
+    assert retriever.upsert_storage_item("망고", "개", 5, aliases=["애플망고"]) == "added"
+    assert retriever.load_storage_items()["망고"] == {
+        "aliases": ["애플망고"], "base_unit": "개", "storage_days": 5, "avg_weight_g": None}
+    assert path.read_text(encoding="utf-8").endswith("망고,애플망고,개,5,-\n")
+    # 있는 값은 바꾸지 않고, 비어 있는 개당 평균 무게만 채운다
+    assert retriever.upsert_storage_item("망고", "개", 9, avg_weight_g=350, aliases=["망고스틴"]) == "filled"
+    assert retriever.load_storage_items()["망고"] == {
+        "aliases": ["애플망고"], "base_unit": "개", "storage_days": 5, "avg_weight_g": 350.0}
+    assert retriever.upsert_storage_item("망고", "개", 9, avg_weight_g=400) == "unchanged"
+    # 원본 기준표는 바뀌지 않는다(테스트는 임시 복사본을 쓴다)
+    assert "망고" not in retriever.load_storage_items(retriever.STORAGE_ITEMS)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"storage_days": None}, "권장 보관일수는 양의 정수"),
+        ({"storage_days": 0}, "권장 보관일수는 양의 정수"),
+        ({"avg_weight_g": 0}, "개당 평균 무게는 양수"),
+        ({"aliases": ["망고, 애플망고"]}, "쉼표"),
+        ({"base_unit": "kg"}, "기준 단위"),
+    ],
+)
+def test_upsert_storage_item_rejects_bad_rows(storage_items_copy, kwargs, message):
+    before = storage_items_copy.read_bytes()
+    args = {"name": "망고", "base_unit": "개", "storage_days": 5, **kwargs}
+    with pytest.raises(ValueError, match=message):
+        retriever.upsert_storage_item(**args)
+    assert storage_items_copy.read_bytes() == before
+
+
+def test_sync_storage_adds_and_removes_registered_item_chunk(storage_items_copy):
+    index = retriever.HybridIndex(embeddings=DeterministicFakeEmbedding(size=32), use_llm=False)
+    original = storage_items_copy.read_bytes()
+    retriever.upsert_storage_item("망고", "개", 5, aliases=["애플망고"])
+    assert index.sync_storage() == ["storage:storage_guide.md#망고"]
+    doc = index.by_id["storage:storage_guide.md#망고"]
+    assert doc.page_content == "망고 보관\n별칭: 애플망고 / 기준 단위: 개 / 권장 보관일수: 5일"
+    assert index.aliases["애플망고"] == ["망고", "애플망고"]
+    assert index.search("애플망고 보관", KIND_STORAGE).hits[0].title == "망고"
+    assert index.vectors._collection.count() == len(index.ids)
+    assert index.sync_storage() == []  # 바뀐 것이 없으면 아무것도 하지 않는다
+    # 평가·테스트가 기준표를 원본으로 되돌리면 청크도 빠진다
+    storage_items_copy.write_bytes(original)
+    assert index.sync_storage() == ["storage:storage_guide.md#망고"]
+    assert "storage:storage_guide.md#망고" not in index.by_id
+    assert index.vectors._collection.count() == len(index.ids)

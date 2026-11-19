@@ -1,7 +1,8 @@
 """평가 하네스: `evaluation/test_queries.csv`의 평가 문항을 API로 실행하고 지표를 낸다 (SERVICE.md 10장).
 
 - 문항마다 `FRIDGE_TODAY`를 고정하고 임시 폴더에 `fridge.db`(시드)와 `checkpoints.db`를 새로 만든다.
-  `data/` 아래 실제 DB는 건드리지 않는다.
+  `data/` 아래 실제 DB는 건드리지 않는다. 품목 기준표도 문항마다 원본을 임시 폴더에 복사해 쓰고(Form 입고가
+  새 품목을 덧붙이므로), 문항이 끝나면 원본 경로로 되돌리고 검색 인덱스의 보관 청크도 원본에 맞춘다.
 - 실행마다 평가 전용 워치 MCP 서버를 임시 기록 DB와 빈 포트로 직접 띄우고, 문항마다 그 기록을 비운다.
   앞 문항이 승인한 식사가 다음 문항의 남은 칼로리에 섞이지 않게 하려는 것이다. `.env`의 `HEALTH_MCP_URL`과
   `data/health.db`는 쓰지 않는다. `--no-watch`면 워치 서버 없이(워치 조회 도구 없이) 실행한다.
@@ -24,6 +25,7 @@ import json
 import math
 import os
 import re
+import shutil
 import socket
 import sqlite3
 import subprocess
@@ -49,10 +51,11 @@ from langchain_aws import BedrockEmbeddings, ChatBedrockConverse  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 import src.agent as agent_module  # noqa: E402
+from src import retriever  # noqa: E402
 from src.agent import HEALTH_QUERY_TOOLS  # noqa: E402
 from src.api import create_app, parse_user_tokens  # noqa: E402
 from src.health_mcp_server import HEALTH_SCHEMA  # noqa: E402
-from src.tools import AGENT_TOOLS, reset_db  # noqa: E402
+from src.tools import AGENT_TOOLS, clear_guide_cache, reset_db  # noqa: E402
 
 EVAL_DIR = Path(__file__).resolve().parent
 QUERIES_CSV = EVAL_DIR / "test_queries.csv"
@@ -225,46 +228,67 @@ def watch_server(db_path: Path):
                 proc.wait()
 
 
-async def run_query(query: dict[str, Any], model: Any = None) -> dict[str, Any]:
-    """문항 하나를 격리된 임시 DB로 실행해 턴별 응답과 도구 호출 기록을 돌려준다."""
-    with tempfile.TemporaryDirectory(prefix="fridge-eval-", ignore_cleanup_errors=True) as tmp:
-        fridge_db = Path(tmp) / "fridge.db"
-        agent_module.CHECKPOINT_DB = Path(tmp) / "checkpoints.db"  # open_agent가 읽는 경로를 임시 파일로
-        reset_db(fridge_db)
-        seed_state = db_counts(fridge_db)
+def use_storage_items(path: Path | None) -> None:
+    """품목 기준표 경로를 바꾸고(None이면 원본) 기준표 캐시와 검색 인덱스의 보관 청크를 그 기준표에 맞춘다."""
+    if path is None:
+        os.environ.pop(retriever.STORAGE_ITEMS_ENV, None)
+    else:
+        os.environ[retriever.STORAGE_ITEMS_ENV] = str(path)
+    clear_guide_cache()
+    retriever.refresh_storage_index()
 
-        app = create_app(model=model, db_path=str(fridge_db))
-        headers = {}
-        token = parse_user_tokens().get(query["user_id"] or "")
-        if token:
-            headers["X-User-Token"] = token
-        turns: list[dict[str, Any]] = []
-        started = time.perf_counter()
-        async with app.router.lifespan_context(app):
-            transport = httpx.ASGITransport(app=app)
-            async with httpx.AsyncClient(transport=transport, base_url="http://eval", timeout=300) as client:
-                body: dict[str, Any] = {"question": query["input"]}
-                if query["user_id"]:
-                    body["user_id"] = query["user_id"]
-                requests = [body]
-                for i, req in enumerate(requests):
-                    resp = await client.post("/query", json=req, headers=headers)
-                    resp.raise_for_status()
-                    data = resp.json()
-                    turns.append({"request": req, **data, "db_after": db_counts(fridge_db)})
-                    if i == 0 and query["resume"] and data["trace"].get("pending_interrupt"):
-                        requests.append({**body, "question": "승인", "thread_id": data["trace"]["thread_id"], "resume": query["resume"]})
-                    elif i == 0 and query["followup"]:  # note의 2턴 진행 (예: E01 제안 S/N으로 저장)
-                        requests.append({**body, "question": query["followup"], "thread_id": data["trace"]["thread_id"]})
-            thread_id = turns[0]["trace"]["thread_id"]
-            snapshot = await app.state.agent.aget_state({"configurable": {"thread_id": thread_id}})
-            calls = state_tool_calls(snapshot.values.get("messages", []))
-        return {
-            "turns": turns,
-            "seed_state": seed_state,
-            "tool_calls": calls,
-            "elapsed_s": round(time.perf_counter() - started, 1),
-        }
+
+async def run_query(query: dict[str, Any], model: Any = None) -> dict[str, Any]:
+    """문항 하나를 격리된 임시 DB와 기준표 복사본으로 실행해 턴별 응답과 도구 호출 기록을 돌려준다."""
+    with tempfile.TemporaryDirectory(prefix="fridge-eval-", ignore_cleanup_errors=True) as tmp:
+        items = Path(tmp) / retriever.STORAGE_ITEMS.name
+        shutil.copyfile(retriever.STORAGE_ITEMS, items)
+        use_storage_items(items)
+        try:
+            return await _run_isolated(query, Path(tmp), model)
+        finally:
+            use_storage_items(None)  # 문항이 덧붙인 품목을 다음 문항에 남기지 않는다
+
+
+async def _run_isolated(query: dict[str, Any], tmp: Path, model: Any = None) -> dict[str, Any]:
+    """`run_query`의 본체. 임시 폴더에 DB를 새로 만들어 문항을 실행한다."""
+    fridge_db = Path(tmp) / "fridge.db"
+    agent_module.CHECKPOINT_DB = Path(tmp) / "checkpoints.db"  # open_agent가 읽는 경로를 임시 파일로
+    reset_db(fridge_db)
+    seed_state = db_counts(fridge_db)
+
+    app = create_app(model=model, db_path=str(fridge_db))
+    headers = {}
+    token = parse_user_tokens().get(query["user_id"] or "")
+    if token:
+        headers["X-User-Token"] = token
+    turns: list[dict[str, Any]] = []
+    started = time.perf_counter()
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://eval", timeout=300) as client:
+            body: dict[str, Any] = {"question": query["input"]}
+            if query["user_id"]:
+                body["user_id"] = query["user_id"]
+            requests = [body]
+            for i, req in enumerate(requests):
+                resp = await client.post("/query", json=req, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                turns.append({"request": req, **data, "db_after": db_counts(fridge_db)})
+                if i == 0 and query["resume"] and data["trace"].get("pending_interrupt"):
+                    requests.append({**body, "question": "승인", "thread_id": data["trace"]["thread_id"], "resume": query["resume"]})
+                elif i == 0 and query["followup"]:  # note의 2턴 진행 (예: E01 제안 S/N으로 저장)
+                    requests.append({**body, "question": query["followup"], "thread_id": data["trace"]["thread_id"]})
+        thread_id = turns[0]["trace"]["thread_id"]
+        snapshot = await app.state.agent.aget_state({"configurable": {"thread_id": thread_id}})
+        calls = state_tool_calls(snapshot.values.get("messages", []))
+    return {
+        "turns": turns,
+        "seed_state": seed_state,
+        "tool_calls": calls,
+        "elapsed_s": round(time.perf_counter() - started, 1),
+    }
 
 
 # ── 도구 일치 ─────────────────────────────────────────────────────

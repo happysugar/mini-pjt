@@ -309,3 +309,41 @@ def test_inventory_form_leaves_other_questions_alone(fridge_today):
     rating = '{"recipe": "규동", "cooked": "2 인분", "ratings": []}'
     for q in ["한우 600g 넣었어", rating, '{"a": 1}']:
         assert not guardrails.check_inventory_form(q).is_form
+
+
+def test_inventory_form_quantity_is_absolute(fridge_today):
+    v = guardrails.check_inventory_form(_stock(item="두부", qty=-2, unit="개", status="stored"))
+    assert not v.code and v.form["qty"] == 2.0
+    assert v.question == "재고 입력 Form을 확정해줘: 입고 두부 2개"
+
+
+def test_inventory_form_rejects_comma_alias(fridge_today):
+    v = guardrails.check_inventory_form(_stock(item="망고", aliases=["망고, 애플망고"], qty=1, unit="개", storageDays=5))
+    assert v.code == "FORM_INVALID" and any("쉼표" in p for p in v.problems)
+
+
+@pytest.mark.parametrize(
+    ("question", "kind"),
+    [
+        ("한우 600g 넣었어", "inventory"),
+        ("어제 산 두부 1모 넣었어, S/N은 2026-11-001", "inventory"),
+        ("한우 500g 꺼냈어", "inventory"),
+        ("상한 시금치 버려줘", "inventory"),
+        ("규동 2인분 만들어서 1인분 먹었어, 4점", "rating"),
+        ("외식으로 김치찌개 먹었어, 3점", "rating"),
+        ("아빠 계정으로 기록해줘. 규동 1인분 만들어서 1인분 먹었어, 4점", "rating"),
+        ("오늘 저녁 뭐 먹지?", None),
+        ("두부는 냉장 며칠 보관해?", None),
+        ("냉장고에 연어 몇 g 남았어?", None),
+        ("유통기한 지난 우유 버려도 돼?", None),
+        ("폐기 알람 언제 와?", None),
+        ("평점 4점 이상 요리 추천해줘", None),
+        ("아까 그 식사 기록 승인할게", None),
+        ('{"item": "두부", "qty": 1, "unit": "개"}', None),
+    ],
+)
+def test_free_text_write_kind(question, kind):
+    assert guardrails.free_text_write_kind(question) == kind
+    verdict = guardrails.check_free_text_write(question)
+    assert (verdict.code == "FORM_REQUIRED") is (kind is not None)
+

@@ -229,9 +229,9 @@ def test_add_inventory_unit_mismatch_not_saved(conn):
 
 
 def test_unknown_item_first_unit_becomes_base(conn):
-    first = tools.add_inventory(conn, "망고", 2, "개")
-    assert first["status"] == "added"
-    assert first["expiry_date"] is None and first["expiry_source"] == "unknown"
+    first = tools.add_inventory(conn, "망고", 2, "개", storage_days=5)
+    assert first["status"] == "added" and first["registered"] is True
+    assert first["expiry_date"] == "2026-11-25" and first["expiry_source"] == "user"
     assert tools.base_unit_of("망고", conn) == "개"
 
     other_unit = tools.add_inventory(conn, "망고", 300, "g")
@@ -338,7 +338,7 @@ def test_rescued_g_week(conn):
     tools.deduct_fefo(conn, "두부", 1, "개")  # 개: 1개 = 300g
 
     # 집계 제외: 평균 무게 없는 품목, 만료 재고, 폐기, 임박 아님, 지난주
-    tools.add_inventory(conn, "수제 잼", 2, "개", expiry_date="+1")
+    tools.add_inventory(conn, "수제 잼", 2, "개", expiry_date="+1", storage_days=30)
     tools.deduct_fefo(conn, "수제 잼", 1, "개")
     tools.deduct_fefo(conn, "시금치", 100, "g")
     tools.add_inventory(conn, "당근", 2, "개", expiry_date="0")
@@ -382,3 +382,71 @@ def test_calc_kcal():
 )
 def test_topic_particle(word, particle):
     assert tools.topic_particle(word) == particle
+
+
+# ── 새 품목 등록 조건과 기준표 자동 추가 (SERVICE.md 5.1) ──────────
+
+
+def test_new_item_needs_positive_storage_days(conn):
+    for days in (None, 0, -3, 2.5, True):
+        result = tools.add_inventory(conn, "고등어", 600, "g", storage_days=days)
+        assert result["status"] == tools.STORAGE_DAYS_REQUIRED
+    weight = tools.add_inventory(conn, "고등어", 1, "개", storage_days=2, avg_weight_g=0)
+    assert weight["status"] == "avg_weight_invalid"
+    assert conn.execute("SELECT COUNT(*) FROM inventory WHERE item = '고등어'").fetchone()[0] == 0
+    assert tools.item_profile(conn, "고등어") is None
+    # 기준표 품목은 보관일수 없이도 입고한다
+    assert tools.add_inventory(conn, "두부", 1, "개")["status"] == "added"
+
+
+def test_quantity_is_absolute(conn):
+    result = tools.add_inventory(conn, "두부", -2, "개")
+    assert result["status"] == "added" and result["qty"] == 2
+    assert tools.add_inventory(conn, "두부", 0, "개")["status"] == "qty_invalid"
+    assert tools.deduct_fefo(conn, "한우", -100, "g")["deducted"] == 100
+
+
+def test_sync_guide_appends_registered_item(conn):
+    with conn:
+        tools.add_inventory(conn, "고등어", 600, "g", storage_days=2, aliases=["생고등어"])
+    assert tools.guide_info("고등어") is None  # 커밋 뒤 sync_guide 전에는 기준표에 없다
+    assert tools.sync_guide(conn) == ["고등어"]
+    assert tools.guide_info("생고등어") == {
+        "aliases": ["생고등어"], "base_unit": "g", "storage_days": 2, "avg_weight_g": None}
+    assert tools.sync_guide(conn) == []  # 다시 불러도 덧붙이지 않는다
+    # 이제 기준표 품목이라 보관일수 없이 입고하면 기준표 값으로 계산한다
+    again = tools.add_inventory(conn, "고등어", 300, "g")
+    assert again["status"] == "added" and again["expiry_source"] == "guide" and "registered" not in again
+
+
+def test_store_from_form_registers_and_fills_blanks(conn):
+    form = {"action": "stored", "item": "망고", "aliases": ["애플망고"], "sn": None, "qty": 2, "unit": "개",
+            "avg_weight_g": None, "expiry_date": None, "input_date": None, "storage_days": 5}
+    with conn:
+        stored = tools.store_from_form(conn, form)
+    assert stored["registered"] is True and stored["expiry_date"] == "2026-11-25"
+    tools.sync_guide(conn)
+    # 등록으로 덧붙은 품목: 비어 있는 개당 평균 무게는 채우고, 다른 보관일수는 기준표 값을 쓴다
+    with conn:
+        second = tools.store_from_form(conn, {**form, "avg_weight_g": 350, "storage_days": 9})
+    assert second["expiry_date"] == "2026-11-25"
+    assert second["notes"] == ["권장 보관일수는 기준표 값(5일)을 썼어요", "개당 평균 무게 350g을 기준표에 채웠어요"]
+    assert tools.sync_guide(conn) == ["망고"]
+    assert tools.guide_info("망고")["avg_weight_g"] == 350
+    # 기준표 원래 품목의 빈 값은 채우지 않는다(기준표 수정은 admin 기능)
+    with conn:
+        beef = tools.store_from_form(conn, {**form, "item": "한우", "aliases": [], "qty": 100, "unit": "g",
+                                            "avg_weight_g": 200, "storage_days": None})
+    assert beef["notes"] == ["개당 평균 무게는 기준표 값(없음)을 썼어요"]
+    assert tools.guide_info("소고기")["avg_weight_g"] is None
+
+
+def test_form_stock_check_requires_storage_days_for_new_item(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRIDGE_TODAY", TODAY.isoformat())
+    db = tmp_path / "fridge.db"
+    tools.reset_db(db)
+    form = {"action": "stored", "item": "고등어", "aliases": [], "sn": None, "qty": 600, "unit": "g",
+            "avg_weight_g": None, "expiry_date": None, "input_date": None, "storage_days": None}
+    assert tools.check_inventory_form_stock(str(db), form) == [tools.MSG_STORAGE_DAYS_REQUIRED]
+    assert tools.check_inventory_form_stock(str(db), {**form, "storage_days": 2}) == []
+    assert tools.check_inventory_form_stock(str(db), {**form, "item": "두부", "unit": "개", "qty": 1}) == []

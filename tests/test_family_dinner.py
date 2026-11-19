@@ -104,6 +104,7 @@ def test_family_answer_masks_other_member_kcal(make_client, watch_on):
 # ── 식사 확정은 요청자 본인 기록만 ────────────────────────────────
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_meal_with_family_records_only_requester(make_client, env):
     meal = {"dish": "소고기 무국", "score": 4, "servings_made": 3, "servings_eaten": 1}
     _, ask = make_client(call("confirm_meal", meal), say("저장했어요."))

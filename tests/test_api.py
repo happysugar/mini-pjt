@@ -205,6 +205,7 @@ def test_token_alone_identifies_user(make_client):
 # ── 식사 승인 (HITL) ─────────────────────────────────────────────
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_meal_approve_saves_once(make_client, env):
     _, ask = make_client(call("confirm_meal", MEAL), say("저장했어요."))
     before = counts(env)
@@ -232,6 +233,7 @@ def test_meal_approve_saves_once(make_client, env):
     assert counts(env) == after
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_meal_reject_saves_nothing(make_client, env):
     client, ask = make_client(call("confirm_meal", MEAL), say("취소했어요."))
     before = counts(env)
@@ -244,6 +246,7 @@ def test_meal_reject_saves_nothing(make_client, env):
     assert r2["answer"] == tools.REJECT_MEAL  # 모델이 바꿔 쓴 "취소했어요." 대신 도구 문장 그대로
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_new_question_while_pending(make_client, env):
     _, ask = make_client(call("confirm_meal", MEAL))
     tid = ask({"question": "규동 먹었어, 4점"}, DAD)["trace"]["thread_id"]
@@ -269,6 +272,7 @@ def test_bare_approval_sentence_without_pending(make_client, env):
     assert r["trace"]["steps"] == [] and counts(env) == before
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_bare_approval_after_agent_question_goes_to_agent(make_client, env):
     # S/N 제안처럼 승인 대기 없이 되물은 뒤의 "그대로 진행해 줘"는 그 질문에 대한 답이라 에이전트가 처리한다.
     _, ask = make_client(say("제안한 S/N 2026-11-014로 저장할까요?"), say("저장했어요."))
@@ -277,6 +281,7 @@ def test_bare_approval_after_agent_question_goes_to_agent(make_client, env):
     assert not codes(r) and r["answer"] == "저장했어요."
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_approval_sentence_with_meal_goes_to_agent(make_client, env):
     _, ask = make_client(call("confirm_meal", MEAL))
     r = ask({"question": "규동 2인분 만들어서 1인분 먹었어, 4점. 승인할게"}, DAD)
@@ -296,6 +301,7 @@ def test_other_users_thread_is_blocked(make_client, env):
     assert counts(env) == before  # 엄마가 아빠의 승인을 대신 할 수 없다
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_tools_run_as_server_identified_user(make_client, env):
     # 질문에 "엄마 이름으로"라고 해도 도구는 토큰으로 확인한 사용자(dad)로만 실행된다.
     _, ask = make_client(call("confirm_meal", MEAL), say("저장했어요."))
@@ -319,6 +325,7 @@ def test_tool_schemas_have_no_user_id():
 # ── guest ───────────────────────────────────────────────────────
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_guest_write_is_read_only(make_client, env, monkeypatch):
     monkeypatch.delenv("DEFAULT_USER")
     _, ask = make_client(call("confirm_meal", MEAL), say("저장했어요."))
@@ -352,6 +359,7 @@ class FakeParser:
         return RunnableLambda(run)
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_add_items_from_text_runs_parse_chain(make_client, env, monkeypatch):
     from src import chains
 
@@ -369,6 +377,7 @@ def test_add_items_from_text_runs_parse_chain(make_client, env, monkeypatch):
     assert counts(env) == before and r["trace"]["errors"] == []
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_guest_cannot_add_items(make_client, env, monkeypatch):
     from src import chains
 
@@ -382,6 +391,7 @@ def test_guest_cannot_add_items(make_client, env, monkeypatch):
 # ── 대량 출고 (HITL) ────────────────────────────────────────────
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_bulk_withdraw_resume_deducts_once(make_client, env):
     _, ask = make_client(call("withdraw_item", {"item": "한우", "qty": 400, "unit": "g"}), say("출고했어요."))
     before = counts(env)
@@ -400,6 +410,7 @@ def test_bulk_withdraw_resume_deducts_once(make_client, env):
     assert codes(r3) == ["NO_PENDING_INTERRUPT"] and counts(env) == after
 
 
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_small_withdraw_needs_no_approval(make_client, env):
     _, ask = make_client(call("withdraw_item", {"item": "한우", "qty": 100, "unit": "g"}), say("출고했어요."))
     r = ask({"question": "한우 100g 꺼낼게"}, DAD)
@@ -685,3 +696,30 @@ def test_stock_form_checked_against_stock_before_model(make_client, env, values,
     assert codes(r) == ["FORM_INVALID"] and problem in r["answer"], r["answer"]
     assert r["answer"].startswith(guardrails.MSG_INVENTORY_FORM_INVALID)
     assert counts(env) == before and lot(env, "2026-11-014") is None
+
+# ── 자연어 재고·평가 쓰기 차단 (JSON Form으로만, SERVICE.md 5.6) ──────────
+
+
+@pytest.mark.parametrize(
+    ("question", "message"),
+    [
+        ("한우 600g 넣었어", guardrails.MSG_INVENTORY_FORM_REQUIRED),
+        ("한우 500g 꺼냈어", guardrails.MSG_INVENTORY_FORM_REQUIRED),
+        ("상한 시금치 버려줘", guardrails.MSG_INVENTORY_FORM_REQUIRED),
+        ("규동 2인분 만들어서 1인분 먹었어, 4점", guardrails.MSG_RATING_FORM_REQUIRED),
+    ],
+)
+def test_free_text_write_rejected_before_model(make_client, env, question, message):
+    before = counts(env)
+    _, ask = make_client()  # 대본이 비어 있어 에이전트가 불리면 오류가 난다
+    r = ask({"question": question}, DAD)
+    assert codes(r) == ["FORM_REQUIRED"] and r["answer"] == message
+    assert r["trace"]["guardrail"]["format"]["code"] == "FORM_REQUIRED"
+    assert r["trace"]["steps"] == [] and counts(env) == before
+
+
+def test_read_questions_still_reach_agent(make_client):
+    _, ask = make_client(call("list_inventory", {}), say("연어는 없어요"))
+    r = ask({"question": "냉장고에 연어 몇 g 남았어?"}, DAD)
+    assert r["answer"] == "연어는 없어요" and r["trace"]["guardrail"]["format"] is None
+
