@@ -2189,8 +2189,10 @@ def confirm_meal_form(runtime: ToolRuntime[FridgeContext]) -> str:
             f"{e['user_id']} {_fmt_qty(float(e['eaten']))}인분" + (f" {_fmt_qty(e['kcal'])}kcal" if e["kcal"] is not None else "")
             for e in entries
         )
-        watch = "각자 워치에 기록" if any(e["kcal"] is not None for e in entries) else "kcal을 몰라 워치 기록은 생략"
-        parts.append(f"식사 기록 {meals}을 {watch}")
+        if any(e["kcal"] is not None for e in entries):
+            parts.append(f"식사 기록 {meals}을 각자 워치에 기록")
+        else:
+            parts.append(f"식사 기록 {meals} 저장, kcal을 몰라 워치 기록은 생략")
         summary = ", ".join(parts) + (f" ({'; '.join(notes)})" if notes else "") + ". 진행할까요?"
 
         # 2) 쓰기 전에 요청자에게 승인을 받는다. 재개되면 이 도구가 처음부터 다시 실행되고 같은 Form을 다시 읽는다.

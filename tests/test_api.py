@@ -614,6 +614,18 @@ def test_pending_summary_masks_other_family_kcal(make_client, env):
     assert "mom 1인분 ***kcal" in again["trace"]["pending_interrupt"]["summary"]
 
 
+# Regression: ISSUE-003 — the approval summary read "1인분을 kcal을 몰라" for a dish without a recipe
+# Found by /qa on 2026-11-20
+# Report: ~/.gstack/projects/happysugar-mini-pjt/qa-reports/run-20261119T205310Z/qa-report-api-2026-11-20.md
+def test_unknown_recipe_form_summary_reads_naturally(make_client, env):
+    """레시피에 없는 요리는 식사 기록 저장과 워치 기록 생략을 따로 적는다(조사 겹침 없음)."""
+    _, ask = make_client(call("confirm_meal_form", {}), say("저장했어요."))
+    r = ask({"question": FORM_TWO.replace("규동", "에어프라이어 와플"), "thread_id": "dad-form-waffle"}, DAD)
+    summary = r["trace"]["pending_interrupt"]["summary"]
+    assert "식사 기록 dad 1인분·mom 1인분 저장, kcal을 몰라 워치 기록은 생략" in summary
+    assert "을 kcal을" not in summary
+
+
 def test_multi_evaluator_form_reject_saves_nothing(make_client, env):
     before = counts(env)
     _, ask = make_client(call("confirm_meal_form", {}), say("취소했어요."))
