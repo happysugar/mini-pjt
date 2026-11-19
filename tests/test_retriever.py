@@ -59,6 +59,17 @@ def test_chunks_have_source_and_title():
     assert "권장 보관일수: 7일" in tofu.page_content and "물을 매일 갈아" in tofu.page_content
 
 
+def test_storage_tips_have_no_period():
+    """보관 기간은 품목 기준표에만 둔다. 품목별 보관 팁 본문에는 일·개월·년 같은 기간이 없어야 한다."""
+    import re
+
+    for doc in retriever.load_chunks():
+        if doc.metadata["kind"] != KIND_STORAGE or doc.metadata["title"] == retriever.SCOPE_TITLE:
+            continue
+        tip = doc.page_content.split("\n", 2)[-1]  # 첫 줄(제목)과 둘째 줄(기준표 행)을 뺀 보관 팁 본문
+        assert not re.search(r"\d+\s*(일|개월|년)|하루|이틀|당일에 먹", tip), (doc.metadata["title"], tip)
+
+
 def test_alias_table_both_ways():
     table = retriever.alias_table()
     assert {"한우", "우둔", "차돌"} <= set(table["소고기"])
