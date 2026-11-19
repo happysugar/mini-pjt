@@ -22,7 +22,7 @@ from fastapi import FastAPI, Header
 from langchain_core.callbacks import BaseCallbackHandler
 from pydantic import BaseModel, Field
 
-from src import retriever
+from src import guardrails, retriever
 from src.agent import open_agent, pending_interrupt, run_turn
 from src.tools import (
     GUEST_DENIED,
@@ -268,11 +268,14 @@ async def _pending(agent: Any, thread_id: str) -> dict | None:
 
 
 async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path: str | None) -> QueryResponse:
-    """`/query` 한 건을 처리한다. 신원 → 스레드 소유권 → 승인 상태 → 에이전트 실행 순서다."""
+    """`/query` 한 건을 처리한다. 신원 → 스레드 소유권 → 승인 상태 → 입력 가드레일 → 에이전트 실행 순서다.
+
+    모든 응답은 출력 가드레일(개인정보·다른 가족 칼로리 마스킹)을 거친다. trace의 질문도 같은 방식으로 가린다.
+    """
     trace: dict[str, Any] = {
         "thread_id": req.thread_id,
         "user_id": None,
-        "question": req.question,
+        "question": guardrails.mask_output(req.question, "")[0],
         "resume": req.resume,
         "alerts": [],
         "pending_interrupt": None,
@@ -280,11 +283,14 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
         "rescued_g_week": 0,
         "errors": [],
         "index": dict(retriever.BUILD_STATS),
+        "guardrail": {"input": None, "output": []},
     }
 
     def reply(answer: str, contexts: list[str] | None = None) -> QueryResponse:
-        """현재 trace로 응답을 만든다."""
-        return QueryResponse(answer=answer, contexts=contexts or [], trace=trace)
+        """현재 trace로 응답을 만든다. 답은 출력 가드레일로 개인정보를 가린 뒤 돌려준다."""
+        masked, kinds = guardrails.mask_output(answer, trace["user_id"] or "")
+        trace["guardrail"]["output"] = kinds
+        return QueryResponse(answer=masked, contexts=contexts or [], trace=trace)
 
     try:
         user_id = resolve_identity(token, req.user_id)
@@ -308,6 +314,13 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
         trace["pending_interrupt"] = pending
         trace["errors"].append(_error("INTERRUPT_PENDING", "승인 또는 거절 후 다시 질문해 주세요"))
         return reply(f"{pending['summary']} (approve/reject)")
+
+    if not req.resume:
+        verdict = guardrails.check_input(req.question, user_id)
+        trace["guardrail"]["input"] = verdict.as_trace()
+        if verdict.blocked:
+            trace["errors"].append(_error(verdict.code, "입력 가드레일에서 막은 요청이에요"))
+            return reply(verdict.message)
 
     recorder = StepRecorder()
     context = FridgeContext(user_id=user_id, db_path=db_path)
