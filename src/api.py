@@ -475,6 +475,10 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
         return reply(MSG_AGENT_ERROR)
 
     answer = turn["answer"]
+    # 승인으로 재개한 턴에서 모델이 빈 답을 내면, 확정 도구가 돌려준 결과 문장(저장·출고·폐기 요약)을 그대로 쓴다.
+    # 워치 실패 안내를 붙이기 전에 채워야 요약이 빠지지 않는다(QA ISSUE-001)
+    if req.resume and not answer.strip() and not turn["pending_interrupt"]:
+        answer = next((o.strip() for name, o in reversed(tracer.outputs) if name in CONFIRM_TOOLS and o.strip()), answer)
     # 도구 호출 기록 뒤에, 식사 확정 도구가 코드에서 부른 MCP record_meal 기록을 붙인다.
     tracer.mcp_calls(context.mcp_calls)
     if _watch_failed(context.mcp_calls):
@@ -489,9 +493,6 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
     rejected = next((o.strip() for _, o in tracer.outputs if o.strip() in REJECT_ANSWERS), None)
     if req.resume and rejected and not turn["pending_interrupt"]:
         answer = rejected
-    # 승인으로 재개한 턴에서 모델이 빈 답을 내면, 확정 도구가 돌려준 결과 문장(저장·출고·폐기 요약)을 그대로 쓴다
-    if req.resume and not answer.strip() and not turn["pending_interrupt"]:
-        answer = next((o.strip() for name, o in reversed(tracer.outputs) if name in CONFIRM_TOOLS and o.strip()), answer)
     # 지원하지 않는 카테고리 요청이면, 모델이 바꿔 쓴 안내 대신 rank_recipes 안내 문장을 첫 문단에 그대로 쓴다
     note = unsupported_category_note(tracer.outputs)
     if note and not turn["pending_interrupt"]:

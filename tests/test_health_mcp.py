@@ -169,6 +169,21 @@ def test_watch_down_then_resent_once_on_next_query(make_client, env, health_db):
     assert len(watch_rows(health_db)) == 1
 
 
+# Regression: ISSUE-001 — 워치가 꺼진 채 승인하면 저장 요약 없이 "워치 기록 실패"만 남는다
+# Found by /qa on 2026-11-20
+# Report: .gstack/qa-reports/run-20261120T074237Z/qa-report-query-api-2026-11-20.md
+@pytest.mark.usefixtures("allow_free_text_writes")
+def test_watch_down_empty_answer_keeps_save_summary(make_client, env, health_db):
+    """승인 뒤 모델 답이 비고 워치 기록도 실패하면, 확정 도구의 저장 요약과 워치 실패 안내가 함께 나온다."""
+    _, ask = make_client(call("confirm_meal", MEAL), say(""))
+    tools.set_health_target(DOWN_URL)
+    r1 = ask({"question": "규동 2인분 만들어서 1인분 먹었어, 4점"}, DAD)
+    r2 = ask({"question": "승인", "thread_id": r1["trace"]["thread_id"], "resume": "approve"}, DAD)
+    assert codes(r2) == ["WATCH_SYNC_FAILED"]
+    assert r2["answer"].startswith("저장했어요. 규동 4점")
+    assert r2["answer"].count("워치 기록 실패") == 1
+
+
 @pytest.mark.usefixtures("allow_free_text_writes")
 def test_meal_without_kcal_is_not_sent(make_client, env, watch_on):
     _, ask = make_client(call("confirm_meal", {"dish": "김치찌개", "score": 3}), say("저장했어요."))
