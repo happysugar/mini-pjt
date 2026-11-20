@@ -560,8 +560,9 @@ def check_rating_form(question: str, user_id: str) -> FormVerdict:
         if uid and not eaten_problem and score_ok:
             entries.append((uid, float(item["eaten"]), score))
     if cooked and cooked > 0 and len(entries) == len(ratings) and entries:
-        total = sum(e for _, e, _ in entries)
-        if total > cooked:
+        # 소수 인분의 합은 부동소수 오차가 생긴다(0.1 + 0.2 → 0.30000000000000004). 반올림해 비교한다.
+        total = round(sum(e for _, e, _ in entries), 9)
+        if total > round(cooked, 9):
             problems.append(f"평가자별 식사량 합계({_fmt(total)} 인분)가 요리한 양({_fmt(cooked)} 인분)보다 많아요")
 
     if problems:

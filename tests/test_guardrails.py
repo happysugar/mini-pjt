@@ -250,6 +250,19 @@ def test_multiple_and_other_family_member_evaluators_are_accepted():
     assert not guardrails.check_rating_form(_form(ratings=mom), "dad").code
 
 
+# Regression: ISSUE-001 — 소수 식사량 합계가 요리한 양과 같아도 부동소수 오차로 "합계가 더 많아요"라고 거절함
+# Found by /qa on 2026-11-20
+# Report: .gstack/qa-reports/qa-report-api-query-2026-11-20.md
+def test_eaten_sum_equal_to_cooked_with_decimal_servings_is_accepted():
+    """0.1 + 0.2 인분은 요리한 양 0.3 인분과 같다. 실제로 넘는 합계(0.1 + 0.3)는 그대로 거절한다."""
+    same = [{"evaluator": "dad", "eaten": 0.1, "score": 4}, {"evaluator": "mom", "eaten": 0.2, "score": 5}]
+    v = guardrails.check_rating_form(_form(cooked=0.3, ratings=same), "dad")
+    assert not v.code, v.problems
+    over = [{"evaluator": "dad", "eaten": 0.1, "score": 4}, {"evaluator": "mom", "eaten": 0.3, "score": 5}]
+    v = guardrails.check_rating_form(_form(cooked=0.3, ratings=over), "dad")
+    assert v.problems == ["평가자별 식사량 합계(0.4 인분)가 요리한 양(0.3 인분)보다 많아요"]
+
+
 @pytest.mark.parametrize(
     ("form", "missing"),
     [
