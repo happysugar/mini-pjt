@@ -225,6 +225,9 @@ def test_valid_form_becomes_confirm_request():
         (True, [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양은 숫자만 넣어 주세요"),
         (0, [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양은 0보다 커야"),
         (-2, [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양은 0보다 커야"),
+        (21, [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양은 20인분 이하여야 해요"),
+        (1000000, [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양은 20인분 이하여야 해요"),
+        (20, [{"evaluator": "dad", "eaten": 3.5, "score": 4}], "dad의 식사량은 3인분 이하여야 해요"),
         (None, [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양이 빠졌어요"),
         (1, [{"evaluator": "dad", "eaten": 1, "score": 4},
              {"evaluator": "mom", "eaten": 1, "score": 5}], "합계(2 인분)가 요리한 양(1 인분)보다"),
@@ -248,6 +251,13 @@ def test_multiple_and_other_family_member_evaluators_are_accepted():
     assert v.question == "평가 입력 Form을 확정해줘: 규동 2인분, dad 1인분 4점, mom 1인분 5점"
     mom = [{"evaluator": "mom", "eaten": 1, "score": 5}]
     assert not guardrails.check_rating_form(_form(ratings=mom), "dad").code
+
+
+def test_servings_upper_limits_are_inclusive():
+    """요리한 양은 20인분, 평가자 한 명의 식사량은 3인분까지 받는다(SERVICE.md 5.6)."""
+    v = guardrails.check_rating_form(_form(cooked=20, ratings=[{"evaluator": "dad", "eaten": 3, "score": 4}]), "dad")
+    assert not v.code, v.problems
+    assert guardrails.MAX_COOKED_SERVINGS == 20 and guardrails.MAX_EATEN_SERVINGS == 3
 
 
 # Regression: ISSUE-001 — 소수 식사량 합계가 요리한 양과 같아도 부동소수 오차로 "합계가 더 많아요"라고 거절함
@@ -346,6 +356,9 @@ def test_inventory_form_consume_and_discard_questions(fridge_today):
     [
         ({"item": "우유", "qty": 0, "unit": "L", "status": "stored"}, "양은 0보다 큰"),
         ({"item": "우유", "qty": -2, "unit": "L", "status": "stored"}, "양은 0보다 큰"),
+        ({"item": "두부", "qty": 21, "unit": "개", "status": "stored"}, "양은 20개 이하여야 해요"),
+        ({"item": "우유", "qty": 20.5, "unit": "L", "status": "consumed"}, "양은 20L 이하여야 해요"),
+        ({"item": "한우", "qty": 20001, "unit": "g", "status": "stored"}, "양은 20000g 이하여야 해요"),
         ({"item": "우유", "qty": 1, "unit": "ml", "status": "stored"}, "단위는 g, L, 개"),
         ({"item": "", "qty": 1, "unit": "L", "status": "stored"}, "품목이 비었어요"),
         ({"item": "망고", "qty": 1, "unit": "개", "storageDays": -5, "status": "stored"}, "권장 보관일수는 1 이상"),
@@ -384,6 +397,15 @@ def test_inventory_form_leaves_other_questions_alone(fridge_today):
     rating = '{"recipe": "규동", "cooked": 2, "ratings": []}'
     for q in ["한우 600g 넣었어", rating, '{"a": 1}', '{"cooked": 2, "qty": 1}']:
         assert not guardrails.check_inventory_form(q).is_form
+
+
+def test_inventory_form_quantity_upper_limits_are_inclusive(fridge_today):
+    """입고·출고 한 번의 양은 20개·20L·20000g까지 받는다. 폐기는 양을 처리에 쓰지 않아 상한을 보지 않는다(SERVICE.md 5.1)."""
+    for qty, unit, status in ((20, "개", "stored"), (20, "L", "consumed"), (20000, "g", "stored")):
+        v = guardrails.check_inventory_form(_stock(item="두부", qty=qty, unit=unit, status=status))
+        assert not v.code, (qty, unit, v.problems)
+    gone = guardrails.check_inventory_form(_stock(item="시금치", sn="2026-11-008", qty=50, status="discarded"))
+    assert not gone.code
 
 
 def test_inventory_form_rejects_negative_quantity(fridge_today):
