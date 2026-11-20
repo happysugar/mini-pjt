@@ -416,6 +416,22 @@ class UnitMismatchError(ValueError):
         super().__init__(f"재고 단위 불일치: {item}의 기준 단위는 {base_unit}인데 {unit}(으)로 들어왔어요")
 
 
+class UnitUnknownError(UnitMismatchError):
+    """품목의 단위 정보(기준 단위)를 확인할 수 없어 계산할 수 없을 때 낸다(SERVICE.md 5.1 "단위 정보 확인 불가")."""
+
+    def __init__(self, item: str):
+        """단위 정보를 찾지 못한 품목을 기록한다. 기준 단위는 없다."""
+        ValueError.__init__(self, f"{item}의 단위 정보를 확인할 수 없어 계산할 수 없어요")
+        self.item, self.unit, self.base_unit = item, None, None
+
+
+def unit_error_text(error: UnitMismatchError, action: str = "입력해 주세요") -> str:
+    """단위 오류를 사용자 안내 문장으로 바꾼다. 단위 정보 확인 불가면 그 문장만, 아니면 기준 단위로 다시 알려 달라고 덧붙인다."""
+    if isinstance(error, UnitUnknownError):
+        return str(error)
+    return f"{error}. 기준 단위({error.base_unit})로 {action}"
+
+
 def _round(x: float) -> float:
     """부동소수점 오차를 없애려고 소수 여섯째 자리에서 반올림한다."""
     return round(x, 6)
@@ -464,15 +480,23 @@ def item_profile(conn: sqlite3.Connection, name: str) -> dict | None:
     return exact or next((r for r in rows if any(_name_key(a) == key for a in r["aliases"])), None)
 
 
-def convert_to_base(item: str, qty: float, unit: str, conn: sqlite3.Connection | None = None) -> tuple[float, str]:
+def convert_to_base(
+    item: str, qty: float, unit: str, conn: sqlite3.Connection | None = None, register: bool = False
+) -> tuple[float, str]:
     """수량을 품목의 기준 단위로 바꾼다.
 
     단위가 기준 단위와 다르면 개당 평균 무게로 `개`↔`g`를 환산한다. 평균 무게가 없거나
-    `L`처럼 환산할 길이 없으면 UnitMismatchError. 처음 보는 품목은 들어온 단위를 그대로 쓴다.
+    `L`처럼 환산할 길이 없으면 UnitMismatchError.
+    기준표에도 `item_units`에도 없어 단위 정보를 확인할 수 없는 품목은 계산하지 않고 UnitUnknownError를 낸다.
+    예외는 새 품목의 첫 입고(`register=True`)뿐이다. 그때 들어온 단위가 그 품목의 기준 단위가 된다.
     """
     q, u = normalize_unit(qty, unit)
     base = base_unit_of(item, conn)
-    if base is None or u == base:
+    if base is None:
+        if register:
+            return q, u
+        raise UnitUnknownError(item)
+    if u == base:
         return q, u
     info = guide_info(item)
     profile = item_profile(conn, item) if info is None and conn is not None else None
@@ -485,18 +509,20 @@ def convert_to_base(item: str, qty: float, unit: str, conn: sqlite3.Connection |
     raise UnitMismatchError(item, u, base)
 
 
-def to_grams(item: str, qty: float, unit: str) -> float | None:
+def to_grams(item: str, qty: float, unit: str, conn: sqlite3.Connection | None = None) -> float | None:
     """기준 단위 수량을 g으로 바꾼다 (폐기 회피량 집계용).
 
-    `g`는 그대로, `L`는 1L = 1,000g, `개`는 개당 평균 무게. 평균 무게가 없으면 None.
+    `g`는 그대로, `L`는 1L = 1,000g, `개`는 개당 평균 무게(기준표, 없으면 `item_units`).
+    평균 무게를 확인할 수 없으면 계산하지 않고 None(집계에서 빠진다).
     """
     if unit == "g":
         return _round(qty)
     if unit == "L":
         return _round(qty * 1000)
     info = guide_info(item)
-    if unit == "개" and info and info["avg_weight_g"]:
-        return _round(qty * info["avg_weight_g"])
+    weight = info["avg_weight_g"] if info else (item_profile(conn, item) or {}).get("avg_weight_g") if conn else None
+    if unit == "개" and weight:
+        return _round(qty * weight)
     return None
 
 
@@ -611,6 +637,7 @@ def check_sn(conn: sqlite3.Connection, sn: str) -> dict:
 STORAGE_DAYS_REQUIRED = "storage_days_required"
 MSG_STORAGE_DAYS_REQUIRED = "기준표에 없는 품목이라 권장 보관일수(1 이상의 정수)가 필요해요"
 MSG_AVG_WEIGHT_INVALID = "개당 평균 무게는 양수여야 해요"
+MSG_UNIT_REQUIRED = "기준표에 없는 품목이라 단위(g, L, 개)가 필요해요. 첫 입고 단위가 이 품목의 기준 단위가 돼요"
 
 
 def is_new_item(conn: sqlite3.Connection, item: str) -> bool:
@@ -618,12 +645,15 @@ def is_new_item(conn: sqlite3.Connection, item: str) -> bool:
     return resolve_item(item) is None and item_profile(conn, item) is None
 
 
-def registration_problems(storage_days: object, avg_weight_g: object) -> list[str]:
+def registration_problems(storage_days: object, avg_weight_g: object, unit: object = "") -> list[str]:
     """새 품목 등록 조건(SERVICE.md 5.1)을 검사해 어긋난 점을 돌려준다(없으면 빈 목록).
 
-    권장 보관일수는 반드시 양의 정수, 개당 평균 무게는 없거나 양수여야 한다.
+    단위는 반드시 있어야 하고(첫 입고 단위가 그 품목의 기준 단위가 된다), 권장 보관일수는 반드시 양의 정수,
+    개당 평균 무게는 없거나 양수여야 한다.
     """
     problems = []
+    if not isinstance(unit, str) or not unit.strip():
+        problems.append(MSG_UNIT_REQUIRED)
     if isinstance(storage_days, bool) or not isinstance(storage_days, int) or storage_days <= 0:
         problems.append(MSG_STORAGE_DAYS_REQUIRED)
     if avg_weight_g is not None and (
@@ -649,7 +679,8 @@ def add_inventory(
 
     - 투입일자: 상대 토큰("어제", "-1")이나 날짜. 없으면 오늘.
     - 양: 0보다 커야 한다. 0이나 음수면 저장하지 않고 `status="qty_invalid"`(SERVICE.md 5.1, 음수를 절대값으로 바꾸지 않음).
-    - 단위: 기준 단위로 환산. 환산할 수 없으면 저장하지 않고 `status="unit_mismatch"`.
+    - 단위: 기준 단위로 환산. 환산할 수 없으면 저장하지 않고 `status="unit_mismatch"`. 새 품목은 단위가 없으면
+      `status="unit_required"`(첫 입고 단위가 기준 단위가 된다).
     - S/N: 주면 형식·중복을 검사하고, 어긋나면 저장하지 않고 `status="sn_invalid"`와
       자동 발번 S/N(`suggested_sn`)을 돌려준다. 없으면 자동 발번.
     - 유효기간: 주면 출처 `user`, 없으면 가이드로 계산(`guide`). 새 품목은 `투입일자 + storage_days`(`user`).
@@ -664,12 +695,13 @@ def add_inventory(
         return {"status": "qty_invalid", "item": item, "message": "양은 0보다 커야 해요. 0보다 큰 양을 알려 주세요"}
     new = is_new_item(conn, item)
     if new:
-        problems = registration_problems(storage_days, avg_weight_g)
+        problems = registration_problems(storage_days, avg_weight_g, unit)
         if problems:
-            status = STORAGE_DAYS_REQUIRED if MSG_STORAGE_DAYS_REQUIRED in problems else "avg_weight_invalid"
+            status = ("unit_required" if MSG_UNIT_REQUIRED in problems
+                      else STORAGE_DAYS_REQUIRED if MSG_STORAGE_DAYS_REQUIRED in problems else "avg_weight_invalid")
             return {"status": status, "item": item.strip(), "message": "; ".join(problems)}
     try:
-        q, u = convert_to_base(item, qty, unit, conn)
+        q, u = convert_to_base(item, qty, unit, conn, register=new)
     except UnitMismatchError as e:
         return {"status": "unit_mismatch", "item": item, "unit": e.unit, "base_unit": e.base_unit, "message": str(e)}
 
@@ -787,7 +819,7 @@ def deduct_fefo(
     - `ok`: 요청량을 모두 차감
     - `partial`: 있는 만큼만 차감, `shortage`에 모자란 양
     - `not_in_stock`: 재고 없음, 차감하지 않음
-    - `unit_mismatch`: 기준 단위로 환산할 수 없음, 차감하지 않음
+    - `unit_mismatch`: 기준 단위로 환산할 수 없음(단위 정보를 확인할 수 없는 품목 포함), 차감하지 않음
     """
     try:
         need, u = convert_to_base(item, qty, unit, conn)
@@ -815,7 +847,7 @@ def deduct_fefo(
         dd = d_day(row["expiry_date"])
         conn.execute(
             "INSERT INTO deductions (sn, qty_g, d_day_at_deduction, reason, created_at) VALUES (?, ?, ?, ?, ?)",
-            (row["sn"], to_grams(item, take, u), dd, reason, created_at),
+            (row["sn"], to_grams(item, take, u, conn), dd, reason, created_at),
         )
         details.append({"sn": row["sn"], "qty": take, "d_day": dd})
         remaining = _round(remaining - take)
@@ -1705,13 +1737,24 @@ def recipe_text(recipe: Recipe) -> str:
     )
 
 
+# "우리 가족"처럼 가족 전원을 가리키는 말. diners에 이 말이 오면 가족 구성원 전원을 참여자로 넣는다(SERVICE.md 5.5).
+REQUESTER_EXCLUDED = "요청하신 대로 본인은 빼고 함께 먹는 가족 기준으로 골랐어요"
+FAMILY_ALL_NAMES = ("가족", "우리 가족", "우리가족", "온 가족", "온가족", "가족 모두", "가족 전원", "가족 다", "다 같이", "모두")
+
+
 def _resolve_diners(conn: sqlite3.Connection, family_id: str, names: list[str]) -> tuple[list[str], list[str]]:
-    """'엄마', '지민이', 'mom' 같은 이름을 같은 가족의 user_id로 바꾼다. (찾은 id, 못 찾은 이름)을 돌려준다."""
+    """'엄마', '지민이', 'mom' 같은 이름을 같은 가족의 user_id로 바꾼다. (찾은 id, 못 찾은 이름)을 돌려준다.
+
+    '우리 가족', '가족', '온 가족' 같은 가족 전원을 가리키는 말은 가족 구성원 전원의 user_id로 바꾼다.
+    """
     users = conn.execute("SELECT user_id, name FROM users WHERE family_id = ?", (family_id,)).fetchall()
     found: list[str] = []
     unknown: list[str] = []
     for raw in names:
         name = raw.strip()
+        if name in FAMILY_ALL_NAMES:
+            found.extend(u["user_id"] for u in users)
+            continue
         candidates = {name, name[:-1] if len(name) > 2 and name.endswith("이") else name}
         match = next((u["user_id"] for u in users if u["user_id"] in candidates or u["name"] in candidates), None)
         if match:
@@ -1737,7 +1780,7 @@ def add_parsed_items(conn: sqlite3.Connection, items: list[InventoryInput]) -> l
             result = add_inventory(conn, it.item, it.qty, it.unit, it.input_date, it.expiry_date, it.sn,
                                    storage_days=it.storage_days)
             if result["status"] == "sn_invalid":
-                qty, unit = convert_to_base(it.item, it.qty, it.unit, conn)
+                qty, unit = convert_to_base(it.item, it.qty, it.unit, conn, register=True)
                 result.update(input_date=resolve_date(it.input_date).isoformat(), qty=qty, unit=unit)
             results.append(result)
         except ValueError as e:
@@ -1814,7 +1857,7 @@ def withdraw_item(runtime: ToolRuntime[FridgeContext], item: str, qty: float, un
         try:
             need, base = convert_to_base(item, qty, unit, conn)
         except UnitMismatchError as e:
-            return f"{e}. 기준 단위({e.base_unit})로 다시 알려 주세요"
+            return unit_error_text(e, "다시 알려 주세요")
         except ValueError as e:
             return str(e)
         total = _round(sum(r["qty"] for r in stock_rows(conn, item)))
@@ -1862,7 +1905,7 @@ def apply_discard(conn: sqlite3.Connection, lots: list[sqlite3.Row]) -> None:
         conn.execute("UPDATE inventory SET qty = 0, status = 'discarded' WHERE sn = ?", (r["sn"],))
         conn.execute(
             "INSERT INTO deductions (sn, qty_g, d_day_at_deduction, reason, created_at) VALUES (?, ?, ?, ?, ?)",
-            (r["sn"], to_grams(r["item"], r["qty"], r["unit"]), d_day(r["expiry_date"]), REASON_DISCARD, created_at),
+            (r["sn"], to_grams(r["item"], r["qty"], r["unit"], conn), d_day(r["expiry_date"]), REASON_DISCARD, created_at),
         )
 
 
@@ -1960,11 +2003,19 @@ def get_recipe(dish: str) -> str:
 
 
 @tool
-def rank_recipes(runtime: ToolRuntime[FridgeContext], category: str | None = None, diners: list[str] | None = None) -> str:
+def rank_recipes(
+    runtime: ToolRuntime[FridgeContext],
+    category: str | None = None,
+    diners: list[str] | None = None,
+    exclude_requester: bool = False,
+) -> str:
     """재고·평점·알레르기·비선호 규칙으로 오늘 만들 요리를 추천한다. 결과를 바꾸지 말고 그대로 설명한다.
 
     - category: 한식·일식·이탈리아식·중식 중 하나. 지정하지 않으면 네 카테고리 슬롯으로 추천한다.
     - diners: 함께 먹는 가족 이름(예: ["엄마", "지민"]). 요청자는 자동 포함이므로 넣지 않는다.
+      "우리 가족", "가족"처럼 이름 없이 가족 전원을 말하면 diners=["가족"]으로 넣는다(가족 전원이 참여자).
+    - exclude_requester: 요청 문장이 요청자를 명확히 뺄 때만 true("나는 빼고", "나 말고", "나는 안 먹어").
+      그런 말이 없으면 false다. 요청자는 언제나 기본 참여자다.
       주면 가족 합의 저녁 규칙으로 메뉴 1개와 신메뉴 2개를 고른다. 참여자 알레르기·비선호를 빼고,
       참여자 전원의 남은 칼로리를 워치에서 읽어 within_calorie_budget(모두의 남은 칼로리 안인지)만 돌려준다.
       가족 구성원 정보에 없는 이름은 참여자에서 빼고 notes로 알린다.
@@ -1985,17 +2036,23 @@ def rank_recipes(runtime: ToolRuntime[FridgeContext], category: str | None = Non
         others: list[str] = []
         if diners:
             found, unknown = _resolve_diners(conn, ctx.family_id, diners)
-            others = [d for d in found if d != ctx.user_id]
+            others = list(dict.fromkeys(d for d in found if d != ctx.user_id))
             if unknown:
                 notes.append(f"가족 목록에 없는 이름은 빼고 골랐어요: {', '.join(unknown)}")
+        # 요청자는 요청 문장이 명확히 빼지 않는 한 항상 참여자다. 뺄 때는 다른 참여자들만으로 추천한다.
+        lead = ctx.user_id
+        if exclude_requester and others:
+            lead, others = others[0], others[1:]
+            notes.append(REQUESTER_EXCLUDED)
         # 안전 필터의 알레르기·비선호는 장기 메모리(Store)에서 읽고, 없으면 시드 정보를 쓴다.
         store = getattr(runtime, "store", None)
-        if others:
-            profiles = memory.filter_profiles(store, [ctx.user_id, *others]) if store is not None else None
+        group = [lead, *others]
+        if group != [ctx.user_id]:
+            profiles = memory.filter_profiles(store, group) if store is not None else None
             # 참여자 전원의 남은 칼로리는 코드에서만 읽어 칼로리 제약에 쓴다(답변에는 "모두의 남은 칼로리 안" 여부만).
-            budgets, steps = fetch_calorie_budgets([ctx.user_id, *others], caller="rank_recipes")
+            budgets, steps = fetch_calorie_budgets(group, caller="rank_recipes")
             ctx.mcp_calls.extend(steps)
-            result = recommend_family(conn, ctx.user_id, others, profiles=profiles, calorie_budgets=budgets)
+            result = recommend_family(conn, lead, others, profiles=profiles, calorie_budgets=budgets)
             if budgets is None:
                 notes.append(CALORIE_UNKNOWN)
         else:
@@ -2300,12 +2357,13 @@ def check_inventory_form_stock(db_path: str | None, form: dict) -> list[str]:
                         f"이미 있는 S/N이에요: {sn}. {suggested}로 저장하려면 S/N 칸을 그 번호로 바꾸거나 비워 주세요"
                         if check["reason"].startswith("이미") else check["reason"]
                     )
-            if is_new_item(conn, name):
-                problems.extend(registration_problems(form.get("storage_days"), form.get("avg_weight_g")))
+            new = is_new_item(conn, name)
+            if new:
+                problems.extend(registration_problems(form.get("storage_days"), form.get("avg_weight_g"), form.get("unit")))
             try:
-                convert_to_base(name, form["qty"], form["unit"], conn)
+                convert_to_base(name, form["qty"], form["unit"], conn, register=new)
             except UnitMismatchError as e:
-                problems.append(f"{e}. 기준 단위({e.base_unit})로 입력해 주세요")
+                problems.append(unit_error_text(e))
             return problems
 
         rows = stock_rows(conn, name)
@@ -2324,7 +2382,7 @@ def check_inventory_form_stock(db_path: str | None, form: dict) -> list[str]:
             try:
                 need, base = convert_to_base(name, form["qty"], form["unit"], conn)
             except UnitMismatchError as e:
-                return [f"{e}. 기준 단위({e.base_unit})로 입력해 주세요"]
+                return [unit_error_text(e)]
             have = _round(lot["qty"] if lot else sum(r["qty"] for r in rows))
             if need > have:
                 problems.append(f"출고량({_fmt_qty(need, base)})이 보유량({_fmt_qty(have, base)})보다 많아요")

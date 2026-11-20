@@ -29,6 +29,7 @@ from src import memory
 from src.tools import (
     FridgeContext,
     UnitMismatchError,
+    UnitUnknownError,
     _check_recipe,
     alert_level,
     connect,
@@ -192,11 +193,14 @@ def base_stock(conn: sqlite3.Connection) -> dict[str, list[dict]]:
     for key, lots in stock.items():
         for lot in lots:
             try:
-                qty, unit = convert_to_base(key, lot["qty"], lot["unit"])
+                qty, unit = convert_to_base(key, lot["qty"], lot["unit"], conn)
+            except UnitUnknownError:
+                continue  # 단위 정보를 확인할 수 없는 재고는 계산하지 않는다(식단 가상 재고에서 뺀다, SERVICE.md 5.1)
             except UnitMismatchError:
                 qty, unit = lot["qty"], lot["unit"]
             out.setdefault(key, []).append({**lot, "qty": qty, "unit": unit})
-        out[key].sort(key=lambda lot: (lot["d_day"] is None, lot["d_day"] if lot["d_day"] is not None else 0))
+        if key in out:
+            out[key].sort(key=lambda lot: (lot["d_day"] is None, lot["d_day"] if lot["d_day"] is not None else 0))
     return out
 
 

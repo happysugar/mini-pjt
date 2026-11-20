@@ -89,3 +89,14 @@ LLM이 계산하지 않도록 재고 관련 규칙을 모두 Python 함수로 �
     원래 기준표 품목의 빈 값은 채우지 않는다.
   - 기준표 캐시는 경로(`retriever.storage_items_path()`, 환경변수 `FRIDGE_STORAGE_ITEMS`)별로 둔다.
 - 확인: pytest 432개 통과(새 테스트: 등록 조건, 양 절대값, `sync_guide`, Form 등록·채우기, Form 재고 검사).
+
+## 후속 변경: 단위 정보를 확인할 수 없으면 계산하지 않음 (2026-11-20)
+- 규칙(사용자 결정): 품목의 단위 정보를 확인할 수 없으면 계산하지 않는다. 새 품목의 첫 입고는 단위가 필수다.
+- `src/tools.py`
+  - `UnitUnknownError`(`UnitMismatchError`의 하위): 기준표와 `item_units` 어디에도 기준 단위가 없으면 `convert_to_base`가 낸다. 그전에는 들어온 단위를 그대로 써서 계산했다. 메시지 "{품목}의 단위 정보를 확인할 수 없어 계산할 수 없어요".
+  - `convert_to_base(register=False)`: 새 품목 첫 입고(`add_inventory`, 재고 Form 입고 검사)만 `register=True`로 들어온 단위를 기준 단위로 쓴다.
+  - `registration_problems(..., unit)`: 새 품목 등록에 단위가 없으면 `MSG_UNIT_REQUIRED`. `add_inventory`는 `status="unit_required"`로 저장하지 않는다.
+  - `unit_error_text`: 단위 오류 안내 문장을 한 곳에서 만든다(단위 정보 확인 불가면 "기준 단위(None)로…" 같은 문구를 붙이지 않음).
+  - `to_grams(..., conn)`: 개당 평균 무게를 `item_units`에서도 찾는다. 확인할 수 없으면 None(폐기 회피량에서 빠짐).
+- `src/planner.py` `base_stock`: 가상 재고 환산에 DB를 넘겨 등록 품목(망고 등)의 단위 정보를 읽는다. 단위 정보를 확인할 수 없는 재고는 빼고 계산한다(그전에는 원래 단위 그대로 넣었다).
+- 테스트: `tests/test_tools.py`에 단위 정보 확인 불가, 등록 품목 환산, 새 품목 단위 필수를 더했다.

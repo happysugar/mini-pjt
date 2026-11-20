@@ -143,6 +143,29 @@ def test_only_unknown_names_fall_back_to_requester_alone(make_client, watch_on):
     assert any("가족 목록에 없는 이름은 빼고 골랐어요: 철수" in n for n in out["notes"])
 
 
+@pytest.mark.parametrize("word", ["가족", "우리 가족", "온 가족", "다 같이"])
+def test_whole_family_words_include_every_member_and_requester(make_client, watch_on, word):
+    """이름 없이 "우리 가족"이라고 하면 가족 전원이 참여자다. 요청자도 한 번만 들어간다(E07)."""
+    client, ask = make_client(call("rank_recipes", {"diners": [word]}), say("추천해요."))
+    ask({"question": "오늘 우리 가족이 같이 먹을 거 추천해줘", "thread_id": "dad-t-all"}, DAD)
+    out = rank_output(client, "dad-t-all")
+    assert sorted(out["diners"]) == ["dad", "jimin", "mom"]
+    assert not any("가족 목록에 없는 이름" in n for n in out["notes"])
+
+
+def test_requester_is_included_unless_explicitly_excluded(make_client, watch_on):
+    """요청자는 기본 참여자다. 요청 문장이 명확히 뺄 때(exclude_requester=true)만 다른 참여자들로 추천한다."""
+    client, ask = make_client(call("rank_recipes", {"diners": ["엄마", "지민"], "exclude_requester": True}),
+                              say("추천해요."))
+    ask({"question": "나는 빼고 엄마랑 지민이 먹을 거 추천해줘", "thread_id": "dad-t-excl"}, DAD)
+    out = rank_output(client, "dad-t-excl")
+    assert sorted(out["diners"]) == ["jimin", "mom"]
+    assert tools.REQUESTER_EXCLUDED in out["notes"]
+    # 같은 이름 목록이라도 뺀다는 표시가 없으면 요청자가 들어간다
+    _, inc = family_ask(make_client)
+    assert sorted(inc["diners"]) == ["dad", "jimin", "mom"] and tools.REQUESTER_EXCLUDED not in inc["notes"]
+
+
 # ── 혼자 먹는 추천도 요청자의 남은 칼로리를 쓴다 (SERVICE.md 5.2) ────
 
 

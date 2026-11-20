@@ -148,6 +148,32 @@ def test_convert_to_base_uses_avg_weight():
     assert tools.convert_to_base("한우", 0.6, "kg") == (600, "g")
 
 
+def test_unit_info_unknown_item_is_not_calculated(conn):
+    """기준표에도 item_units에도 없어 단위 정보를 확인할 수 없는 품목은 계산하지 않는다. 새 품목 첫 입고만 예외다."""
+    with pytest.raises(tools.UnitUnknownError) as err:
+        tools.convert_to_base("고등어", 600, "g", conn)
+    assert str(err.value) == "고등어의 단위 정보를 확인할 수 없어 계산할 수 없어요"
+    assert tools.convert_to_base("고등어", 600, "g", conn, register=True) == (600, "g")
+    result = tools.deduct_fefo(conn, "고등어", 100, "g")
+    assert result["status"] == "unit_mismatch" and "단위 정보를 확인할 수 없어" in result["message"]
+    assert tools.unit_error_text(tools.UnitUnknownError("고등어")) == "고등어의 단위 정보를 확인할 수 없어 계산할 수 없어요"
+    # 등록한 품목은 item_units의 단위 정보로 계산한다
+    assert tools.add_inventory(conn, "망고", 2, "개", storage_days=5, avg_weight_g=350)["status"] == "added"
+    assert tools.convert_to_base("망고", 700, "g", conn) == (2, "개")
+    assert tools.to_grams("망고", 2, "개", conn) == 700 and tools.to_grams("망고", 2, "개") is None
+
+
+def test_new_item_first_stock_requires_unit(conn):
+    """새 품목의 첫 입고는 단위가 필수다(첫 입고 단위가 기준 단위가 된다)."""
+    assert tools.MSG_UNIT_REQUIRED in tools.registration_problems(3, None, "")
+    assert tools.registration_problems(3, None, "g") == []
+    before = conn.execute("SELECT COUNT(*) FROM inventory").fetchone()[0]
+    result = tools.add_inventory(conn, "고등어", 600, "", storage_days=3)
+    assert result["status"] == "unit_required" and tools.MSG_UNIT_REQUIRED in result["message"]
+    assert conn.execute("SELECT COUNT(*) FROM inventory").fetchone()[0] == before
+    assert tools.item_profile(conn, "고등어") is None
+
+
 def test_convert_to_base_mismatch_without_avg_weight():
     with pytest.raises(tools.UnitMismatchError):
         tools.convert_to_base("우유", 500, "g")
