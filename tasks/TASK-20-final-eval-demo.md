@@ -59,6 +59,12 @@
   - 전체 59문항 `run-20261120-093823.json`: 통과 59/59, guardrail 9/9, forbidden 0, 도구 일치 59/59, faithfulness 0.951, answer relevancy 0.849(P02 0.741). 토큰 한도 오류 없음.
   - 검색 `retrieval-20261120-094041.json`: Precision@3 0.96, Recall@3 1.0, MRR 1.0, Hit rate 1.0. R06 0.667(리랭커가 규동을 3위로 남김, 이전 실행은 1.0), S10 0.333(이전과 같음).
   - `evaluation/report.md` 1장을 이 결과로 바꾸고, 검색 지표별 분석과 59문항 상세 표(faithfulness·relevancy·RAGAS 점수)를 넣었다.
+- 최신 결과 (2026-11-20, main `c8f163b`, 리포트에 쓸 값)
+  - 문항 구성: HITL 문항 7개(P12·E20~E24·G11)를 더해 66문항 = positive 9, negative 28, edge 19, guardrail 10.
+  - 전체 66문항 `run-20261120-111622.json`: 통과 66/66, guardrail 10/10, forbidden 0, 도구 일치 66/66, faithfulness 0.94, answer relevancy 0.849(P02 0.741). 토큰 한도 오류 없음.
+  - 검색 `retrieval-20261120-111825.json`: Precision@3 0.96, Recall@3 1.0, MRR 0.973, Hit rate 1.0. R06 Precision 0.667, S10 Precision·MRR 0.333(정답 3위).
+  - 첫 66문항 실행 `run-20261120-104648.json`은 65/66이었다. E07("우리 가족" 추천)이 참여자를 되물어 실패해, 요청자 기본 포함과 "우리 가족" → 가족 전원 규칙을 넣고(TASK-17 후속 변경) 다시 돌려 통과했다.
+  - `evaluation/report.md` 1장을 이 결과로 바꿨다(요약, 검색 지표별 분석, 66문항 상세 표).
 - 시연 리허설 때 볼 점 (2026-11-20 변경)
   - 대표 시나리오의 식사 평가는 자연어("규동 먹었어, 4점")가 아니라 평가 입력 Form JSON으로 보낸다. 터미널 데모(`src/cli.py`)는 질문 칸에 JSON을 붙여 넣어야 한다(SERVICE.md 4장).
   - 자연어 입고·평가를 시도하면 `FORM_REQUIRED` 안내가 나온다. 이것도 안전장치 시연 장면으로 쓸 수 있다.

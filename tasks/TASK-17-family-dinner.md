@@ -59,3 +59,4 @@
   - `rank_recipes(exclude_requester=False)`: 요청 문장이 "나는 빼고"처럼 요청자를 명확히 뺄 때만 true. true면 나머지 참여자만으로 `recommend_family`를 부르고 notes에 `REQUESTER_EXCLUDED`를 넣는다. 기본값은 false라 요청자는 언제나 들어간다. 참여자 중복은 한 번만 센다.
 - `src/agent.py` 추천 에이전트 프롬프트: 이름 없이 가족 전원을 말하면 `diners=["가족"]`, 참여자를 되묻지 않고 반드시 `rank_recipes`를 부른다, `exclude_requester`는 명확히 뺄 때만 넣는다.
 - 테스트: `tests/test_family_dinner.py`에 가족 전원 말 4가지와 요청자 제외/기본 포함을 더했다.
+- 확인: 66문항 전체 평가 `run-20261120-111622.json`(main `c8f163b`)에서 E07이 4/4로 통과했다. 모델이 되묻지 않고 `rank_recipes`를 불렀고, 답은 "오늘 가족 모두(아빠·엄마·지민)를 위한 추천이에요"로 시작했다.
