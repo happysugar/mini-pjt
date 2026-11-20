@@ -166,6 +166,23 @@ def test_requester_is_included_unless_explicitly_excluded(make_client, watch_on)
     assert sorted(inc["diners"]) == ["dad", "jimin", "mom"] and tools.REQUESTER_EXCLUDED not in inc["notes"]
 
 
+def test_wanted_ingredient_blocked_by_diner_allergy_is_noted_without_name(make_client, watch_on):
+    """요청한 재료가 참여자 알레르기에 걸리면 누구의 알레르기인지 밝히지 않고 notes로 알린다(E34)."""
+    client, ask = make_client(call("rank_recipes", {"diners": ["지민"], "wanted": "새우"}), say("추천해요."))
+    ask({"question": "지민이랑 같이 먹을 새우 요리 추천해줘", "thread_id": "dad-t-wanted"}, DAD)
+    out = rank_output(client, "dad-t-wanted")
+    note = tools.WANTED_ALLERGY.format(wanted="새우", particle="는", allergy="갑각류")
+    assert note in out["notes"] and not any("지민" in n for n in out["notes"])
+    assert all("새우" not in item["dish"] for item in out["items"])
+
+
+@pytest.mark.parametrize(("wanted", "hit"), [("새우", "갑각류"), ("새우 요리", "갑각류"), ("대하", "갑각류"),
+                                              ("새우 로제 파스타", "갑각류"), ("두부", None), ("소고기", None)])
+def test_wanted_allergy_maps_ingredient_to_allergen_class(wanted, hit):
+    """요청한 재료·요리가 든 레시피의 알레르기 분류로 판정한다(새우 → 갑각류)."""
+    assert tools.wanted_allergy(wanted, ["갑각류"]) == hit
+
+
 # ── 혼자 먹는 추천도 요청자의 남은 칼로리를 쓴다 (SERVICE.md 5.2) ────
 
 

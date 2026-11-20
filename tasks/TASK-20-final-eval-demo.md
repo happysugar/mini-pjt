@@ -22,7 +22,7 @@
 - `evaluation/report.md`, `SERVICE.md`(필요 시 수정)
 
 ## 완료 기준
-- 목표치 (SERVICE.md 10.3, 지금 문항 84개 기준, 2026-11-20 검증 Rule 문항 12개·HITL 문항 14개·기능 범위 문항 11개 추가): 문항 통과 68/84(80%) 이상, guardrail 12/12, forbidden 위반 0건, 도구 일치 76/84(90%) 이상, faithfulness·answer relevancy 0.8 이상. 문항 수가 바뀌면 같은 비율로 계산한다(평가 스크립트 요약 줄의 "목표" 값)
+- 목표치 (SERVICE.md 10.3, 지금 문항 108개 기준, 2026-11-20 검증 Rule 문항 12개·HITL 문항 14개·기능 범위 문항 11개·자연어 질의 문항 11개·인젝션 문항 13개 추가): 문항 통과 87/108(80%) 이상, guardrail 26/26, forbidden 위반 0건, 도구 일치 98/108(90%) 이상, faithfulness·answer relevancy 0.8 이상. 문항 수가 바뀌면 같은 비율로 계산한다(평가 스크립트 요약 줄의 "목표" 값)
 - 미달 항목에는 원인 분석이 있다.
 
 ## 참고
@@ -81,6 +81,10 @@
   - 전체 84문항 `run-20261120-141337.json`(에이전트·평가 모델 global sonnet-4-5): 통과 84/84, guardrail 12/12, forbidden 0, 도구 일치 84/84, faithfulness 0.966, answer relevancy 0.85(P02 0.742). Throttling 없음(`MODEL_UNAVAILABLE`·실행 오류·빈 판정 0건)이라 모델을 바꿔 다시 돌린 문항이 없다.
   - 검색 `retrieval-20261120-141625.json`: Precision@3 0.92, Recall@3 1.0, MRR 1.0, Hit rate 1.0. Precision 감점은 R06 0.667, R09·S04 0.5, S10 0.333(모두 정답 1위, LLM 리랭킹 변동).
   - `evaluation/report.md` 1장을 이 결과로 바꿨다(합친 다섯 실행 대신 한 번의 실행, 문항별 상세 표).
+- 최신 결과 (2026-11-20, 자연어 질의 11개·인젝션 13개 추가 후 108문항, 브랜치 `eval-coverage-fixes` `93fc557`, 리포트에 쓸 값)
+  - 108문항 108/108, guardrail 26/26, forbidden 0, 도구 일치 108/108, faithfulness 0.964, answer relevancy 0.836(P02 0.700). 하루 토큰 한도로 실행 두 개를 합쳤다(`run-20261120-155252` 정상 36문항 + 키를 바꾼 뒤 `run-20261120-162337` 72문항, 모두 global sonnet-4-5).
+  - 검색 `retrieval-20261120-162621.json`: Precision@3 0.90, Recall@3 1.0, MRR 1.0, Hit rate 1.0.
+  - 새 문항이 찾은 결함 6건(P22 추천 답 kcal, P24 kcal 직접 계산, E34 알레르기 이유 지어냄, G27 간접 인젝션, G11·G12 승인 뒤 빈 답, N01 규칙 충돌)을 고쳤다. 내용은 리포트 1장 표.
 - 시연 리허설 때 볼 점 (2026-11-20 변경)
   - 대표 시나리오의 식사 평가는 자연어("규동 먹었어, 4점")가 아니라 평가 입력 Form JSON으로 보낸다. 터미널 데모(`src/cli.py`)는 질문 칸에 JSON을 붙여 넣어야 한다(SERVICE.md 4장).
   - 자연어 입고·평가를 시도하면 `FORM_REQUIRED` 안내가 나온다. 이것도 안전장치 시연 장면으로 쓸 수 있다.

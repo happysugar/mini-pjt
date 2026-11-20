@@ -234,6 +234,16 @@ def test_meal_approve_saves_once(make_client, env):
 
 
 @pytest.mark.usefixtures("allow_free_text_writes")
+def test_empty_answer_after_approve_falls_back_to_confirm_result(make_client, env):
+    """승인 재개 턴에서 모델이 빈 답을 내도 확정 도구의 결과 문장을 답으로 돌려준다(평가 G11·G12)."""
+    _, ask = make_client(call("confirm_meal", MEAL), say(""))
+    r1 = ask({"question": "규동 2인분 만들어서 1인분 먹었어, 4점"}, DAD)
+    r2 = ask({"question": "승인", "thread_id": r1["trace"]["thread_id"], "resume": "approve"}, DAD)
+    assert r2["trace"]["pending_interrupt"] is None and not codes(r2)
+    assert r2["answer"].startswith("저장했어요. 규동 4점")
+
+
+@pytest.mark.usefixtures("allow_free_text_writes")
 def test_meal_reject_saves_nothing(make_client, env):
     client, ask = make_client(call("confirm_meal", MEAL), say("취소했어요."))
     before = counts(env)
@@ -784,3 +794,24 @@ def test_read_questions_still_reach_agent(make_client):
     r = ask({"question": "냉장고에 연어 몇 g 남았어?"}, DAD)
     assert r["answer"] == "연어는 없어요" and r["trace"]["guardrail"]["format"] is None
 
+
+
+# ── 추천 답의 요리 kcal 수치 제거 (P22) ─────────────────────────
+
+
+def test_recommendation_answer_drops_dish_kcal(make_client):
+    """추천(rank_recipes) 답에 모델이 요리 kcal을 옮겨 적어도 API가 지운다. 남은 칼로리 안 여부 문장은 남긴다."""
+    _, ask = make_client(
+        call("rank_recipes", {"category": "한식"}),
+        say("**소고기 무국** (한식)\n- 평점 4.5점\n- 1인분 220kcal\n- 김치볶음밥 (550kcal)\n남은 칼로리 안에 드는 메뉴예요."),
+    )
+    r = ask({"question": "한식으로 오늘 저녁 추천해줘"}, DAD)
+    assert "kcal" not in r["answer"].lower()
+    assert "소고기 무국" in r["answer"] and "김치볶음밥" in r["answer"] and "남은 칼로리 안" in r["answer"]
+
+
+def test_kcal_kept_when_no_recommendation(make_client):
+    """추천이 아닌 kcal 계산 답(calc_kcal)의 수치는 그대로 둔다."""
+    _, ask = make_client(call("calc_kcal", {"servings_eaten": 1.5, "dish": "규동"}), say("규동 1.5인분은 1020kcal이에요."))
+    r = ask({"question": "규동 1.5인분 먹으면 몇 kcal이야?"}, DAD)
+    assert r["answer"] == "규동 1.5인분은 1020kcal이에요."
