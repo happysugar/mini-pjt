@@ -77,6 +77,10 @@
   - 84문항 84/84, guardrail 12/12, forbidden 0, 도구 일치 84/84, faithfulness 0.943, answer relevancy 0.839(P02 0.742). 하루 토큰 한도로 실행 다섯 개를 합쳤다(`run-20261120-132518`·`133457`·`133954`·`134306`·`134949`, 리포트 1장 표).
   - 검색 `retrieval-20261120-132725.json`: Precision@3 0.96, Recall@3 1.0, MRR 0.973, Hit rate 1.0.
   - 새 문항 E31이 만료 재료 D-day 표기("D-1")와 폐기 권고 누락을 찾아 고쳤다(TASK-04 후속 변경). 수정 뒤 E31 2/2.
+- 최신 결과 (2026-11-20, main `8e17fd1`에서 84문항 한 번에 실행, 리포트에 쓸 값)
+  - 전체 84문항 `run-20261120-141337.json`(에이전트·평가 모델 global sonnet-4-5): 통과 84/84, guardrail 12/12, forbidden 0, 도구 일치 84/84, faithfulness 0.966, answer relevancy 0.85(P02 0.742). Throttling 없음(`MODEL_UNAVAILABLE`·실행 오류·빈 판정 0건)이라 모델을 바꿔 다시 돌린 문항이 없다.
+  - 검색 `retrieval-20261120-141625.json`: Precision@3 0.92, Recall@3 1.0, MRR 1.0, Hit rate 1.0. Precision 감점은 R06 0.667, R09·S04 0.5, S10 0.333(모두 정답 1위, LLM 리랭킹 변동).
+  - `evaluation/report.md` 1장을 이 결과로 바꿨다(합친 다섯 실행 대신 한 번의 실행, 문항별 상세 표).
 - 시연 리허설 때 볼 점 (2026-11-20 변경)
   - 대표 시나리오의 식사 평가는 자연어("규동 먹었어, 4점")가 아니라 평가 입력 Form JSON으로 보낸다. 터미널 데모(`src/cli.py`)는 질문 칸에 JSON을 붙여 넣어야 한다(SERVICE.md 4장).
   - 자연어 입고·평가를 시도하면 `FORM_REQUIRED` 안내가 나온다. 이것도 안전장치 시연 장면으로 쓸 수 있다.
