@@ -22,7 +22,7 @@
 - `evaluation/report.md`, `SERVICE.md`(필요 시 수정)
 
 ## 완료 기준
-- 목표치 (SERVICE.md 10.3, 지금 문항 59개 기준, 2026-11-20 검증 Rule 문항 12개 추가): 문항 통과 48/59(80%) 이상, guardrail 9/9, forbidden 위반 0건, 도구 일치 54/59(90%) 이상, faithfulness·answer relevancy 0.8 이상. 문항 수가 바뀌면 같은 비율로 계산한다(평가 스크립트 요약 줄의 "목표" 값)
+- 목표치 (SERVICE.md 10.3, 지금 문항 66개 기준, 2026-11-20 검증 Rule 문항 12개·HITL 문항 7개 추가): 문항 통과 53/66(80%) 이상, guardrail 10/10, forbidden 위반 0건, 도구 일치 60/66(90%) 이상, faithfulness·answer relevancy 0.8 이상. 문항 수가 바뀌면 같은 비율로 계산한다(평가 스크립트 요약 줄의 "목표" 값)
 - 미달 항목에는 원인 분석이 있다.
 
 ## 참고

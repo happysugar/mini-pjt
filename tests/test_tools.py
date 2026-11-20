@@ -399,6 +399,15 @@ def test_new_item_needs_positive_storage_days(conn):
     assert tools.add_inventory(conn, "두부", 1, "개")["status"] == "added"
 
 
+@pytest.mark.parametrize(
+    ("part", "total", "text"),
+    [(500, 600, "83.3%"), (301, 600, "50.2%"), (300.1, 600, "50% 초과"), (450, 600, "75%"), (600, 600, "100%")],
+)
+def test_share_text_never_shows_over_threshold_as_fifty(part, total, text):
+    """대량 출고 승인 요약의 비율은 소수 한 자리. 50%를 넘었는데 반올림이 50%로 보이면 "50% 초과"로 적는다."""
+    assert tools.share_text(part, total) == text
+
+
 def test_stored_quantity_must_be_positive(conn):
     """입고 양은 양수만 받는다. 음수를 절대값으로 바꾸지 않고 0과 같이 거절한다(SERVICE.md 5.1)."""
     before = conn.execute("SELECT COUNT(*) FROM inventory").fetchone()[0]

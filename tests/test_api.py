@@ -714,7 +714,7 @@ def test_stock_form_bulk_consume_needs_approval_and_reject_keeps_stock(make_clie
     _, ask = make_client(call("confirm_inventory_form", {}), say("취소했어요."))
     r = ask({"question": stock_form(item="한우", sn=HANWOO, qty=500, unit="g", status="consumed"), "thread_id": "dad-bulk"}, DAD)
     pending = r["trace"]["pending_interrupt"]
-    assert pending["type"] == "bulk_withdraw" and "83%" in pending["summary"]
+    assert pending["type"] == "bulk_withdraw" and "보유량 600g의 83.3%" in pending["summary"]
     done = ask({"question": "거절", "thread_id": "dad-bulk", "resume": "reject"}, DAD)
     assert done["answer"] == tools.REJECT_WITHDRAW and lot(env, HANWOO)["qty"] == 600
 

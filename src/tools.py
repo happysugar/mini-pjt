@@ -1401,6 +1401,20 @@ def recommend_family(
 # 쓰기 전에 사용자 승인을 받는 도구. withdraw_item은 보유량의 50%를 넘게 꺼낼 때만 승인을 받는다.
 APPROVAL_TOOLS = frozenset({"confirm_meal", "discard_item", "withdraw_item"})
 BULK_WITHDRAW_RATIO = 0.5
+
+
+def share_text(part: float, total: float) -> str:
+    """승인 요약에 쓸 보유량 대비 비율 문구. 소수 한 자리까지 적는다(83.3%, 50.2%).
+
+    대량 출고 기준(50%)을 넘었는데 반올림하면 50% 이하로 보이는 경우(예: 600g 중 300.1g)는 "50% 초과"로 적어
+    승인을 받는 이유와 숫자가 어긋나지 않게 한다.
+    """
+    pct = part / total * 100
+    text = f"{pct:.1f}".rstrip("0").rstrip(".")
+    limit = BULK_WITHDRAW_RATIO * 100
+    if pct > limit and float(text) <= limit:
+        return f"{limit:g}% 초과"
+    return f"{text}%"
 GUEST_USER = "guest"
 
 REJECT_MEAL = "취소했어요. 평가도 저장하지 않았어요"
@@ -1814,7 +1828,7 @@ def withdraw_item(runtime: ToolRuntime[FridgeContext], item: str, qty: float, un
                 return done
             summary = (
                 f"{item} {_fmt_qty(need, base)} 출고 (보유량 {_fmt_qty(total, base)}의 "
-                f"{round(min(need, total) / total * 100)}%). 진행할까요?"
+                f"{share_text(min(need, total), total)}). 진행할까요?"
             )
             decision = interrupt({"type": "bulk_withdraw", "tool": "withdraw_item", "summary": summary})
             if not is_approved(decision):
@@ -2478,7 +2492,7 @@ def confirm_inventory_form(runtime: ToolRuntime[FridgeContext]) -> str:
                 return drop(STOCK_CHANGED)
             if need > total * BULK_WITHDRAW_RATIO:
                 summary = (f"{item} {_fmt_qty(need, base)} 출고{where} (보유량 {_fmt_qty(total, base)}의 "
-                           f"{round(need / total * 100)}%). 진행할까요?")
+                           f"{share_text(need, total)}). 진행할까요?")
                 decision = interrupt({"type": "bulk_withdraw", "tool": "confirm_inventory_form", "summary": summary})
                 if not is_approved(decision):
                     return drop(REJECT_WITHDRAW)
