@@ -443,6 +443,7 @@ def is_bare_approval(question: str) -> bool:
 MSG_FORM_INVALID = "평가 입력을 저장하지 않았어요. 입력 Form을 다시 확인해 주세요"
 FORM_CONFIRM_REQUEST = "평가 입력 Form을 확정해줘"  # src/tools.py의 같은 이름 상수와 같은 문구
 RATING_FORM_KEYS = ("recipe", "cooked", "ratings")  # 모두 필수. ratings 항목은 evaluator·eaten·score 모두 필수
+MSG_FORM_NOT_OBJECT = "JSON 객체({ })로 보내 주세요"  # 배열 등 객체가 아닌 JSON에 Form 키가 있을 때
 MAX_COOKED_SERVINGS = 20  # 요리한 양 상한(인분, 포함)
 MAX_EATEN_SERVINGS = 3  # 평가자 한 명의 식사량 상한(인분, 포함)
 
@@ -501,16 +502,22 @@ def check_rating_form(question: str, user_id: str) -> FormVerdict:
     (요청자 한 사람의 승인으로 평가자마다 저장한다, SERVICE.md 5.6).
     """
     text = question.strip()
-    if not text.startswith("{"):
+    if not text.startswith(("{", "[")):
         return FormVerdict()
+    has_keys = any(f'"{k}"' in text for k in RATING_FORM_KEYS)
     try:
         data = json.loads(text)
     except ValueError:
-        if any(f'"{k}"' in text for k in RATING_FORM_KEYS):  # Form처럼 보이지만 JSON이 깨진 요청
+        if has_keys:  # Form처럼 보이지만 JSON이 깨진 요청
             return FormVerdict(True, "FORM_INVALID", ["JSON 형식이 아니에요"], f"{MSG_FORM_INVALID}: JSON 형식이 아니에요")
         return FormVerdict()
+    if not isinstance(data, dict):
+        # 배열 등으로 감싼 Form은 두 Form 검사와 자연어 차단을 모두 건너뛰고 모델로 가므로 여기서 거절한다.
+        if has_keys:
+            return FormVerdict(True, "FORM_INVALID", [MSG_FORM_NOT_OBJECT], f"{MSG_FORM_INVALID}: {MSG_FORM_NOT_OBJECT}")
+        return FormVerdict()
     # 평가 Form 키(recipe·cooked·ratings)가 하나라도 있으면 평가 Form으로 보고, 빠진 키는 문제로 알린다.
-    if not isinstance(data, dict) or not set(data) & set(RATING_FORM_KEYS):
+    if not set(data) & set(RATING_FORM_KEYS):
         return FormVerdict()
 
     problems: list[str] = []
@@ -628,7 +635,7 @@ def check_inventory_form(question: str) -> FormVerdict:
     from src.tools import today
 
     text = question.strip()
-    if not text.startswith("{"):
+    if not text.startswith(("{", "[")):
         return FormVerdict()
     try:
         data = json.loads(text)
@@ -636,6 +643,13 @@ def check_inventory_form(question: str) -> FormVerdict:
         if '"item"' in text and '"recipe"' not in text:  # 재고 Form처럼 보이지만 JSON이 깨진 요청
             return FormVerdict(True, "FORM_INVALID", ["JSON 형식이 아니에요"],
                                f"{MSG_INVENTORY_FORM_INVALID}: JSON 형식이 아니에요")
+        return FormVerdict()
+    if not isinstance(data, dict):
+        # 배열 등으로 감싼 재고 Form은 모델에 넘기지 않고 거절한다(평가 Form 키가 있으면 평가 Form 검사가 맡는다).
+        if (any(f'"{k}"' in text for k in INVENTORY_FORM_KEYS)
+                and not any(f'"{k}"' in text for k in RATING_FORM_KEYS)):
+            return FormVerdict(True, "FORM_INVALID", [MSG_FORM_NOT_OBJECT],
+                               f"{MSG_INVENTORY_FORM_INVALID}: {MSG_FORM_NOT_OBJECT}")
         return FormVerdict()
     # 재고 Form 키가 하나라도 있으면 재고 Form으로 보고, 빠진 필수 항목(item·status·qty)을 알린다.
     # 평가 Form 키가 있으면 평가 Form(`check_rating_form`)이 맡는다.

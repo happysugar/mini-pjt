@@ -289,6 +289,23 @@ def test_form_missing_required_keys(form, missing):
     assert v.problems == missing
 
 
+# Regression: ISSUE-002 — Form JSON을 배열([...])로 감싸면 두 Form 검사와 자연어 차단을 모두 건너뛰고 모델까지 감
+# Found by /qa on 2026-11-20
+# Report: .gstack/qa-reports/qa-report-api-query-2026-11-20.md
+def test_form_wrapped_in_json_array_is_rejected_before_model():
+    """JSON 객체가 아닌 Form(배열 등)은 모델에 넘기지 않고 FORM_INVALID로 거절한다. Form 키가 없는 배열은 그대로 둔다."""
+    rating = json.dumps([{"recipe": "규동", "cooked": 2, "ratings": [{"evaluator": "dad", "eaten": 1, "score": 4}]}],
+                        ensure_ascii=False)
+    v = guardrails.check_rating_form(rating, "dad")
+    assert v.is_form and v.code == "FORM_INVALID" and v.problems == ["JSON 객체({ })로 보내 주세요"]
+    stock = json.dumps([{"item": "두부", "qty": 2, "unit": "개", "status": "stored"}], ensure_ascii=False)
+    v = guardrails.check_inventory_form(stock)
+    assert v.is_form and v.code == "FORM_INVALID" and v.problems == ["JSON 객체({ })로 보내 주세요"]
+    for q in ('["규동", "두부"]', "[메모] 냉장고 정리", "[1, 2]"):
+        assert not guardrails.check_rating_form(q, "dad").is_form
+        assert not guardrails.check_inventory_form(q).is_form
+
+
 def test_non_form_questions_are_untouched():
     for q in ["규동 2인분 만들어서 1인분 먹었어, 4점", '{"a": 1}', "{중괄호로 시작하는 말}"]:
         assert not guardrails.check_rating_form(q, "dad").is_form

@@ -262,7 +262,7 @@ Form의 JSON 키마다 형식, 필수 여부, 검사 Rule, 걸렸을 때 문제 
 
 **API의 Form 검사 (2026-11-20 구현)**
 
-- 화면은 JSON을 문자열로 `question`에 담아 보냅니다. `question`이 `{`로 시작하는 JSON이고 `recipe`, `cooked`, `ratings` 키 중 하나라도 있으면 평가 입력 Form으로 봅니다(`guardrails.check_rating_form`). 키가 빠져도 Form으로 보고 빠진 키를 알립니다.
+- 화면은 JSON을 문자열로 `question`에 담아 보냅니다. `question`이 `{`로 시작하는 JSON이고 `recipe`, `cooked`, `ratings` 키 중 하나라도 있으면 평가 입력 Form으로 봅니다(`guardrails.check_rating_form`). 키가 빠져도 Form으로 보고 빠진 키를 알립니다. Form 키가 든 JSON을 배열(`[...]`)처럼 객체가 아닌 값으로 보내면 두 Form 검사와 형식 가드레일을 건너뛰고 모델로 가므로, 모델을 부르기 전에 "JSON 객체({ })로 보내 주세요"로 거절합니다(재고 입력 Form도 같음).
 - API는 입력 가드레일 다음, 모델을 부르기 전에 위 표의 Rule을 결정적으로 검사합니다. LLM은 쓰지 않습니다. 문제는 한 번에 모두 모아 알립니다.
 - 걸리면 저장하지 않고 "평가 입력을 저장하지 않았어요. 입력 Form을 다시 확인해 주세요: (문제 목록)"으로 답하고 `FORM_INVALID`를 남깁니다(8장).
 - 통과하면 Form 값(recipe 명, 요리한 양, 평가자별 user_id·식사량·점수)을 그 스레드에 보관하고(`meal_forms` 테이블), "평가 입력 Form을 확정해줘: …" 문장을 에이전트에 넘깁니다.
