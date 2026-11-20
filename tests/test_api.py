@@ -554,8 +554,8 @@ def test_supported_recommendation_keeps_answer(make_client):
 
 # ── recipe 평가 결과 입력 Form (JSON, SERVICE.md 5.6) ──────────────
 
-FORM_OK = '{"recipe": "규동", "cooked": "2 인분", "ratings": [{"evaluator": "dad", "eaten": "1 인분", "score": 4}]}'
-FORM_BAD = '{"recipe": "규동", "cooked": "2 인분", "ratings": [{"evaluator": "dad", "eaten": "1 인분", "score": 9}]}'
+FORM_OK = '{"recipe": "규동", "cooked": 2, "ratings": [{"evaluator": "dad", "eaten": 1, "score": 4}]}'
+FORM_BAD = '{"recipe": "규동", "cooked": 2, "ratings": [{"evaluator": "dad", "eaten": 1, "score": 9}]}'
 
 
 def test_invalid_form_rejected_before_model(make_client, env):
@@ -567,7 +567,7 @@ def test_invalid_form_rejected_before_model(make_client, env):
     assert r["trace"]["steps"] == [] and counts(env) == before
 
 
-FORM_TWO = FORM_OK.replace("]}", ', {"evaluator": "mom", "eaten": "1 인분", "score": 5}]}')
+FORM_TWO = FORM_OK.replace("]}", ', {"evaluator": "mom", "eaten": 1, "score": 5}]}')
 
 
 def _user_rows(db: str, table: str) -> list[tuple]:
@@ -676,7 +676,7 @@ def test_stock_form_stored_fills_blanks_without_approval(make_client, env):
 
 def test_stock_form_guide_item_keeps_guide_values(make_client, env):
     client, ask = make_client(call("confirm_inventory_form", {}), say("입고했어요."))
-    ask({"question": stock_form(item="두부", qty=1, unit="개", storageDays=30, avgWeight=500), "thread_id": "dad-guide"}, DAD)
+    ask({"question": stock_form(item="두부", qty=1, unit="개", storageDays=30, avgWeight=500, status="stored"), "thread_id": "dad-guide"}, DAD)
     out = json.loads(tool_outputs(client, "dad-guide")[0])
     assert out["expiry_date"] == "2026-11-27"  # Form의 30일이 아니라 기준표 7일
     assert "권장 보관일수는 기준표 값(7일)을 썼어요" in out["notes"]
@@ -687,7 +687,7 @@ def test_stock_form_new_item_uses_form_profile(make_client, env):
     """기준표에 없는 품목은 Form의 별칭·평균 무게·보관일수를 그 품목의 기준으로 저장하고 다음 요청부터 쓴다."""
     _, ask = make_client(call("confirm_inventory_form", {}), say("입고했어요."),
                          call("confirm_inventory_form", {}), say("출고했어요."))
-    ask({"question": stock_form(item="망고", aliases=["애플망고"], qty=2, unit="개", avgWeight=350, storageDays=5),
+    ask({"question": stock_form(item="망고", aliases=["애플망고"], qty=2, unit="개", avgWeight=350, storageDays=5, status="stored"),
          "thread_id": "dad-mango"}, DAD)
     row = lot(env, "2026-11-014")
     assert row["expiry_date"] == "2026-11-25" and row["expiry_source"] == "user" and row["unit"] == "개"
@@ -730,11 +730,11 @@ def test_stock_form_discard_after_approval(make_client, env):
 @pytest.mark.parametrize(
     "values, problem",
     [
-        ({"item": "양파", "sn": ONION, "qty": 2, "unit": "개"}, "이미 있는 S/N이에요: 2026-11-001. 2026-11-014로 저장하려면"),
+        ({"item": "양파", "sn": ONION, "qty": 2, "unit": "개", "status": "stored"}, "이미 있는 S/N이에요: 2026-11-001. 2026-11-014로 저장하려면"),
         ({"item": "두부", "sn": HANWOO, "qty": 1, "unit": "개", "status": "consumed"}, "품목(한우)과 Form의 품목(두부)이 달라요"),
         ({"item": "한우", "sn": HANWOO, "qty": 700, "unit": "g", "status": "consumed"}, "출고량(700g)이 보유량(600g)보다 많아요"),
         ({"item": "연어", "status": "discarded"}, "연어 재고가 없어요"),
-        ({"item": "우유", "qty": 500, "unit": "g"}, "재고 단위 불일치"),
+        ({"item": "우유", "qty": 500, "unit": "g", "status": "stored"}, "재고 단위 불일치"),
     ],
 )
 def test_stock_form_checked_against_stock_before_model(make_client, env, values, problem):

@@ -183,11 +183,11 @@ def test_mask_other_family_kcal():
 # ── recipe 평가 결과 입력 Form (JSON) ─────────────────────────────
 
 
-def _form(cooked="2 인분", ratings=None, recipe="규동"):
-    """평가 입력 Form JSON 문자열을 만든다."""
+def _form(cooked=2, ratings=None, recipe="규동"):
+    """평가 입력 Form JSON 문자열을 만든다. 요리한 양·식사량은 JSON 숫자(단위 인분)다."""
     import json
 
-    ratings = [{"evaluator": "dad", "eaten": "1 인분", "score": 4}] if ratings is None else ratings
+    ratings = [{"evaluator": "dad", "eaten": 1, "score": 4}] if ratings is None else ratings
     return json.dumps({"recipe": recipe, "cooked": cooked, "ratings": ratings}, ensure_ascii=False)
 
 
@@ -196,26 +196,41 @@ def test_valid_form_becomes_confirm_request():
     assert v.is_form and not v.code
     assert v.question == "평가 입력 Form을 확정해줘: 규동 2인분, dad 1인분 4점"
     assert v.form == {"recipe": "규동", "cooked": 2.0, "entries": [{"user_id": "dad", "eaten": 1.0, "score": 4}]}
-    # 평가자는 이름(아빠)으로 와도 같은 가족 구성원(user_id)으로 바꾼다
-    v = guardrails.check_rating_form(_form(ratings=[{"evaluator": "아빠", "eaten": "0.5 인분", "score": 5}]), "dad")
-    assert v.form["entries"] == [{"user_id": "dad", "eaten": 0.5, "score": 5}]
+    # 평가자는 이름(아빠)으로 와도 같은 가족 구성원(user_id)으로 바꾼다. 소수 인분도 받는다
+    v = guardrails.check_rating_form(_form(cooked=1.5, ratings=[{"evaluator": "아빠", "eaten": 0.5, "score": 5}]), "dad")
+    assert v.form["cooked"] == 1.5 and v.form["entries"] == [{"user_id": "dad", "eaten": 0.5, "score": 5}]
 
 
 @pytest.mark.parametrize(
     ("cooked", "ratings", "problem"),
     [
-        ("2 인분", [{"evaluator": "dad", "eaten": "0 인분", "score": 4}], "식사량은 0보다 커야"),
-        ("2 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 9}], "점수는 1~5"),
-        ("2 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": "4"}], "점수는 1~5"),
-        ("2 인분", [{"evaluator": "dad", "eaten": "1 인분"}], "점수가 빠졌어요"),
-        ("2 인분", [{"evaluator": "철수", "eaten": "1 인분", "score": 4}], "가족 구성원이 아니에요"),
-        ("두 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 4}], "요리한 양은 '숫자 인분'"),
-        ("2인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 4}], "요리한 양은 '숫자 인분'"),
-        ("1 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 4},
-                   {"evaluator": "mom", "eaten": "1 인분", "score": 5}], "합계(2 인분)가 요리한 양(1 인분)보다"),
-        ("2 인분", [{"evaluator": "dad", "eaten": "1 인분", "score": 4},
-                   {"evaluator": "아빠", "eaten": "1 인분", "score": 3}], "두 번 들어"),
-        ("2 인분", [], "평가자별 항목이 비었어요"),
+        (2, [{"evaluator": "dad", "eaten": 0, "score": 4}], "식사량은 0보다 커야"),
+        (2, [{"evaluator": "dad", "eaten": -1, "score": 4}], "식사량은 0보다 커야"),
+        (2, [{"evaluator": "dad", "eaten": "1 인분", "score": 4}], "dad의 식사량은 숫자만 넣어 주세요"),
+        (2, [{"evaluator": "dad", "eaten": "1인분", "score": 4}], "dad의 식사량은 숫자만 넣어 주세요"),
+        (2, [{"evaluator": "dad", "eaten": " 1 ", "score": 4}], "dad의 식사량은 숫자만 넣어 주세요"),
+        (2, [{"evaluator": "dad", "eaten": 1, "score": 9}], "점수는 1~5"),
+        (2, [{"evaluator": "dad", "eaten": 1, "score": 0}], "점수는 1~5"),
+        (2, [{"evaluator": "dad", "eaten": 1, "score": "4"}], "점수는 1~5"),
+        (2, [{"evaluator": "dad", "eaten": 1, "score": 4.5}], "점수는 1~5 사이 정수"),
+        (2, [{"evaluator": "dad", "eaten": 1}], "점수가 빠졌어요"),
+        (2, [{"evaluator": "dad", "score": 4}], "dad의 식사량이 빠졌어요"),
+        (2, [{"eaten": 1, "score": 4}], "1번째 평가자가 빠졌어요"),
+        (2, [{"evaluator": "철수", "eaten": 1, "score": 4}], "가족 구성원이 아니에요"),
+        ("2 인분", [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양은 숫자만 넣어 주세요(인분·공백 같은 글자 없이, 예: 2)"),
+        ("2인분", [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양은 숫자만 넣어 주세요"),
+        ("2", [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양은 숫자만 넣어 주세요"),
+        (" 2", [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양은 숫자만 넣어 주세요"),
+        ("", [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양은 숫자만 넣어 주세요"),
+        (True, [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양은 숫자만 넣어 주세요"),
+        (0, [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양은 0보다 커야"),
+        (-2, [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양은 0보다 커야"),
+        (None, [{"evaluator": "dad", "eaten": 1, "score": 4}], "요리한 양이 빠졌어요"),
+        (1, [{"evaluator": "dad", "eaten": 1, "score": 4},
+             {"evaluator": "mom", "eaten": 1, "score": 5}], "합계(2 인분)가 요리한 양(1 인분)보다"),
+        (2, [{"evaluator": "dad", "eaten": 1, "score": 4},
+             {"evaluator": "아빠", "eaten": 1, "score": 3}], "두 번 들어"),
+        (2, [], "평가자별 항목이 비었어요"),
     ],
 )
 def test_invalid_form_is_rejected(cooked, ratings, problem):
@@ -227,19 +242,36 @@ def test_invalid_form_is_rejected(cooked, ratings, problem):
 
 def test_multiple_and_other_family_member_evaluators_are_accepted():
     """요청자 한 사람의 승인으로 평가자마다 저장하므로, 평가자는 여러 명이어도 요청자가 아니어도 된다."""
-    two = [{"evaluator": "dad", "eaten": "1 인분", "score": 4}, {"evaluator": "엄마", "eaten": "1 인분", "score": 5}]
+    two = [{"evaluator": "dad", "eaten": 1, "score": 4}, {"evaluator": "엄마", "eaten": 1, "score": 5}]
     v = guardrails.check_rating_form(_form(ratings=two), "dad")
     assert not v.code and [e["user_id"] for e in v.form["entries"]] == ["dad", "mom"]
     assert v.question == "평가 입력 Form을 확정해줘: 규동 2인분, dad 1인분 4점, mom 1인분 5점"
-    mom = [{"evaluator": "mom", "eaten": "1 인분", "score": 5}]
+    mom = [{"evaluator": "mom", "eaten": 1, "score": 5}]
     assert not guardrails.check_rating_form(_form(ratings=mom), "dad").code
+
+
+@pytest.mark.parametrize(
+    ("form", "missing"),
+    [
+        ({"cooked": 2, "ratings": [{"evaluator": "dad", "eaten": 1, "score": 4}]}, ["recipe 명이 빠졌어요"]),
+        ({"recipe": "규동", "ratings": [{"evaluator": "dad", "eaten": 1, "score": 4}]}, ["요리한 양이 빠졌어요"]),
+        ({"recipe": "규동", "cooked": 2}, ["평가자별 항목이 빠졌어요"]),
+        ({"cooked": 2}, ["recipe 명이 빠졌어요", "평가자별 항목이 빠졌어요"]),
+    ],
+)
+def test_form_missing_required_keys(form, missing):
+    """recipe·cooked·ratings 중 하나라도 있으면 평가 Form으로 보고, 빠진 필수 키를 알린다."""
+    v = guardrails.check_rating_form(json.dumps(form, ensure_ascii=False), "dad")
+    assert v.is_form and v.code == "FORM_INVALID"
+    assert v.problems == missing
 
 
 def test_non_form_questions_are_untouched():
     for q in ["규동 2인분 만들어서 1인분 먹었어, 4점", '{"a": 1}', "{중괄호로 시작하는 말}"]:
         assert not guardrails.check_rating_form(q, "dad").is_form
-    broken = guardrails.check_rating_form('{"recipe": "규동", "ratings": [', "dad")
-    assert broken.code == "FORM_INVALID" and broken.problems == ["JSON 형식이 아니에요"]
+    for broken_text in ('{"recipe": "규동", "ratings": [', '{"cooked": 2, '):
+        broken = guardrails.check_rating_form(broken_text, "dad")
+        assert broken.code == "FORM_INVALID" and broken.problems == ["JSON 형식이 아니에요"]
 
 
 # ── 재고 입력 Form 형식 검사 (SERVICE.md 5.1) ─────────────────────
@@ -262,8 +294,27 @@ def test_inventory_form_stored_with_blank_fields(fridge_today):
     assert v.form == {"action": "stored", "item": "두부", "aliases": [], "sn": None, "qty": 2.0, "unit": "개",
                       "avg_weight_g": None, "expiry_date": None, "input_date": None, "storage_days": None}
     assert v.question == "재고 입력 Form을 확정해줘: 입고 두부 2개"
-    blank_status = guardrails.check_inventory_form(_stock(item="두부", qty=2, unit="개"))
-    assert blank_status.form["action"] == "stored"  # 상태가 비면 입고
+
+
+@pytest.mark.parametrize(
+    ("values", "missing"),
+    [
+        ({"item": "두부", "qty": 2, "unit": "개"}, ["상태가 빠졌어요(stored, consumed, discarded 중 하나)"]),
+        ({"qty": 2, "unit": "개", "status": "stored"}, ["품목이 빠졌어요"]),
+        ({"item": "두부", "unit": "개", "status": "stored"}, ["양이 빠졌어요"]),
+        ({"item": "한우", "unit": "g", "status": "consumed"}, ["양이 빠졌어요"]),
+    ],
+)
+def test_inventory_form_required_fields(fridge_today, values, missing):
+    """item·status는 늘 필수, qty는 입고·출고에서 필수다. 상태가 비어도 입고로 보지 않는다."""
+    v = guardrails.check_inventory_form(_stock(**values))
+    assert v.is_form and v.code == "FORM_INVALID" and v.problems == missing
+
+
+def test_inventory_form_without_item_key_is_still_a_form(fridge_today):
+    """화면이 item 키를 빼고 보내도 재고 Form 키가 있으면 Form으로 보고 거절한다."""
+    v = guardrails.check_inventory_form('{"qty": 2, "unit": "개", "status": "stored"}')
+    assert v.is_form and v.problems == ["품목이 빠졌어요"]
 
 
 def test_inventory_form_consume_and_discard_questions(fridge_today):
@@ -271,23 +322,34 @@ def test_inventory_form_consume_and_discard_questions(fridge_today):
     assert out.question == "재고 입력 Form을 확정해줘: 출고 한우 200g (S/N 2026-11-003)"
     gone = guardrails.check_inventory_form(_stock(item="시금치", sn="2026-11-008", status="discarded"))
     assert not gone.code and gone.question == "재고 입력 Form을 확정해줘: 폐기 시금치 (S/N 2026-11-008)"
+    # 폐기는 qty가 없어도 되지만, 값이 있으면 양수여야 한다
+    for qty in (-1, 0, "1"):
+        bad = guardrails.check_inventory_form(_stock(item="시금치", sn="2026-11-008", qty=qty, status="discarded"))
+        assert bad.code == "FORM_INVALID" and bad.problems == ["양은 0보다 큰 숫자여야 해요"]
 
 
 @pytest.mark.parametrize(
     "values, problem",
     [
-        ({"item": "우유", "qty": 0, "unit": "L"}, "양은 0보다 큰"),
-        ({"item": "우유", "qty": 1, "unit": "ml"}, "단위는 g, L, 개"),
-        ({"item": "우유", "unit": "L"}, "양이 비었어요"),
-        ({"item": "", "qty": 1, "unit": "L"}, "품목이 비었어요"),
+        ({"item": "우유", "qty": 0, "unit": "L", "status": "stored"}, "양은 0보다 큰"),
+        ({"item": "우유", "qty": -2, "unit": "L", "status": "stored"}, "양은 0보다 큰"),
+        ({"item": "우유", "qty": 1, "unit": "ml", "status": "stored"}, "단위는 g, L, 개"),
+        ({"item": "", "qty": 1, "unit": "L", "status": "stored"}, "품목이 비었어요"),
+        ({"item": "망고", "qty": 1, "unit": "개", "storageDays": -5, "status": "stored"}, "권장 보관일수는 1 이상"),
+        ({"item": "망고", "qty": 1, "unit": "개", "storageDays": 2.5, "status": "stored"}, "권장 보관일수는 1 이상의 정수"),
+        ({"item": "망고", "qty": 1, "unit": "개", "storageDays": "5", "status": "stored"}, "권장 보관일수는 1 이상"),
+        ({"item": "우유", "qty": 1, "unit": "L", "inputDate": "2026/11/19", "status": "stored"}, "투입일자는 YYYY-MM-DD"),
+        ({"item": "우유", "qty": 1, "unit": "L", "expiryDate": "2026-02-30", "status": "stored"}, "유효기간은 YYYY-MM-DD"),
+        ({"item": "한우", "sn": "2026-11-003", "qty": 100, "unit": "g", "status": "consumed",
+          "inputDate": "어제"}, "투입일자는 YYYY-MM-DD"),
         ({"item": "우유", "qty": 1, "unit": "L", "status": "eaten"}, "상태는 stored"),
-        ({"item": "우유", "qty": 1, "unit": "L", "sn": "2026-11-14"}, "S/N은 YYYY-MM-NNN"),
-        ({"item": "우유", "qty": 1, "unit": "L", "expiryDate": "2026-11-10", "inputDate": "2026-11-20"}, "유효기간이 투입일자보다"),
-        ({"item": "우유", "qty": 1, "unit": "L", "inputDate": "2026-11-21"}, "투입일자가 오늘보다 늦어요"),
-        ({"item": "우유", "qty": 1, "unit": "L", "expiryDate": "11월 30일"}, "유효기간은 YYYY-MM-DD"),
-        ({"item": "망고", "qty": 1, "unit": "개", "storageDays": 0}, "권장 보관일수는 1 이상"),
-        ({"item": "망고", "qty": 1, "unit": "개", "avgWeight": -3}, "개당 평균 무게는 0보다"),
-        ({"item": "망고", "qty": 1, "unit": "개", "aliases": "애플망고"}, "별칭은 글자 목록"),
+        ({"item": "우유", "qty": 1, "unit": "L", "sn": "2026-11-14", "status": "stored"}, "S/N은 YYYY-MM-NNN"),
+        ({"item": "우유", "qty": 1, "unit": "L", "expiryDate": "2026-11-10", "inputDate": "2026-11-20", "status": "stored"}, "유효기간이 투입일자보다"),
+        ({"item": "우유", "qty": 1, "unit": "L", "inputDate": "2026-11-21", "status": "stored"}, "투입일자가 오늘보다 늦어요"),
+        ({"item": "우유", "qty": 1, "unit": "L", "expiryDate": "11월 30일", "status": "stored"}, "유효기간은 YYYY-MM-DD"),
+        ({"item": "망고", "qty": 1, "unit": "개", "storageDays": 0, "status": "stored"}, "권장 보관일수는 1 이상"),
+        ({"item": "망고", "qty": 1, "unit": "개", "avgWeight": -3, "status": "stored"}, "개당 평균 무게는 0보다"),
+        ({"item": "망고", "qty": 1, "unit": "개", "aliases": "애플망고", "status": "stored"}, "별칭은 글자 목록"),
         ({"item": "한우", "qty": "200", "unit": "g", "status": "consumed"}, "양은 0보다 큰"),
     ],
 )
@@ -306,15 +368,17 @@ def test_inventory_form_unknown_key_and_broken_json(fridge_today):
 
 
 def test_inventory_form_leaves_other_questions_alone(fridge_today):
-    rating = '{"recipe": "규동", "cooked": "2 인분", "ratings": []}'
-    for q in ["한우 600g 넣었어", rating, '{"a": 1}']:
+    rating = '{"recipe": "규동", "cooked": 2, "ratings": []}'
+    for q in ["한우 600g 넣었어", rating, '{"a": 1}', '{"cooked": 2, "qty": 1}']:
         assert not guardrails.check_inventory_form(q).is_form
 
 
-def test_inventory_form_quantity_is_absolute(fridge_today):
+def test_inventory_form_rejects_negative_quantity(fridge_today):
+    """양은 절대값으로 바꾸지 않는다. 음수는 거절한다(SERVICE.md 5.1)."""
     v = guardrails.check_inventory_form(_stock(item="두부", qty=-2, unit="개", status="stored"))
-    assert not v.code and v.form["qty"] == 2.0
-    assert v.question == "재고 입력 Form을 확정해줘: 입고 두부 2개"
+    assert v.code == "FORM_INVALID" and v.problems == ["양은 0보다 큰 숫자여야 해요"]
+    ok = guardrails.check_inventory_form(_stock(item="두부", qty=0.5, unit="개", status="stored"))
+    assert not ok.code and ok.form["qty"] == 0.5
 
 
 def test_inventory_form_rejects_comma_alias(fridge_today):

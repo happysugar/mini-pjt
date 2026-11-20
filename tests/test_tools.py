@@ -399,10 +399,13 @@ def test_new_item_needs_positive_storage_days(conn):
     assert tools.add_inventory(conn, "두부", 1, "개")["status"] == "added"
 
 
-def test_quantity_is_absolute(conn):
-    result = tools.add_inventory(conn, "두부", -2, "개")
-    assert result["status"] == "added" and result["qty"] == 2
-    assert tools.add_inventory(conn, "두부", 0, "개")["status"] == "qty_invalid"
+def test_stored_quantity_must_be_positive(conn):
+    """입고 양은 양수만 받는다. 음수를 절대값으로 바꾸지 않고 0과 같이 거절한다(SERVICE.md 5.1)."""
+    before = conn.execute("SELECT COUNT(*) FROM inventory").fetchone()[0]
+    for qty in (-2, 0):
+        assert tools.add_inventory(conn, "두부", qty, "개")["status"] == "qty_invalid"
+    assert conn.execute("SELECT COUNT(*) FROM inventory").fetchone()[0] == before
+    # 식사 차감은 내부 계산이라 지금처럼 절대값으로 다룬다
     assert tools.deduct_fefo(conn, "한우", -100, "g")["deducted"] == 100
 
 

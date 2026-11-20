@@ -136,3 +136,10 @@
   - 기대 특성: "~ Form(JSON)으로만 받는다고 안내; 저장하지 않았다고 안내". 기대 도구: 없음. note에 `FORM_REQUIRED`와 대신 쓸 Form 문항을 적었다.
   - 구성: positive 8, negative 16, edge 14, guardrail 9 (전체 47문항). `tests/test_eval.py` 80개 통과.
 - Bedrock 평가: 바뀐 11문항 `run-20261120-050652.json` 11/11(모두 `FORM_REQUIRED`로 거절, 도구 호출 없음). 전체 47문항 `run-20261120-052058.json` 47/47(`539d5e7`). 평가 뒤 원본 `data/storage_items.csv`는 바뀌지 않았다(문항별 기준표 격리 확인).
+## 후속 변경: 입력 Form 검증 Rule 문항 (2026-11-20, `validation-rules` branch)
+- 재고·평가 입력 Form 검증 Rule 보강(TASK-12 후속 변경)에 맞춰 문항을 고치고 더했다. 전체 47문항 → 59문항(positive 8, negative 28, edge 14, guardrail 9).
+- 고친 문항: 평가 Form 9문항(E08~E12, G07~G09, P10)의 `cooked`·`eaten`을 JSON 숫자로 바꿨다. E12는 예전 형식 `"2 인분"`을 거절하는지, E18은 음수 양(-2)을 절대값으로 바꾸지 않고 거절하는지 본다. E14 note에 폐기 qty 선택을 적었다.
+- 더한 negative 12문항(N17~N28, 기대 도구 없음, 모두 `FORM_INVALID`)
+  - 재고 Form: N17 상태 누락, N18 품목 누락, N19 출고 양 누락, N20 폐기 음수 양, N21 소수 보관일수, N22 새 품목(고등어) 보관일수 누락, N23 날짜 형식 두 가지
+  - 평가 Form: N24 cooked 키 누락, N25 evaluator 누락, N26 식사량 `"1인분"`, N27 점수 4.5, N28 음수 요리한 양
+- 확인: 모델 없이 형식 검사와 재고 대조 검사(임시 DB)에 넣어 12문항 모두 기대한 거절 문구가 나왔다. Bedrock 전체 평가 `run-20261120-093823.json`에서도 59/59 통과(N17~N28 모두 도구 호출 없이 `FORM_INVALID`).
