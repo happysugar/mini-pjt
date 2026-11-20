@@ -1,0 +1,611 @@
+{
+ "run_at": "2026-11-20T09:40:41",
+ "k": 3,
+ "mode": "LLM 쿼리 확장·리랭킹 사용",
+ "llm_model": "us.anthropic.claude-sonnet-4-6",
+ "embed_model": "amazon.titan-embed-text-v2:0",
+ "summary": {
+  "all": {
+   "n": 25,
+   "precision": 0.96,
+   "recall": 1.0,
+   "mrr": 1.0,
+   "hit_rate": 1.0,
+   "reranked": 25
+  },
+  "recipe": {
+   "n": 15,
+   "precision": 0.978,
+   "recall": 1.0,
+   "mrr": 1.0,
+   "hit_rate": 1.0,
+   "reranked": 15
+  },
+  "storage": {
+   "n": 10,
+   "precision": 0.933,
+   "recall": 1.0,
+   "mrr": 1.0,
+   "hit_rate": 1.0,
+   "reranked": 10
+  }
+ },
+ "results": [
+  {
+   "id": "R01",
+   "kind": "recipe",
+   "question": "규동 레시피 알려줘",
+   "relevant": [
+    "recipes_japanese.md#규동"
+   ],
+   "retrieved": [
+    "recipes_japanese.md#규동"
+   ],
+   "queries": [
+    "규동 레시피 알려줘",
+    "규동 레시피",
+    "소고기 덮밥 만드는 법",
+    "차돌 덮밥 요리 방법"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R02",
+   "kind": "recipe",
+   "question": "차돌로 만드는 일식 덮밥",
+   "relevant": [
+    "recipes_japanese.md#규동"
+   ],
+   "retrieved": [
+    "recipes_japanese.md#규동"
+   ],
+   "queries": [
+    "차돌로 만드는 일식 덮밥",
+    "차돌로 만드는 일식 덮밥 소고기 한우 우둔 양지 불고기용 소고기",
+    "차돌박이 일식 덮밥 레시피",
+    "소고기 차돌 일본식 덮밥 만들기",
+    "한우 차돌 일식 규동 레시피"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R03",
+   "kind": "recipe",
+   "question": "두부 넣고 끓이는 한식 찌개",
+   "relevant": [
+    "recipes_korean.md#된장찌개"
+   ],
+   "retrieved": [
+    "recipes_korean.md#된장찌개"
+   ],
+   "queries": [
+    "두부 넣고 끓이는 한식 찌개",
+    "두부 넣고 끓이는 한식 찌개 부침두부 찌개두부",
+    "두부 들어가는 한식 찌개 끓이는 법",
+    "순두부 또는 모두부로 만드는 찌개 레시피",
+    "두부 넣고 보글보글 끓이는 한국식 찌개"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R04",
+   "kind": "recipe",
+   "question": "닭고기로 만드는 요리 뭐 있어?",
+   "relevant": [
+    "recipes_chinese.md#깐풍기",
+    "recipes_italian.md#닭고기 카치아토레",
+    "recipes_japanese.md#오야코동"
+   ],
+   "retrieved": [
+    "recipes_chinese.md#깐풍기",
+    "recipes_japanese.md#오야코동",
+    "recipes_italian.md#닭고기 카치아토레"
+   ],
+   "queries": [
+    "닭고기로 만드는 요리 뭐 있어?",
+    "닭고기로 만드는 요리 뭐 있어? 닭가슴살 닭다리살",
+    "닭고기 요리 레시피",
+    "치킨 요리 만드는 법",
+    "닭 요리 종류"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R05",
+   "kind": "recipe",
+   "question": "새우 들어간 파스타",
+   "relevant": [
+    "recipes_italian.md#새우 로제 파스타"
+   ],
+   "retrieved": [
+    "recipes_italian.md#새우 로제 파스타"
+   ],
+   "queries": [
+    "새우 들어간 파스타",
+    "새우 들어간 파스타 대하 칵테일새우 냉동새우 파스타면 스파게티 펜네",
+    "새우 파스타",
+    "쉬림프 파스타",
+    "해물 파스타"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R06",
+   "kind": "recipe",
+   "question": "달걀 들어간 일식 덮밥",
+   "relevant": [
+    "recipes_japanese.md#오야코동",
+    "recipes_japanese.md#에비텐동"
+   ],
+   "retrieved": [
+    "recipes_japanese.md#오야코동",
+    "recipes_japanese.md#에비텐동",
+    "recipes_japanese.md#규동"
+   ],
+   "queries": [
+    "달걀 들어간 일식 덮밥",
+    "달걀 들어간 일식 덮밥 계란",
+    "계란 넣은 일본식 덮밥",
+    "계란 들어가는 일식 돈부리"
+   ],
+   "reranked": true,
+   "precision": 0.6667,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R07",
+   "kind": "recipe",
+   "question": "가지로 만드는 요리",
+   "relevant": [
+    "recipes_chinese.md#어향가지",
+    "recipes_italian.md#가지 파르미자나"
+   ],
+   "retrieved": [
+    "recipes_chinese.md#어향가지",
+    "recipes_italian.md#가지 파르미자나"
+   ],
+   "queries": [
+    "가지로 만드는 요리",
+    "가지 요리 레시피",
+    "가지 활용 요리",
+    "aubergine 요리"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R08",
+   "kind": "recipe",
+   "question": "표고버섯이 주재료인 요리",
+   "relevant": [
+    "recipes_italian.md#버섯 리조또",
+    "recipes_japanese.md#표고버섯 솥밥"
+   ],
+   "retrieved": [
+    "recipes_japanese.md#표고버섯 솥밥",
+    "recipes_italian.md#버섯 리조또"
+   ],
+   "queries": [
+    "표고버섯이 주재료인 요리",
+    "표고버섯을 주재료로 한 요리 레시피",
+    "향버섯이 메인 재료인 음식 레시피",
+    "참나무버섯을 주로 사용하는 요리 레시피"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R09",
+   "kind": "recipe",
+   "question": "감자 간장 조림 반찬",
+   "relevant": [
+    "recipes_korean.md#감자조림"
+   ],
+   "retrieved": [
+    "recipes_korean.md#감자조림"
+   ],
+   "queries": [
+    "감자 간장 조림 반찬",
+    "감자 졸임 간장 양념 밑반찬",
+    "하지 간장 조림 반찬"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R10",
+   "kind": "recipe",
+   "question": "생크림 없이 계란으로 만드는 파스타",
+   "relevant": [
+    "recipes_italian.md#까르보나라"
+   ],
+   "retrieved": [
+    "recipes_italian.md#까르보나라"
+   ],
+   "queries": [
+    "생크림 없이 계란으로 만드는 파스타",
+    "생크림 없이 계란으로 만드는 파스타 달걀 휘핑크림 파스타면 스파게티 펜네",
+    "생크림 없이 달걀만으로 만드는 파스타 레시피",
+    "계란 활용 노크림 파스타 만드는 법",
+    "달걀로 크림 대체한 파스타 요리법"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R11",
+   "kind": "recipe",
+   "question": "돼지고기 매콤하게 볶는 한식",
+   "relevant": [
+    "recipes_korean.md#제육볶음"
+   ],
+   "retrieved": [
+    "recipes_korean.md#제육볶음"
+   ],
+   "queries": [
+    "돼지고기 매콤하게 볶는 한식",
+    "돼지고기 매콤하게 볶는 한식 삼겹살 목살 앞다리살",
+    "돼지고기 매콤 볶음 한식 레시피",
+    "돼지 앞다리살 칼칼하게 볶는 한국 요리",
+    "삼겹살 매운 볶음 한식"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R12",
+   "kind": "recipe",
+   "question": "연어로 만드는 요리",
+   "relevant": [
+    "recipes_japanese.md#연어 데리야키"
+   ],
+   "retrieved": [
+    "recipes_japanese.md#연어 데리야키"
+   ],
+   "queries": [
+    "연어로 만드는 요리",
+    "연어로 만드는 요리 생연어",
+    "연어 레시피",
+    "salmon 요리 방법",
+    "연어살로 만드는 음식"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R13",
+   "kind": "recipe",
+   "question": "우동면 볶음 요리",
+   "relevant": [
+    "recipes_japanese.md#야키우동"
+   ],
+   "retrieved": [
+    "recipes_japanese.md#야키우동"
+   ],
+   "queries": [
+    "우동면 볶음 요리",
+    "우동면 볶음 요리 우동사리",
+    "우동면 볶음",
+    "볶음 우동",
+    "우동 볶음 요리"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R14",
+   "kind": "recipe",
+   "question": "시금치로 만드는 반찬",
+   "relevant": [
+    "recipes_korean.md#시금치나물"
+   ],
+   "retrieved": [
+    "recipes_korean.md#시금치나물"
+   ],
+   "queries": [
+    "시금치로 만드는 반찬",
+    "시금치 반찬 레시피",
+    "시금치 나물 요리법",
+    "시금치 사이드 디시 만들기"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "R15",
+   "kind": "recipe",
+   "question": "탕수육 만드는 법",
+   "relevant": [
+    "recipes_chinese.md#탕수육"
+   ],
+   "retrieved": [
+    "recipes_chinese.md#탕수육"
+   ],
+   "queries": [
+    "탕수육 만드는 법",
+    "탕수육 레시피",
+    "탕수육 조리법",
+    "돼지고기 튀김 소스 요리 만드는 방법"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "S01",
+   "kind": "storage",
+   "question": "두부는 어떻게 보관해?",
+   "relevant": [
+    "storage_guide.md#두부"
+   ],
+   "retrieved": [
+    "storage_guide.md#두부"
+   ],
+   "queries": [
+    "두부는 어떻게 보관해?",
+    "두부는 어떻게 보관해? 부침두부 찌개두부",
+    "두부 보관 방법",
+    "연두부 냉장 보관 기간",
+    "순두부 올바른 보관법"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "S02",
+   "kind": "storage",
+   "question": "한우는 어떻게 보관해?",
+   "relevant": [
+    "storage_guide.md#소고기"
+   ],
+   "retrieved": [
+    "storage_guide.md#소고기"
+   ],
+   "queries": [
+    "한우는 어떻게 보관해?",
+    "한우는 어떻게 보관해? 소고기 우둔 차돌 양지 불고기용 소고기",
+    "한우 냉장 보관 방법",
+    "소고기 보관 기간 및 팁",
+    "차돌박이 냉동 보관 가이드"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "S03",
+   "kind": "storage",
+   "question": "달걀 냉장 보관 방법",
+   "relevant": [
+    "storage_guide.md#계란"
+   ],
+   "retrieved": [
+    "storage_guide.md#계란"
+   ],
+   "queries": [
+    "달걀 냉장 보관 방법",
+    "달걀 냉장 보관 방법 계란",
+    "계란 냉장고 보관 기간 및 팁",
+    "계란 올바른 냉장 보관법"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "S04",
+   "kind": "storage",
+   "question": "대파 오래 두는 법",
+   "relevant": [
+    "storage_guide.md#대파"
+   ],
+   "retrieved": [
+    "storage_guide.md#대파"
+   ],
+   "queries": [
+    "대파 오래 두는 법",
+    "대파 보관 방법",
+    "쪽파 냉장 보관 팁",
+    "대파 신선하게 오래 보관하는 법"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "S05",
+   "kind": "storage",
+   "question": "파마산 치즈 보관",
+   "relevant": [
+    "storage_guide.md#파르메산 치즈"
+   ],
+   "retrieved": [
+    "storage_guide.md#파르메산 치즈"
+   ],
+   "queries": [
+    "파마산 치즈 보관",
+    "파마산 치즈 냉장 보관 방법",
+    "파르메산 치즈 보관 기간",
+    "파르미지아노 치즈 올바른 보관법"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "S06",
+   "kind": "storage",
+   "question": "스파게티 면 보관",
+   "relevant": [
+    "storage_guide.md#파스타면"
+   ],
+   "retrieved": [
+    "storage_guide.md#파스타면"
+   ],
+   "queries": [
+    "스파게티 면 보관",
+    "스파게티 면 보관 파스타면 펜네 파스타",
+    "스파게티 면 보관 방법",
+    "파스타 면 냉장 보관 기간",
+    "스파게티 면 유통기한 및 보관 팁"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "S07",
+   "kind": "storage",
+   "question": "생크림 개봉 후 보관",
+   "relevant": [
+    "storage_guide.md#생크림"
+   ],
+   "retrieved": [
+    "storage_guide.md#생크림"
+   ],
+   "queries": [
+    "생크림 개봉 후 보관",
+    "생크림 개봉 후 보관 휘핑크림",
+    "생크림 개봉 후 냉장 보관 기간",
+    "휘핑크림 뜯은 후 보관 방법",
+    "생크림 개봉 뒤 유통기한 및 보관 팁"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "S08",
+   "kind": "storage",
+   "question": "표고 보관법",
+   "relevant": [
+    "storage_guide.md#표고버섯"
+   ],
+   "retrieved": [
+    "storage_guide.md#표고버섯"
+   ],
+   "queries": [
+    "표고 보관법",
+    "표고 보관법 표고버섯",
+    "표고버섯 보관 방법",
+    "표고버섯 냉장 보관 기간",
+    "생표고 신선하게 보관하는 법"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "S09",
+   "kind": "storage",
+   "question": "망고는 어떻게 보관해?",
+   "relevant": [
+    "storage_guide.md#보관 가이드 범위와 단위 규칙"
+   ],
+   "retrieved": [
+    "storage_guide.md#보관 가이드 범위와 단위 규칙"
+   ],
+   "queries": [
+    "망고는 어떻게 보관해?",
+    "망고 보관 방법",
+    "망고 냉장 보관 기간",
+    "애플망고 보관 팁"
+   ],
+   "reranked": true,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  },
+  {
+   "id": "S10",
+   "kind": "storage",
+   "question": "두부 1모나 우유 1팩은 단위를 어떻게 세?",
+   "relevant": [
+    "storage_guide.md#보관 가이드 범위와 단위 규칙"
+   ],
+   "retrieved": [
+    "storage_guide.md#보관 가이드 범위와 단위 규칙",
+    "storage_guide.md#두부",
+    "storage_guide.md#우유"
+   ],
+   "queries": [
+    "두부 1모나 우유 1팩은 단위를 어떻게 세?",
+    "두부 1모나 우유 1팩은 단위를 어떻게 세? 부침두부 찌개두부 흰우유",
+    "두부 한 모 단위 세는 법",
+    "우유 한 팩 수량 단위 표현",
+    "순두부 모두부 개수 단위 세기"
+   ],
+   "reranked": true,
+   "precision": 0.3333,
+   "recall": 1.0,
+   "rr": 1.0,
+   "hit": 1.0
+  }
+ ]
+}

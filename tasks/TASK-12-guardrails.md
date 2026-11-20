@@ -93,3 +93,19 @@
   `add_items_from_text`·`withdraw_item`·`discard_item`·`confirm_meal`·`get_recipe`를 부르지 않고 같은 문구로 답한다. 도구는 등록해 둔다.
 - 테스트: 판정 표 15개(`tests/test_guardrails.py`), API 거절 4개와 조회 통과 1개(`tests/test_api.py`). 자연어 문장으로 도구의 승인·멱등·신원 처리를
   검증하던 기존 테스트 18개는 `allow_free_text_writes` fixture로 형식 가드레일만 끄고 그대로 둔다. pytest 452개 통과.
+
+## 후속 변경: 재고·평가 입력 Form 검증 Rule 보강 (2026-11-20, `validation-rules` branch)
+- 재고 입력 Form(`check_inventory_form`, SERVICE.md 5.1)
+  - 필수: `item`·`status`는 모든 요청에서, `qty`·`unit`은 입고·출고에서 필수. 폐기는 `qty`가 없어도 된다(결정 A). 상태가 비어도 입고로 보지 않고 "상태가 빠졌어요"로 거절한다.
+  - `qty`·`storageDays`는 값이 있으면 상태와 상관없이 양수만 받는다. 음수 `qty`를 절대값으로 바꾸던 규칙을 없애고 "양은 0보다 큰 숫자여야 해요"로 거절한다. `storageDays`는 1 이상 정수(결정 C). NaN·Infinity도 거절한다.
+  - 재고 Form 판별: `item` 키가 없어도 재고 Form 키가 하나라도 있으면 Form으로 보고 "품목이 빠졌어요"로 거절한다. 평가 Form 키가 있으면 평가 Form으로 넘긴다.
+  - 날짜 형식(`expiryDate`·`inputDate`)과 새 품목의 `storageDays` 필수는 이미 있던 검사라 테스트만 보강했다.
+  - `tools.add_inventory`도 0과 음수 양을 `qty_invalid`로 거절한다(식사 차감의 절대값 처리는 그대로).
+- 평가 입력 Form(`check_rating_form`, SERVICE.md 5.6)
+  - 필수: `recipe`·`cooked`·`ratings`, 평가자별 `evaluator`·`eaten`·`score`. 세 키 중 하나라도 있으면 Form으로 보고 빠진 키를 "~이 빠졌어요"로 알린다.
+  - `cooked`·`eaten`은 인분 단위 JSON 숫자만 받는다(소수 가능, 0보다 큼). `"2 인분"`, `"2인분"`, `" 2"`, `"2"`처럼 인분·공백 같은 글자가 든 값이나 문자열은 거절한다(결정 B).
+    거절 문구: "요리한 양은 숫자만 넣어 주세요(인분·공백 같은 글자 없이, 예: 2)".
+  - `score`는 1~5 정수. 4.5는 거절한다(결정 C).
+  - SERVICE.md 5.6의 Form 항목 표를 JSON 키 기준(키·형식·필수·검사 Rule·거절 문구)으로 다시 적었다.
+- 평가 문항: 평가 Form 9문항(E08~E12, G07~G09, P10)의 입력을 숫자 인분으로 바꾸고, E12(`"2 인분"`)·E18(음수 양)을 새 Rule에 맞췄다. Rule마다 negative 12문항(N17~N28)을 더했다(TASK-09 후속 변경).
+- 테스트: `tests/test_guardrails.py`(평가 Form 필수 키·숫자 인분·정수 점수, 재고 Form 필수 칸·음수 거절·폐기 qty·날짜 형식), `tests/test_api.py`(Form 입력을 새 형식으로), `tests/test_tools.py`(입고 음수 거절).

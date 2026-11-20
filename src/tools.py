@@ -648,7 +648,7 @@ def add_inventory(
     """재고 한 건을 입고한다. 커밋은 호출한 쪽이 한다.
 
     - 투입일자: 상대 토큰("어제", "-1")이나 날짜. 없으면 오늘.
-    - 양: 절대값으로 바꾼다. 0이면 저장하지 않고 `status="qty_invalid"`.
+    - 양: 0보다 커야 한다. 0이나 음수면 저장하지 않고 `status="qty_invalid"`(SERVICE.md 5.1, 음수를 절대값으로 바꾸지 않음).
     - 단위: 기준 단위로 환산. 환산할 수 없으면 저장하지 않고 `status="unit_mismatch"`.
     - S/N: 주면 형식·중복을 검사하고, 어긋나면 저장하지 않고 `status="sn_invalid"`와
       자동 발번 S/N(`suggested_sn`)을 돌려준다. 없으면 자동 발번.
@@ -660,8 +660,8 @@ def add_inventory(
       기록하고 결과에 `registered=True`를 담는다. 기준표 반영은 커밋 뒤 `sync_guide`가 한다.
     """
     in_date = resolve_date(input_date)
-    if float(qty) == 0:
-        return {"status": "qty_invalid", "item": item, "message": "양이 0이에요. 0보다 큰 양을 알려 주세요"}
+    if float(qty) <= 0:
+        return {"status": "qty_invalid", "item": item, "message": "양은 0보다 커야 해요. 0보다 큰 양을 알려 주세요"}
     new = is_new_item(conn, item)
     if new:
         problems = registration_problems(storage_days, avg_weight_g)

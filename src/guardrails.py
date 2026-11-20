@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import unicodedata
@@ -441,7 +442,7 @@ def is_bare_approval(question: str) -> bool:
 
 MSG_FORM_INVALID = "평가 입력을 저장하지 않았어요. 입력 Form을 다시 확인해 주세요"
 FORM_CONFIRM_REQUEST = "평가 입력 Form을 확정해줘"  # src/tools.py의 같은 이름 상수와 같은 문구
-_SERVINGS = re.compile(r"^(\d+(?:\.\d+)?) 인분$")  # 숫자 + 공백 하나 + 인분
+RATING_FORM_KEYS = ("recipe", "cooked", "ratings")  # 모두 필수. ratings 항목은 evaluator·eaten·score 모두 필수
 
 
 @dataclass
@@ -465,10 +466,19 @@ class FormVerdict:
         return asdict(self)
 
 
-def _servings(value: Any) -> float | None:
-    """"2 인분" 형식이면 숫자를, 아니면 None을 돌려준다."""
-    match = _SERVINGS.match(value) if isinstance(value, str) else None
-    return float(match.group(1)) if match else None
+def _servings_problem(value: Any, label: str, example: str) -> str | None:
+    """인분 값(요리한 양·식사량) 검사. 0보다 큰 숫자(소수 가능)가 아니면 문제 문구를, 맞으면 None을 돌려준다.
+
+    JSON 숫자만 받는다. "2 인분", "2인분", " 2", "2" 처럼 인분·공백 같은 글자가 들어간 값이나 문자열은 모두 거절한다.
+    단위는 한 사람이 먹는 양(인분)으로 본다.
+    """
+    if value is None:
+        return f"{label}이 빠졌어요"
+    if _number(value) is None:
+        return f"{label}은 숫자만 넣어 주세요(인분·공백 같은 글자 없이, 예: {example})"
+    if _positive(value) is None:
+        return f"{label}은 0보다 커야 해요"
+    return None
 
 
 def _fmt(number: float) -> str:
@@ -479,8 +489,10 @@ def _fmt(number: float) -> str:
 def check_rating_form(question: str, user_id: str) -> FormVerdict:
     """`question`이 recipe 평가 결과 입력 JSON이면 형식과 값을 검사한다. LLM을 부르지 않는다.
 
-    검사: recipe 명, 요리한 양과 평가자별 식사량("숫자 인분", 0보다 큼), 평가자가 가족 구성원인지와 중복,
-    점수(1~5 정수), 빠진 값, 평가자별 식사량 합계가 요리한 양을 넘지 않는지.
+    검사: 필수 키(recipe·cooked·ratings, 평가자별 evaluator·eaten·score), recipe 명, 요리한 양과 평가자별
+    식사량(JSON 숫자만, 0보다 큼, 단위는 인분, 소수 가능. 인분·공백 같은 글자가 든 문자열은 거절), 평가자가 가족 구성원인지와 중복,
+    점수(1~5 정수), 평가자별 식사량 합계가 요리한 양을 넘지 않는지.
+    평가 Form 키가 하나라도 있으면 Form으로 본다(다른 키가 빠져도).
     가족은 하나뿐이므로 평가자는 모두 그 가족의 구성원이어야 한다. 평가자는 여러 명일 수 있고 요청자가 아니어도 된다
     (요청자 한 사람의 승인으로 평가자마다 저장한다, SERVICE.md 5.6).
     """
@@ -490,26 +502,31 @@ def check_rating_form(question: str, user_id: str) -> FormVerdict:
     try:
         data = json.loads(text)
     except ValueError:
-        if '"ratings"' in text or '"recipe"' in text:  # Form처럼 보이지만 JSON이 깨진 요청
+        if any(f'"{k}"' in text for k in RATING_FORM_KEYS):  # Form처럼 보이지만 JSON이 깨진 요청
             return FormVerdict(True, "FORM_INVALID", ["JSON 형식이 아니에요"], f"{MSG_FORM_INVALID}: JSON 형식이 아니에요")
         return FormVerdict()
-    if not isinstance(data, dict) or not {"recipe", "ratings"} <= set(data):
+    # 평가 Form 키(recipe·cooked·ratings)가 하나라도 있으면 평가 Form으로 보고, 빠진 키는 문제로 알린다.
+    if not isinstance(data, dict) or not set(data) & set(RATING_FORM_KEYS):
         return FormVerdict()
 
     problems: list[str] = []
     recipe = data.get("recipe")
-    if not isinstance(recipe, str) or not recipe.strip():
+    if recipe is None:
+        problems.append("recipe 명이 빠졌어요")
+    elif not isinstance(recipe, str) or not recipe.strip():
         problems.append("recipe 명이 비었어요")
-    cooked = _servings(data.get("cooked"))
-    if cooked is None:
-        problems.append("요리한 양은 '숫자 인분' 형식이어야 해요(예: 2 인분)")
-    elif cooked <= 0:
-        problems.append("요리한 양은 0보다 커야 해요")
+    cooked_problem = _servings_problem(data.get("cooked"), "요리한 양", "2")
+    if cooked_problem:
+        problems.append(cooked_problem)
+    cooked = None if cooked_problem else float(data["cooked"])
 
     members = {name: uid for uid, names in family_names().items() for name in names}
     ratings = data.get("ratings")
     entries: list[tuple[str, float, int]] = []
-    if not isinstance(ratings, list) or not ratings:
+    if ratings is None:
+        problems.append("평가자별 항목이 빠졌어요")
+        ratings = []
+    elif not isinstance(ratings, list) or not ratings:
         problems.append("평가자별 항목이 비었어요")
         ratings = []
     seen: set[str] = set()
@@ -517,10 +534,13 @@ def check_rating_form(question: str, user_id: str) -> FormVerdict:
         if not isinstance(item, dict):
             problems.append(f"{i}번째 평가자 항목 형식이 틀렸어요")
             continue
-        who = str(item.get("evaluator", "")).strip()
+        raw_who = item.get("evaluator")
+        who = "" if raw_who is None else str(raw_who).strip()
         label = who or f"{i}번째 평가자"
         uid = members.get(who)
-        if not who:
+        if raw_who is None:
+            problems.append(f"{i}번째 평가자가 빠졌어요")
+        elif not who:
             problems.append(f"{i}번째 평가자가 비었어요")
         elif uid is None:
             problems.append(f"평가자 '{who}'는 가족 구성원이 아니에요")
@@ -528,20 +548,17 @@ def check_rating_form(question: str, user_id: str) -> FormVerdict:
             problems.append(f"평가자 '{who}'가 두 번 들어 있어요")
         else:
             seen.add(uid)
-        eaten = _servings(item.get("eaten"))
-        if "eaten" not in item:
-            problems.append(f"{label}의 식사량이 빠졌어요")
-        elif eaten is None:
-            problems.append(f"{label}의 식사량은 '숫자 인분' 형식이어야 해요(예: 1 인분)")
-        elif eaten <= 0:
-            problems.append(f"{label}의 식사량은 0보다 커야 해요")
+        eaten_problem = _servings_problem(item.get("eaten"), f"{label}의 식사량", "1")
+        if eaten_problem:
+            problems.append(eaten_problem)
         score = item.get("score")
-        if "score" not in item:
+        score_ok = isinstance(score, int) and not isinstance(score, bool) and 1 <= score <= 5
+        if score is None:
             problems.append(f"{label}의 점수가 빠졌어요")
-        elif isinstance(score, bool) or not isinstance(score, int) or not 1 <= score <= 5:
-            problems.append(f"{label}의 점수는 1~5 사이 숫자여야 해요")
-        if uid and eaten and eaten > 0 and isinstance(score, int) and not isinstance(score, bool) and 1 <= score <= 5:
-            entries.append((uid, eaten, score))
+        elif not score_ok:
+            problems.append(f"{label}의 점수는 1~5 사이 정수여야 해요")
+        if uid and not eaten_problem and score_ok:
+            entries.append((uid, float(item["eaten"]), score))
     if cooked and cooked > 0 and len(entries) == len(ratings) and entries:
         total = sum(e for _, e, _ in entries)
         if total > cooked:
@@ -577,6 +594,12 @@ def _number(value: Any) -> float | None:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
+def _positive(value: Any) -> float | None:
+    """0보다 큰 유한한 숫자(bool·문자열 제외)면 float로, 아니면 None. JSON의 NaN·Infinity도 거절한다."""
+    number = _number(value)
+    return number if number is not None and math.isfinite(number) and number > 0 else None
+
+
 def _iso_date(value: Any) -> date | None:
     """"YYYY-MM-DD" 문자열이면 날짜로, 아니면 None."""
     if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
@@ -590,9 +613,11 @@ def _iso_date(value: Any) -> date | None:
 def check_inventory_form(question: str) -> FormVerdict:
     """`question`이 재고 입력 JSON이면 형식과 값을 검사한다. LLM과 DB를 쓰지 않는다.
 
-    검사: 알 수 없는 키, 상태 값, 품목, 별칭(문자열 배열), S/N 형식, 입고·출고의 양(0보다 큰 숫자)과 단위(g·L·개),
-    개당 평균 무게(0보다 큼), 권장 보관일수(1 이상 정수), 날짜 형식, 투입일자가 오늘보다 늦지 않은지,
-    유효기간이 투입일자보다 빠르지 않은지. 통과하면 보관할 값(`form`)과 확정 요청 문장(`question`)을 담는다.
+    검사: 필수 항목(품목·상태, 입고·출고의 양과 단위), 알 수 없는 키, 상태 값, 별칭(문자열 배열), S/N 형식,
+    양(값이 있으면 상태와 상관없이 0보다 큰 숫자, 음수 거절), 단위(g·L·개), 개당 평균 무게(0보다 큼),
+    권장 보관일수(1 이상 정수), 날짜 형식, 투입일자가 오늘보다 늦지 않은지, 유효기간이 투입일자보다 빠르지 않은지.
+    재고 Form 키가 하나라도 있으면 Form으로 본다(품목이 빠져도). 통과하면 보관할 값(`form`)과
+    확정 요청 문장(`question`)을 담는다.
     """
     from src.tools import today
 
@@ -606,18 +631,24 @@ def check_inventory_form(question: str) -> FormVerdict:
             return FormVerdict(True, "FORM_INVALID", ["JSON 형식이 아니에요"],
                                f"{MSG_INVENTORY_FORM_INVALID}: JSON 형식이 아니에요")
         return FormVerdict()
-    if not isinstance(data, dict) or "item" not in data or "recipe" in data:
+    # 재고 Form 키가 하나라도 있으면 재고 Form으로 보고, 빠진 필수 항목(item·status·qty)을 알린다.
+    # 평가 Form 키가 있으면 평가 Form(`check_rating_form`)이 맡는다.
+    if not isinstance(data, dict) or set(data) & set(RATING_FORM_KEYS) or not set(data) & set(INVENTORY_FORM_KEYS):
         return FormVerdict()
 
     problems: list[str] = []
     unknown = [k for k in data if k not in INVENTORY_FORM_KEYS]
     if unknown:
         problems.append(f"알 수 없는 항목이 있어요: {', '.join(map(str, unknown))}")
-    status = data.get("status") or "stored"
-    if status not in INVENTORY_ACTIONS:
+    status = data.get("status")
+    if status is None:
+        problems.append("상태가 빠졌어요(stored, consumed, discarded 중 하나)")
+    elif not isinstance(status, str) or status not in INVENTORY_ACTIONS:
         problems.append("상태는 stored, consumed, discarded 중 하나여야 해요")
     item = data.get("item")
-    if not isinstance(item, str) or not item.strip():
+    if item is None:
+        problems.append("품목이 빠졌어요")
+    elif not isinstance(item, str) or not item.strip():
         problems.append("품목이 비었어요")
     aliases = data.get("aliases")
     if aliases is not None and (not isinstance(aliases, list)
@@ -628,13 +659,12 @@ def check_inventory_form(question: str) -> FormVerdict:
     sn = data.get("sn")
     if sn is not None and (not isinstance(sn, str) or not _SN.match(sn.strip())):
         problems.append("S/N은 YYYY-MM-NNN 형식이어야 해요(예: 2026-11-014)")
-    qty, unit = _number(data.get("qty")), data.get("unit")
-    qty = abs(qty) if qty is not None else None  # 양은 절대값으로 바꿔 양수로만 다룬다(SERVICE.md 5.1)
+    qty, unit = _positive(data.get("qty")), data.get("unit")
+    if data.get("qty") is not None and qty is None:  # 값이 있으면 상태와 상관없이 양수만 받는다(SERVICE.md 5.1)
+        problems.append("양은 0보다 큰 숫자여야 해요")
     if status in ("stored", "consumed"):
         if data.get("qty") is None:
-            problems.append("양이 비었어요")
-        elif qty is None or qty <= 0:
-            problems.append("양은 0보다 큰 숫자여야 해요")
+            problems.append("양이 빠졌어요")
         if unit is None:
             problems.append("단위가 비었어요")
         elif unit not in INVENTORY_UNITS:

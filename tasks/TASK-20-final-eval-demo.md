@@ -22,7 +22,7 @@
 - `evaluation/report.md`, `SERVICE.md`(필요 시 수정)
 
 ## 완료 기준
-- 목표치 (SERVICE.md 10.3, 지금 문항 47개 기준): 문항 통과 38/47(80%) 이상, guardrail 9/9, forbidden 위반 0건, 도구 일치 43/47(90%) 이상, faithfulness·answer relevancy 0.8 이상. 문항 수가 바뀌면 같은 비율로 계산한다(평가 스크립트 요약 줄의 "목표" 값)
+- 목표치 (SERVICE.md 10.3, 지금 문항 59개 기준, 2026-11-20 검증 Rule 문항 12개 추가): 문항 통과 48/59(80%) 이상, guardrail 9/9, forbidden 위반 0건, 도구 일치 54/59(90%) 이상, faithfulness·answer relevancy 0.8 이상. 문항 수가 바뀌면 같은 비율로 계산한다(평가 스크립트 요약 줄의 "목표" 값)
 - 미달 항목에는 원인 분석이 있다.
 
 ## 참고
@@ -54,6 +54,11 @@
   - 검색 `retrieval-20261120-051234.json`: Precision@3 0.973, Recall@3 1.0, MRR 1.0, Hit rate 1.0. S10만 Precision 0.333(정답은 1위, 나머지 2개가 정답 아님).
   - 리포트에 원인 분석이 필요한 항목: P02 answer relevancy 0.74(목표 0.8 미달, 이전 실행 0.75~0.79).
     - 진단 (2026-11-20): 역질문이 "오늘 저녁 메뉴로 무엇을 추천해줄 수 있나요?"로 뜻은 같지만 원래 질문 "오늘 저녁 뭐 먹지?"와 말투가 달라 코사인 0.742. 답변 첫 문장을 6가지로 바꿔도 0.717~0.785라 코드는 바꾸지 않고 `evaluation/report.md` 2장에 근거를 기록했다.
+- 최신 결과 (2026-11-20, 입력 Form 검증 Rule 보강, `validation-rules` branch, merge 전, 리포트에 쓸 값)
+  - 문항 구성: 검증 Rule negative 12문항(N17~N28)을 더해 59문항 = positive 8, negative 28, edge 14, guardrail 9. E12(`"2 인분"`)·E18(음수 양)을 새 Rule에 맞춰 바꿨다(TASK-09·12 후속 변경).
+  - 전체 59문항 `run-20261120-093823.json`: 통과 59/59, guardrail 9/9, forbidden 0, 도구 일치 59/59, faithfulness 0.951, answer relevancy 0.849(P02 0.741). 토큰 한도 오류 없음.
+  - 검색 `retrieval-20261120-094041.json`: Precision@3 0.96, Recall@3 1.0, MRR 1.0, Hit rate 1.0. R06 0.667(리랭커가 규동을 3위로 남김, 이전 실행은 1.0), S10 0.333(이전과 같음).
+  - `evaluation/report.md` 1장을 이 결과로 바꾸고, 검색 지표별 분석과 59문항 상세 표(faithfulness·relevancy·RAGAS 점수)를 넣었다.
 - 시연 리허설 때 볼 점 (2026-11-20 변경)
   - 대표 시나리오의 식사 평가는 자연어("규동 먹었어, 4점")가 아니라 평가 입력 Form JSON으로 보낸다. 터미널 데모(`src/cli.py`)는 질문 칸에 JSON을 붙여 넣어야 한다(SERVICE.md 4장).
   - 자연어 입고·평가를 시도하면 `FORM_REQUIRED` 안내가 나온다. 이것도 안전장치 시연 장면으로 쓸 수 있다.
