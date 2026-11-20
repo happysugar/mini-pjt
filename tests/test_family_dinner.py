@@ -195,6 +195,22 @@ def test_solo_recommendation_low_budget_picks_lightest(make_client, watch_on):
     assert any("가장 가벼운 요리" in n for n in out["notes"])
 
 
+# Regression: ISSUE-001 — guest(신원 미확인)의 추천이 워치 기본 목표치로 "남은 칼로리 안"이라고 안내함
+# Found by /qa on 2026-11-20
+# Report: .gstack/qa-reports/qa-report-api-query-2026-11-20.md
+def test_guest_recommendation_has_no_calorie_budget(make_client, watch_on, monkeypatch):
+    """guest는 가족 구성원이 아니고 워치 기록도 없다. 워치를 조회하지 않고 칼로리 정보를 확인하지 못했다고 알린다."""
+    from tests.test_api import tool_outputs
+
+    monkeypatch.delenv("DEFAULT_USER")
+    client, ask = make_client(call("rank_recipes", {}), say("추천해요."))
+    r = ask({"question": "오늘 저녁 뭐 먹지?", "thread_id": "guest-t-solo"})
+    assert r["trace"]["user_id"] == "guest"
+    out = next(json.loads(o) for o in tool_outputs(client, "guest-t-solo") if o.startswith("{"))
+    assert out["within_calorie_budget"] is None and tools.CALORIE_UNKNOWN in out["notes"]
+    assert not [s for s in r["trace"]["steps"] if s.get("via") == "mcp"]
+
+
 def test_solo_recommendation_without_watch(make_client):
     _, out = _solo_rank(make_client, "dad-t-solo-off")
     assert out["within_calorie_budget"] is None and tools.CALORIE_UNKNOWN in out["notes"]

@@ -1567,9 +1567,10 @@ def fetch_calorie_budgets(members: list[str], caller: str) -> tuple[dict[str, fl
     코드에서만 부르고 값은 `recommend_family`의 칼로리 제약에만 쓴다. 에이전트(LLM)에는 넘기지 않으므로
     다른 가족 구성원의 수치가 답변에 들어갈 길이 없다. 워치 연동이 꺼져 있거나 한 명이라도 읽지 못하면
     `(None, 기록)`을 돌려주고 칼로리 제약을 건너뛴다. trace 기록에는 수치를 남기지 않는다.
+    guest(신원을 확인하지 못한 조회 전용 요청자)는 가족 구성원이 아니라 워치 기록이 없으므로 조회하지 않고 `(None, [])`.
     """
     target = health_target()
-    if target is None:
+    if target is None or GUEST_USER in members:
         return None, []
     started = time.perf_counter()
     step = {"tool": "get_calorie_budget", "via": "mcp", "caller": caller, "members": len(members)}
