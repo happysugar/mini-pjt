@@ -85,6 +85,10 @@
   - 108문항 108/108, guardrail 26/26, forbidden 0, 도구 일치 108/108, faithfulness 0.964, answer relevancy 0.836(P02 0.700). 하루 토큰 한도로 실행 두 개를 합쳤다(`run-20261120-155252` 정상 36문항 + 키를 바꾼 뒤 `run-20261120-162337` 72문항, 모두 global sonnet-4-5).
   - 검색 `retrieval-20261120-162621.json`: Precision@3 0.90, Recall@3 1.0, MRR 1.0, Hit rate 1.0.
   - 새 문항이 찾은 결함 6건(P22 추천 답 kcal, P24 kcal 직접 계산, E34 알레르기 이유 지어냄, G27 간접 인젝션, G11·G12 승인 뒤 빈 답, N01 규칙 충돌)을 고쳤다. 내용은 리포트 1장 표.
+- 최신 결과 (2026-11-20, /qa 수정 ISSUE-001 반영 후 108문항 한 번에 실행, 브랜치 `qa-20261120-4` `cbfbe92`, 리포트에 쓸 값)
+  - 108문항 `run-20261120-172631.json`: 108/108, guardrail 26/26, forbidden 0, 도구 일치 108/108, faithfulness 0.973, answer relevancy 0.816(P02 0.641). Throttling 없음(global sonnet-4-5).
+  - 검색 `retrieval-20261120-172919.json`: Precision@3 0.90, Recall@3 1.0, MRR 1.0, Hit rate 1.0.
+  - /qa(프로브 34회)가 찾은 ISSUE-001(워치가 꺼진 채 승인하면 저장 요약이 빠짐)을 고쳤다. 리포트 1장 결함 표.
 - 시연 리허설 때 볼 점 (2026-11-20 변경)
   - 대표 시나리오의 식사 평가는 자연어("규동 먹었어, 4점")가 아니라 평가 입력 Form JSON으로 보낸다. 터미널 데모(`src/cli.py`)는 질문 칸에 JSON을 붙여 넣어야 한다(SERVICE.md 4장).
   - 자연어 입고·평가를 시도하면 `FORM_REQUIRED` 안내가 나온다. 이것도 안전장치 시연 장면으로 쓸 수 있다.
