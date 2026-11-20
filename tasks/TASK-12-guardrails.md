@@ -109,3 +109,10 @@
   - SERVICE.md 5.6의 Form 항목 표를 JSON 키 기준(키·형식·필수·검사 Rule·거절 문구)으로 다시 적었다.
 - 평가 문항: 평가 Form 9문항(E08~E12, G07~G09, P10)의 입력을 숫자 인분으로 바꾸고, E12(`"2 인분"`)·E18(음수 양)을 새 Rule에 맞췄다. Rule마다 negative 12문항(N17~N28)을 더했다(TASK-09 후속 변경).
 - 테스트: `tests/test_guardrails.py`(평가 Form 필수 키·숫자 인분·정수 점수, 재고 Form 필수 칸·음수 거절·폐기 qty·날짜 형식), `tests/test_api.py`(Form 입력을 새 형식으로), `tests/test_tools.py`(입고 음수 거절).
+
+## 후속 변경: 평가 Form 인분 상한과 QA 수정 (2026-11-20, `qa-20261120-2` branch)
+- 인분 상한(사용자 결정): 요리한 양(`cooked`)은 20인분 이하, 평가자 한 명의 식사량(`eaten`)은 3인분 이하(둘 다 포함). 넘으면 "요리한 양은 20인분 이하여야 해요", "dad의 식사량은 3인분 이하여야 해요"로 `FORM_INVALID`. 상수 `MAX_COOKED_SERVINGS`·`MAX_EATEN_SERVINGS`.
+  - QA에서 100만 인분 요리한 양이 통과해 승인 요약에 "한우 149999700g 부족"이 나온 것(ISSUE-003)을 이 상한으로 막는다.
+- 재고 Form 양 상한(사용자 결정): 입고·출고 한 번의 `qty`는 `개` 20, `L` 20, `g` 20000(20kg) 이하(포함). 넘으면 "양은 20개 이하여야 해요"처럼 `FORM_INVALID`. 숫자 20을 g에도 그대로 걸면 200g 출고 같은 정상 입력이 막혀 g는 20kg으로 맞췄다. 폐기는 양을 처리에 쓰지 않아 상한을 보지 않는다. 상수 `INVENTORY_QTY_MAX`.
+- ISSUE-001(`/qa`): 식사량 합계 비교가 부동소수 합(0.1 + 0.2 → 0.30000000000000004)을 그대로 써서, 요리한 양 0.3인분과 같은 합계를 "더 많아요"로 거절했다. 합계를 반올림해 비교한다. 회귀 테스트 `test_eaten_sum_equal_to_cooked_with_decimal_servings_is_accepted`.
+- ISSUE-002(`/qa`): 평가·재고 Form JSON을 배열(`[...]`)로 감싸면 `{`로 시작하지 않아 두 Form 검사와 형식 가드레일을 모두 건너뛰고 모델까지 갔다(모델은 안내 문구로 거절했지만 결정적 검사가 아니었다). `[`로 시작하는 JSON도 보고, 객체가 아닌데 Form 키가 있으면 `FORM_INVALID`("JSON 객체({ })로 보내 주세요")로 거절한다. 회귀 테스트 `test_form_wrapped_in_json_array_is_rejected_before_model`.
