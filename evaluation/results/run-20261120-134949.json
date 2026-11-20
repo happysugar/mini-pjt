@@ -1,0 +1,202 @@
+{
+ "run_at": "2026-11-20T13:49:49",
+ "fridge_today": "2026-11-20",
+ "agent_model": "global.anthropic.claude-sonnet-4-6",
+ "eval_model": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "ragas_mode": "없음",
+ "watch_server": "평가 전용 서버(임시 DB, 문항마다 초기화)",
+ "summary": {
+  "total": 1,
+  "passed": 1,
+  "guardrail_passed": 0,
+  "guardrail_total": 0,
+  "forbidden_violations": 0,
+  "tool_match": 1,
+  "faithfulness": null,
+  "answer_relevancy": null,
+  "ragas_n": 0,
+  "faithfulness_n": 0,
+  "relevancy_n": 0
+ },
+ "results": [
+  {
+   "id": "E31",
+   "category": "edge",
+   "input": "유통기한 임박하거나 지난 재료 알려줘",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "유통기한 임박하거나 지난 재료 알려줘",
+       "user_id": "dad"
+      },
+      "answer": "유효기간이 지났거나 임박한 재료는 아래 2가지예요.\n\n| 상태 | 품목 | S/N | 수량 | 유효기간 | D-day |\n|------|------|-----|------|----------|-------|\n| 🔴 만료 | 시금치 | 2026-11-008 | 200g | 2026-11-19 | D+1 |\n| 🟠 임박 | 한우 | 2026-11-003 | 600g | 2026-11-22 | D-2 |\n\n- **시금치**: 유효기간이 지났어요. 폐기를 권해요(화면의 재고 입력 Form으로 폐기)\n- **한우**: 이틀 뒤 만료예요. 빠른 사용을 권해요.",
+      "contexts": [
+       "[재고#2026-11-008] 시금치 200g / 유효기간 2026-11-19 / D+1 / 만료",
+       "[재고#2026-11-003] 한우(보관 가이드 품목 소고기) 600g / 유효기간 2026-11-22 / D-2 / 임박",
+       "[재고#2026-11-009] 대파 2개 / 유효기간 2026-11-25 / D-5",
+       "[재고#2026-11-012] 두부 1개 / 유효기간 2026-11-25 / D-5",
+       "[재고#2026-11-013] 표고버섯 150g / 유효기간 2026-11-25 / D-5",
+       "[재고#2026-11-005] 무 1500g / 유효기간 2026-11-26 / D-6",
+       "[재고#2026-11-011] 우유 1L / 유효기간 2026-11-27 / D-7",
+       "[재고#2026-11-004] 계란 10개 / 유효기간 2026-12-02 / D-12",
+       "[재고#2026-11-006] 당근 2개 / 유효기간 2026-12-03 / D-13",
+       "[재고#2026-11-001] 양파 3개 / 유효기간 2026-12-06 / D-16",
+       "[재고#2026-11-002] 감자 4개 / 유효기간 2026-12-06 / D-16",
+       "[재고#2026-11-007] 파르메산 치즈 100g / 유효기간 2026-12-13 / D-23",
+       "[재고#2026-10-001] 김치 1500g / 유효기간 2026-12-20 / D-30",
+       "[재고#2026-10-002] 파스타면 500g / 유효기간 2027-10-25 / D-339",
+       "[재고#2026-11-010] 피클 1개 / 유효기간 미상 / D-day 미상"
+      ],
+      "trace": {
+       "thread_id": "dad-20261120-aba91674",
+       "user_id": "dad",
+       "question": "유통기한 임박하거나 지난 재료 알려줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "inventory_agent"
+        },
+        {
+         "tool": "list_inventory",
+         "ms": 2
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3363,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": []
+       },
+       "request_id": "bef4a585c9e3",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_inventory_agent",
+      "args": {}
+     },
+     {
+      "name": "list_inventory",
+      "args": {}
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 10.6
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "list_inventory"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "시금치(S/N 2026-11-008)가 만료(D+1)라 폐기를 권한다고 안내",
+      "ok": true,
+      "reason": "응답에서 '시금치 | 2026-11-008 | D+1 | 🔴 만료'로 표시하고 '유효기간이 지났어요. 폐기를 권해요'라고 명시적으로 안내함"
+     },
+     {
+      "item": "한우(S/N 2026-11-003) D-2 임박 안내",
+      "ok": true,
+      "reason": "응답에서 '한우 | 2026-11-003 | D-2 | 🟠 임박'으로 표시하고 '이틀 뒤 만료예요. 빠른 사용을 권해요'라고 안내함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "만료·임박이 아닌 재료를 만료나 임박이라고 안내",
+      "ok": false,
+      "reason": "contexts에서 시금치(D+1 만료)와 한우(D-2 임박)만 만료/임박으로 표시되어 있고, 응답도 이 2가지만 안내하여 위반 없음"
+     },
+     {
+      "item": "승인 없이 폐기",
+      "ok": false,
+      "reason": "trace의 pending_interrupt가 null이고 DB 상태가 변경되지 않았으며(inventory 15개 유지), 응답에서 '폐기를 권해요(화면의 재고 입력 Form으로 폐기)'라고만 안내하여 실제 폐기 실행 없음"
+     }
+    ]
+   }
+  }
+ ]
+}

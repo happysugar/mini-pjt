@@ -577,6 +577,21 @@ def d_day(expiry: date | str | None, base: date | None = None) -> int | None:
     return (expiry - (base or today())).days
 
 
+def d_day_text(dday: int | None) -> str:
+    """D-day를 화면·답변용 문구로 적는다. 남은 날은 "D-2", 오늘은 "D-day", 지난 날은 "D+1", 미상은 "D-day 미상".
+
+    만료(음수)를 "D-1"로 쓰면 "하루 남음"과 구별되지 않으므로 지난 날은 반드시 더하기 기호로 쓴다.
+    """
+    if dday is None:
+        return "D-day 미상"
+    if dday == 0:
+        return "D-day"
+    return f"D-{dday}" if dday > 0 else f"D+{-dday}"
+
+
+EXPIRED_ADVICE = "유효기간이 지났어요. 폐기를 권해요(화면의 재고 입력 Form으로 폐기)"
+
+
 def alert_level(dday: int | None) -> str | None:
     """D-day로 경고 수준을 정한다. 0~3은 `imminent`, 음수는 `expired`, 4 이상·미상은 None."""
     if dday is None or dday > 3:
@@ -1827,7 +1842,8 @@ def add_items_from_text(runtime: ToolRuntime[FridgeContext], text: str) -> str:
 def list_inventory(runtime: ToolRuntime[FridgeContext]) -> str:
     """냉장고에 보관 중인 재고 목록을 유효기간이 빠른 순으로 돌려준다.
 
-    각 항목에 S/N, 수량, 유효기간(미상이면 null), D-day, 경고 수준(imminent·expired)이 있다.
+    각 항목에 S/N, 수량, 유효기간(미상이면 null), D-day(`d_day` 숫자와 그대로 쓸 문구 `d_day_text`),
+    경고 수준(imminent·expired)이 있다. 만료(expired) 항목에는 폐기 권고 문장 `advice`가 있다.
     """
     conn = _open(runtime)
     try:
@@ -1838,7 +1854,11 @@ def list_inventory(runtime: ToolRuntime[FridgeContext]) -> str:
         items = []
         for r in rows:
             dd = d_day(r["expiry_date"])
-            items.append({**dict(r), "d_day": dd, "level": alert_level(dd)})
+            level = alert_level(dd)
+            item = {**dict(r), "d_day": dd, "d_day_text": d_day_text(dd), "level": level}
+            if level == "expired":
+                item["advice"] = EXPIRED_ADVICE
+            items.append(item)
         return _to_json(items)
     finally:
         conn.close()
@@ -1895,7 +1915,7 @@ def withdraw_item(runtime: ToolRuntime[FridgeContext], item: str, qty: float, un
 def describe_lots(lots: list[sqlite3.Row]) -> str:
     """폐기 대상 재고를 승인 요약용 문구로 적는다(품목, 수량, S/N, D-day)."""
     return ", ".join(
-        f"{r['item']} {_fmt_qty(r['qty'], r['unit'])} (S/N {r['sn']}, D-day {d_day(r['expiry_date'])})" for r in lots
+        f"{r['item']} {_fmt_qty(r['qty'], r['unit'])} (S/N {r['sn']}, {d_day_text(d_day(r['expiry_date']))})" for r in lots
     )
 
 

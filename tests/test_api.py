@@ -472,6 +472,19 @@ def test_inventory_contexts_link_item_to_guide_name(make_client):
     assert "한우(보관 가이드 품목 소고기) 600g" in hanwoo and "D-2 / 임박" in hanwoo
 
 
+# Regression: E31 — 만료 재료가 "D-1"로 보이고 폐기 권고가 없었음
+def test_inventory_marks_expired_lot_with_plus_and_discard_advice(make_client, env):
+    """재고 조회 결과는 만료 재고를 "D+1"과 폐기 권고 문장으로 돌려주고, contexts도 같은 표기를 쓴다."""
+    client, ask = make_client(call("list_inventory", {}), say("재고예요."))
+    r = ask({"question": "유통기한 지난 재료 있어?", "thread_id": "dad-expired"}, DAD)
+    rows = next(json.loads(o) for o in tool_outputs(client, "dad-expired") if o.startswith("["))
+    spinach = next(x for x in rows if x["sn"] == SPINACH)
+    assert spinach["d_day"] == -1 and spinach["d_day_text"] == "D+1" and spinach["advice"] == tools.EXPIRED_ADVICE
+    hanwoo = next(x for x in rows if x["sn"] == HANWOO)
+    assert hanwoo["d_day_text"] == "D-2" and "advice" not in hanwoo
+    assert any(c.startswith(f"[재고#{SPINACH}]") and "D+1 / 만료" in c for c in r["contexts"])
+
+
 # ── 검색 contexts와 인덱스 (TASK-10) ─────────────────────────────
 
 
@@ -641,7 +654,7 @@ def test_multi_evaluator_form_reject_saves_nothing(make_client, env):
 
 # ── 재고 입력 Form (입고·출고·폐기, SERVICE.md 5.1) ────────────────
 
-SPINACH = "2026-11-008"  # 시드 시금치 200g, 만료(D-1)
+SPINACH = "2026-11-008"  # 시드 시금치 200g, 만료(D+1)
 
 
 def stock_form(**values) -> str:

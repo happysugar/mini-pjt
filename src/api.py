@@ -27,6 +27,7 @@ from src.tracer import RequestTracer, configure_langsmith
 from src.agent import open_agent, pending_interrupt, run_turn
 from src.middleware import is_model_unavailable
 from src.tools import (
+    d_day_text,
     GUEST_DENIED,
     NOT_IN_GUIDE,
     REJECT_ANSWERS,
@@ -179,7 +180,7 @@ def inventory_context(row: dict[str, Any]) -> str:
     name = f"{row['item']}(보관 가이드 품목 {guide})" if guide and guide != row["item"] else row["item"]
     expiry = row.get("expiry_date") or "미상"
     d_day = row.get("d_day")
-    d_text = "D-day 미상" if d_day is None else ("D-day" if d_day == 0 else f"D{'-' if d_day > 0 else '+'}{abs(d_day)}")
+    d_text = d_day_text(d_day)
     level = {"imminent": " / 임박", "expired": " / 만료"}.get(row.get("level") or "", "")
     return f"[재고#{row['sn']}] {name} {row['qty']:g}{row['unit']} / 유효기간 {expiry} / {d_text}{level}"
 

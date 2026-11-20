@@ -277,6 +277,17 @@ def test_alert_level_boundaries(dday, level):
     assert tools.alert_level(dday) == level
 
 
+# Regression: E31 — 만료 재료(D-day -1)를 "D-1"로 적어 "하루 남음"과 구별되지 않음
+# Found by full eval run-20261120-133457 on 2026-11-20
+@pytest.mark.parametrize(
+    "dday, text",
+    [(2, "D-2"), (0, "D-day"), (-1, "D+1"), (-3, "D+3"), (None, "D-day 미상")],
+)
+def test_d_day_text_marks_expired_with_plus(dday, text):
+    """남은 날은 빼기, 지난 날은 더하기 기호로 적는다. 만료를 "D-1"로 쓰지 않는다."""
+    assert tools.d_day_text(dday) == text
+
+
 def test_d_day(monkeypatch):
     monkeypatch.setenv("FRIDGE_TODAY", "2026-11-20")
     assert tools.d_day("2026-11-22") == 2

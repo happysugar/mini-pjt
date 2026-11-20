@@ -170,3 +170,14 @@
   - E29: 승인 대기 중 새 질문("오늘 저녁 뭐 먹지?"). API가 모델을 부르지 않고 대기 중인 요약을 다시 보여 준다(`INTERRUPT_PENDING`). note의 두 번째 질문 형식을 쓴다.
   - G12: mom이 요청한 평가자 두 명 Form 승인. 요약은 mom 본인 칼로리만 보이고 dad는 가린다(G11과 요청자 반대).
 - 확인: 모델 없이 note 해석(user_id·resume·두 번째 질문)과 Form·재고 검사를 돌려 7문항 모두 형식 검사를 통과하고 승인 단계로 갈 입력임을 확인했다. Bedrock 전체 평가 `run-20261120-124843.json`(73문항)에서 7문항 모두 통과했다.
+
+## 후속 변경: 기능 범위 문항 (2026-11-20)
+- 평가 문항이 부르지 않던 도구와 기능을 덮으려고 11문항을 더했다. 73문항 → 84문항(positive 18, negative 28, edge 26, guardrail 12).
+  - 그전에는 기대 도구에 `remember_preference`, `get_my_preferences`, `get_daily_intake`, `calc_kcal`, `search_docs`가 하나도 없었고, 3일 식단(meal_planner_agent)도 문항이 없었다.
+  - P14·P15: 3일 식단(인분 미지정 → 가족 3명 기준 3인분, "2인분씩" 지정). Plan-Execute는 코드가 해서 기대 도구는 없다.
+  - P16·E30: 취향 저장(`remember_preference` kind=dislike·allergy) 뒤 같은 스레드의 "오늘 저녁 뭐 먹지?" 추천에 반영되는지(가지 요리·갑각류 요리 제외).
+  - P17: 저장된 선호 조회(`get_my_preferences`, 시드 선호). G13: 다른 가족(엄마) 취향 저장 요청은 저장하지 않음.
+  - P18·P19: 워치 섭취 칼로리(`get_daily_intake`, 0kcal)와 남은 칼로리(`get_calorie_budget`, 2800kcal).
+  - P20: kcal 계산(`calc_kcal`, 규동 1.5인분 1020kcal). P21: 보관 방법 검색(`search_docs`). E31: 임박·만료 알림(시금치 만료, 한우 D-2).
+- 장기 메모리는 평가가 문항마다 임시 `checkpoints.db`를 쓰므로 P16·E30에서 저장한 취향이 다른 문항에 남지 않는다.
+- 확인: 모델 없이 입력·형식 가드레일 통과, note 해석(두 번째 질문, 인자 조건 kind=…), 기대 도구가 모두 등록 도구인지 확인했다. Bedrock 평가(리포트 1장의 실행 다섯 개)에서 11문항 모두 통과했다. E31은 처음 실행에서 만료 재료 표기 결함을 찾아 실패했고 수정 뒤 통과했다.

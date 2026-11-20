@@ -100,3 +100,11 @@ LLM이 계산하지 않도록 재고 관련 규칙을 모두 Python 함수로 �
   - `to_grams(..., conn)`: 개당 평균 무게를 `item_units`에서도 찾는다. 확인할 수 없으면 None(폐기 회피량에서 빠짐).
 - `src/planner.py` `base_stock`: 가상 재고 환산에 DB를 넘겨 등록 품목(망고 등)의 단위 정보를 읽는다. 단위 정보를 확인할 수 없는 재고는 빼고 계산한다(그전에는 원래 단위 그대로 넣었다).
 - 테스트: `tests/test_tools.py`에 단위 정보 확인 불가, 등록 품목 환산, 새 품목 단위 필수를 더했다.
+
+## 후속 변경: 만료 재료 D-day 표기와 폐기 권고 (2026-11-20)
+- 계기: 84문항 평가의 E31("유통기한 임박하거나 지난 재료 알려줘", `run-20261120-133457.json`)에서 만료된 시금치(D-day -1)를 "D-1"로 적어 "하루 남음"과 구별되지 않았고, 폐기를 권하지 않았다. 원인은 에이전트 공통 규칙이 D-day를 늘 빼기 기호로 쓰라고 한 것(`src/agent.py`)과, 재고 조회 도구가 숫자 D-day만 돌려줘 모델이 문구를 직접 만든 것이다.
+- `src/tools.py`: `d_day_text`(남은 날 `D-2`, 오늘 `D-day`, 지난 날 `D+1`, 미상 `D-day 미상`)와 `EXPIRED_ADVICE`를 더했다. `list_inventory`는 항목마다 `d_day_text`를, 만료 항목에는 `advice`를 돌려준다. 폐기 승인 요약(`describe_lots`)도 "D-day -1" 대신 `D+1`로 적는다.
+- `src/api.py`: 재고 contexts의 D-day 문구를 `d_day_text`로 만든다(같은 규칙을 한 곳에서).
+- `src/agent.py` 공통 규칙: D-day는 도구 결과의 `d_day_text`를 그대로 쓰고, 만료 재료는 `advice` 문장대로 폐기를 권한다.
+- 테스트: `tests/test_tools.py`에 `d_day_text` 경계값, `tests/test_api.py`에 만료 재고의 `D+1`·폐기 권고·contexts 표기를 더했다.
+- 확인: pytest 530개 통과. Bedrock E31 재실행 `run-20261120-134949.json` 2/2(답에 "D+1"과 "폐기를 권해요").

@@ -1,0 +1,931 @@
+{
+ "run_at": "2026-11-20T13:39:54",
+ "fridge_today": "2026-11-20",
+ "agent_model": "us.anthropic.claude-sonnet-4-6",
+ "eval_model": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "ragas_mode": "ragas 0.4.4, 3회 평균",
+ "watch_server": "평가 전용 서버(임시 DB, 문항마다 초기화)",
+ "summary": {
+  "total": 5,
+  "passed": 2,
+  "guardrail_passed": 0,
+  "guardrail_total": 0,
+  "forbidden_violations": 0,
+  "tool_match": 3,
+  "faithfulness": 0.929,
+  "answer_relevancy": 0.817,
+  "ragas_n": 2,
+  "faithfulness_n": 2,
+  "relevancy_n": 2
+ },
+ "results": [
+  {
+   "id": "P02",
+   "category": "positive",
+   "input": "오늘 저녁 뭐 먹지?",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "오늘 저녁 뭐 먹지?",
+       "user_id": "dad"
+      },
+      "answer": "오늘 저녁 추천 메뉴입니다! 모두 남은 칼로리 안에 드는 메뉴예요.\n\n---\n\n🥩 **한우(D-2)** 를 활용한 메뉴들이에요.\n\n---\n\n### 🍲 한식 — 소고기 무국 ⭐ 4.5\n소고기와 무를 참기름에 볶다가 끓여 낸 맑은 국. 국간장으로 간을 해 담백하고 시원합니다.\n- 임박 재료: 한우(D-2) 사용\n- 출처: `recipes_korean.md`\n\n---\n\n### 🍚 일식 — 규동 ⭐ 4.0\n얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다.\n- 임박 재료: 한우(D-2) 사용\n- 출처: `recipes_japanese.md`\n\n---\n\n### 🍝 이탈리아식 — 소고기 라구 파스타 🆕 신메뉴\n소고기와 채소를 토마토와 함께 오래 끓인 라구 소스를 파스타에 버무린 요리입니다.\n- 임박 재료: 한우(D-2) 사용\n- ⚠️ 부족 재료: **토마토 캔**\n- 출처: `recipes_italian.md`\n\n---\n\n### 🥢 중식 — 소고기 굴소스볶음 🆕 신메뉴\n얇게 썬 소고기와 양파, 표고버섯을 센 불에 굴소스로 빠르게 볶은 요리입니다. 밥 위에 얹어 덮밥으로도 좋아요.\n- 임박 재료: 한우(D-2) 사용\n\n---\n\n레시피가 궁금한 메뉴가 있으면 말씀해 주세요! 😊",
+      "contexts": [
+       "[재고#2026-11-008] 시금치 200g / 유효기간 2026-11-19 / D+1 / 만료",
+       "[재고#2026-11-003] 한우(보관 가이드 품목 소고기) 600g / 유효기간 2026-11-22 / D-2 / 임박",
+       "[재고#2026-11-009] 대파 2개 / 유효기간 2026-11-25 / D-5",
+       "[재고#2026-11-012] 두부 1개 / 유효기간 2026-11-25 / D-5",
+       "[재고#2026-11-013] 표고버섯 150g / 유효기간 2026-11-25 / D-5",
+       "[재고#2026-11-005] 무 1500g / 유효기간 2026-11-26 / D-6",
+       "[재고#2026-11-011] 우유 1L / 유효기간 2026-11-27 / D-7",
+       "[재고#2026-11-004] 계란 10개 / 유효기간 2026-12-02 / D-12",
+       "[재고#2026-11-006] 당근 2개 / 유효기간 2026-12-03 / D-13",
+       "[재고#2026-11-001] 양파 3개 / 유효기간 2026-12-06 / D-16",
+       "[재고#2026-11-002] 감자 4개 / 유효기간 2026-12-06 / D-16",
+       "[재고#2026-11-007] 파르메산 치즈 100g / 유효기간 2026-12-13 / D-23",
+       "[재고#2026-10-001] 김치 1500g / 유효기간 2026-12-20 / D-30",
+       "[재고#2026-10-002] 파스타면 500g / 유효기간 2027-10-25 / D-339",
+       "[재고#2026-11-010] 피클 1개 / 유효기간 미상 / D-day 미상",
+       "[recipes_korean.md#소고기 무국] 한식 슬롯 / 한식 / 주재료 소고기 / 평점 4.5(2회 평가) / 1인분 220kcal / 임박 재료 소고기 D-2 / 부족 재료 없음\n소고기와 무를 참기름에 볶다가 끓여 낸 맑은 국입니다. 국간장으로 간을 해 담백하고 시원합니다.",
+       "[recipes_japanese.md#규동] 일식 슬롯 / 일식 / 주재료 소고기 / 평점 4.0(1회 평가) / 1인분 680kcal / 임박 재료 소고기 D-2 / 부족 재료 없음\n얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다.",
+       "[recipes_italian.md#소고기 라구 파스타] 이탈리아식 슬롯 / 이탈리아식 / 주재료 소고기 / 신메뉴(평가 없음) / 1인분 720kcal / 임박 재료 소고기 D-2 / 부족 재료 토마토 캔\n소고기와 채소를 토마토와 함께 오래 끓인 라구 소스를 파스타에 버무린 요리입니다.",
+       "[recipes_chinese.md#소고기 굴소스볶음] 중식 슬롯 / 중식 / 주재료 소고기 / 신메뉴(평가 없음) / 1인분 420kcal / 임박 재료 소고기 D-2 / 부족 재료 없음\n얇게 썬 소고기와 양파, 표고버섯을 센 불에 굴소스로 빠르게 볶은 요리입니다. 밥 위에 얹어 덮밥으로 먹어도 좋습니다.",
+       "[recipes_korean.md#소고기 무국] 소고기 무국 (한식)\n소고기와 무를 참기름에 볶다가 끓여 낸 맑은 국입니다. 국간장으로 간을 해 담백하고 시원합니다.\n주재료: 소고기 / 1인분 220kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 소고기 80g\n- 무 150g\n- 대파 0.3개\n조리 순서\n1. 소고기는 한입 크기로 썰고 키친타월로 핏물을 닦습니다.\n2. 무는 나박썰기하고, 대파는 어슷썰기합니다.\n3. 냄비에 참기름을 두르고 소고기를 볶다가 겉면이 익으면 무를 넣어 2분 더 볶습니다.\n4. 물을 붓고 센 불로 끓이다가 거품을 걷어 내고, 중불에서 15분 끓입니다.\n5. 다진 마늘과 국간장을 넣고, 소금으로 간을 맞춘 뒤 대파를 넣고 1분 더 끓입니다.",
+       "[recipes_japanese.md#규동] 규동 (일식)\n얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다.\n주재료: 소고기 / 1인분 680kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 소고기 150g\n- 양파 0.5개\n조리 순서\n1. 소고기는 얇게 저미고, 양파는 0.5cm 두께로 채 썹니다.\n2. 냄비에 다시, 간장, 맛술, 설탕을 넣고 끓입니다.\n3. 양파를 넣고 3분 끓여 숨이 죽게 합니다.\n4. 소고기를 펼쳐 넣고 거품을 걷어 내며 2~3분 졸입니다.\n5. 그릇에 밥을 담고 고기와 양파를 국물과 함께 올린 뒤 초생강을 곁들입니다.",
+       "[recipes_italian.md#소고기 라구 파스타] 소고기 라구 파스타 (이탈리아식)\n소고기와 채소를 토마토와 함께 오래 끓인 라구 소스를 파스타에 버무린 요리입니다.\n주재료: 소고기 / 1인분 720kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 소고기 120g\n- 파스타면 100g\n- 토마토 캔 0.5개\n- 양파 0.3개\n- 당근 0.2개\n- 파르메산 치즈 10g\n조리 순서\n1. 소고기는 잘게 다지고, 양파와 당근도 곱게 다집니다.\n2. 냄비에 올리브유를 두르고 양파, 당근, 마늘을 5분 볶습니다.\n3. 소고기를 넣고 색이 변할 때까지 볶은 뒤 레드와인을 부어 졸입니다.\n4. 토마토 캔을 으깨 넣고 약불에서 30분 이상 저어 가며 끓인 뒤 소금, 후추로 간합니다.\n5. 소금물에 삶은 파스타면을 소스에 버무리고 파르메산 치즈를 갈아 올립니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261120-12d33ccb",
+       "user_id": "dad",
+       "question": "오늘 저녁 뭐 먹지?",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "recommend_agent"
+        },
+        {
+         "tool": "list_inventory",
+         "ms": 2
+        },
+        {
+         "tool": "get_calorie_budget",
+         "ms": 201
+        },
+        {
+         "tool": "rank_recipes",
+         "ms": 109
+        },
+        {
+         "tool": "search_recipes",
+         "ms": 8134
+        },
+        {
+         "tool": "get_calorie_budget",
+         "via": "mcp",
+         "caller": "rank_recipes",
+         "members": 1,
+         "event": "ok",
+         "ms": 83
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3537,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": []
+       },
+       "request_id": "d02cb8616c23",
+       "concepts": {
+        "#2 ReAct": 4,
+        "#3 RAG": 1,
+        "#4 도구 다중": 1,
+        "#5 MCP": 2,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 39,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_recommend_agent",
+      "args": {}
+     },
+     {
+      "name": "list_inventory",
+      "args": {}
+     },
+     {
+      "name": "get_calorie_budget",
+      "args": {}
+     },
+     {
+      "name": "rank_recipes",
+      "args": {}
+     },
+     {
+      "name": "search_recipes",
+      "args": {
+       "query": "소고기 무국, 규동, 소고기 라구 파스타, 소고기 굴소스볶음"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 26.6
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "list_inventory",
+     "get_calorie_budget",
+     "rank_recipes",
+     "search_recipes"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 6,
+    "traits_total": 6,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "한식·일식·이탈리아식·중식 슬롯 구성",
+      "ok": true,
+      "reason": "응답에 한식(소고기 무국), 일식(규동), 이탈리아식(소고기 라구 파스타), 중식(소고기 굴소스볶음) 4개 슬롯이 모두 구성되어 있음"
+     },
+     {
+      "item": "D-day 2 한우를 주재료로 활용",
+      "ok": true,
+      "reason": "모든 추천 메뉴에서 '임박 재료: 한우(D-2) 사용'이 명시되어 있으며, contexts에서도 한우 D-2가 확인됨"
+     },
+     {
+      "item": "평점 3점 이상 요리(소고기 무국, 규동) 우선",
+      "ok": true,
+      "reason": "소고기 무국(⭐ 4.5)과 규동(⭐ 4.0)이 평점과 함께 표시되어 있으며, contexts에서 각각 평점 4.5(2회), 4.0(1회)로 확인됨"
+     },
+     {
+      "item": "신메뉴 2개 표시(소고기 라구 파스타, 소고기 굴소스볶음)",
+      "ok": true,
+      "reason": "소고기 라구 파스타와 소고기 굴소스볶음에 '🆕 신메뉴' 표시가 있으며, contexts에서도 '신메뉴(평가 없음)'으로 확인됨"
+     },
+     {
+      "item": "부족 재료 안내",
+      "ok": true,
+      "reason": "소고기 라구 파스타에 '⚠️ 부족 재료: **토마토 캔**'이 명시되어 있으며, contexts에서도 '부족 재료 토마토 캔'으로 확인됨"
+     },
+     {
+      "item": "contexts에 레시피 출처 포함",
+      "ok": true,
+      "reason": "contexts에 recipes_korean.md, recipes_japanese.md, recipes_italian.md, recipes_chinese.md 등 레시피 출처가 포함되어 있음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "멕시코식 등 다른 카테고리 요리",
+      "ok": false,
+      "reason": "한식, 일식, 이탈리아식, 중식만 추천되었으며 멕시코식 등 다른 카테고리 요리는 포함되지 않음"
+     },
+     {
+      "item": "평점 3점 미만 요리",
+      "ok": false,
+      "reason": "추천된 요리는 소고기 무국(4.5점), 규동(4.0점), 신메뉴 2개로 평점 3점 미만 요리는 포함되지 않음"
+     },
+     {
+      "item": "만료 재료 사용",
+      "ok": false,
+      "reason": "contexts에서 시금치가 D+1 만료로 확인되지만, 추천된 모든 메뉴는 한우(D-2)를 주재료로 사용하며 만료 재료는 사용하지 않음"
+     }
+    ]
+   },
+   "ragas": {
+    "faithfulness": 0.859,
+    "faithfulness_runs": [
+     0.885,
+     0.846,
+     0.846
+    ],
+    "answer_relevancy": 0.742,
+    "answer_relevancy_runs": [
+     0.742,
+     0.742,
+     0.742
+    ]
+   }
+  },
+  {
+   "id": "P03",
+   "category": "positive",
+   "input": "규동 레시피 알려줘",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "규동 레시피 알려줘",
+       "user_id": "dad"
+      },
+      "answer": "규동 레시피를 알려드릴게요! 📖\n\n---\n\n## 🍚 규동 (일식)\n얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다.\n\n**📌 재료 (1인분 기준)**\n- 소고기 150g\n- 양파 0.5개\n\n**👨‍🍳 조리 순서**\n1. 소고기는 얇게 저미고, 양파는 0.5cm 두께로 채 썹니다.\n2. 냄비에 다시, 간장, 맛술, 설탕을 넣고 끓입니다.\n3. 양파를 넣고 3분 끓여 숨이 죽게 합니다.\n4. 소고기를 펼쳐 넣고 거품을 걷어 내며 2~3분 졸입니다.\n5. 그릇에 밥을 담고 고기와 양파를 국물과 함께 올린 뒤 초생강을 곁들입니다.\n\n**🔥 1인분 칼로리:** 680kcal\n**⚠️ 알레르기:** 없음\n\n맛있게 드세요! 😊",
+      "contexts": [
+       "[recipes_japanese.md#규동] 규동 (일식)\n얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다.\n주재료: 소고기 / 1인분 680kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 소고기 150g\n- 양파 0.5개\n조리 순서\n1. 소고기는 얇게 저미고, 양파는 0.5cm 두께로 채 썹니다.\n2. 냄비에 다시, 간장, 맛술, 설탕을 넣고 끓입니다.\n3. 양파를 넣고 3분 끓여 숨이 죽게 합니다.\n4. 소고기를 펼쳐 넣고 거품을 걷어 내며 2~3분 졸입니다.\n5. 그릇에 밥을 담고 고기와 양파를 국물과 함께 올린 뒤 초생강을 곁들입니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261120-8bb5eb9e",
+       "user_id": "dad",
+       "question": "규동 레시피 알려줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "recommend_agent"
+        },
+        {
+         "tool": "search_recipes",
+         "ms": 4657
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3537,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": []
+       },
+       "request_id": "e0f636ac23ae",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#3 RAG": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_recommend_agent",
+      "args": {}
+     },
+     {
+      "name": "search_recipes",
+      "args": {
+       "query": "규동"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 13.4
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "search_recipes"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 4,
+    "traits_total": 4,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "인분당 재료와 양",
+      "ok": true,
+      "reason": "응답에 '재료 (1인분 기준) - 소고기 150g, 양파 0.5개'가 명시되어 있으며 contexts의 레시피 문서 내용과 일치함"
+     },
+     {
+      "item": "조리 순서",
+      "ok": true,
+      "reason": "응답에 5단계의 조리 순서가 상세히 기재되어 있으며 contexts의 레시피 문서 내용과 일치함"
+     },
+     {
+      "item": "1인분 kcal",
+      "ok": true,
+      "reason": "응답에 '1인분 칼로리: 680kcal'이 명시되어 있으며 contexts의 레시피 문서 내용과 일치함"
+     },
+     {
+      "item": "출처 recipes_japanese.md",
+      "ok": true,
+      "reason": "contexts에 '[recipes_japanese.md#규동]'으로 출처가 명확히 표시되어 있음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "레시피 문서에 없는 재료나 단계 추가",
+      "ok": false,
+      "reason": "응답의 재료(소고기 150g, 양파 0.5개)와 5단계 조리 순서가 모두 contexts의 recipes_japanese.md 문서 내용과 정확히 일치하며, 추가된 재료나 단계가 없음"
+     }
+    ]
+   },
+   "ragas": {
+    "faithfulness": 1.0,
+    "faithfulness_runs": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "answer_relevancy": 0.891,
+    "answer_relevancy_runs": [
+     0.903,
+     0.866,
+     0.903
+    ]
+   }
+  },
+  {
+   "id": "P05",
+   "category": "positive",
+   "input": "두부는 냉장 며칠 보관해?",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "두부는 냉장 며칠 보관해?",
+       "user_id": "dad"
+      },
+      "answer": "지금 AI 모델에 연결할 수 없어요. 잠시 후 다시 시도해 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-c4b1c644",
+       "user_id": "dad",
+       "question": "두부는 냉장 며칠 보관해?",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "recommend_agent"
+        },
+        {
+         "tool": "get_storage_days",
+         "ms": 0
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "MODEL_UNAVAILABLE",
+         "message": "ModelUnavailableError: ThrottlingException: An error occurred (ThrottlingException) when calling the Converse operation (reached max retries: 2): Too many tokens per day, please wait before trying again."
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 3537,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": []
+       },
+       "request_id": "8625cec45e3e",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 12,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_recommend_agent",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 11.5
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "get_storage_days"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": false,
+    "traits_met": 0,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "품목 기준표의 권장 일수",
+      "ok": false,
+      "reason": "응답이 'AI 모델에 연결할 수 없어요'라는 오류 메시지만 제공하고 두부의 권장 보관 일수를 전혀 제공하지 않음"
+     },
+     {
+      "item": "출처 storage_items.csv",
+      "ok": false,
+      "reason": "contexts가 비어있고 응답에 storage_items.csv 출처가 언급되지 않음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "가이드와 다른 일수",
+      "ok": false,
+      "reason": "응답에 보관 일수 정보가 전혀 제공되지 않았으므로 가이드와 다른 일수를 제시하지 않음"
+     },
+     {
+      "item": "출처 없는 일반 상식 단정",
+      "ok": false,
+      "reason": "응답이 오류 메시지만 포함하고 있어 일반 상식을 단정하는 내용이 없음"
+     },
+     {
+      "item": "문서에 없는 보관 방법이나 팁",
+      "ok": false,
+      "reason": "응답에 보관 방법이나 팁이 전혀 제공되지 않음"
+     }
+    ]
+   },
+   "ragas": {
+    "skipped": "contexts 없음"
+   }
+  },
+  {
+   "id": "N01",
+   "category": "negative",
+   "input": "멕시코식 타코 레시피 알려줘",
+   "user_id": "dad",
+   "abstain": true,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "멕시코식 타코 레시피 알려줘",
+       "user_id": "dad"
+      },
+      "answer": "지금 AI 모델에 연결할 수 없어요. 잠시 후 다시 시도해 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-936aa4b8",
+       "user_id": "dad",
+       "question": "멕시코식 타코 레시피 알려줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "MODEL_UNAVAILABLE",
+         "message": "ThrottlingException: An error occurred (ThrottlingException) when calling the Converse operation (reached max retries: 2): Too many tokens per day, please wait before trying again."
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 3537,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": []
+       },
+       "request_id": "52c410a6f2fd",
+       "concepts": {
+        "#6 가드레일": 2,
+        "#8 미들웨어": 1,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 3.5
+   },
+   "tools": {
+    "match": false,
+    "called": [],
+    "reason": "빠진 호출: rank_recipes"
+   },
+   "judge": {
+    "passed": false,
+    "traits_met": 0,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "한식·일식·이탈리아식·중식만 지원한다고 안내",
+      "ok": false,
+      "reason": "응답은 'AI 모델에 연결할 수 없어요'라는 시스템 오류 메시지만 제공하며, 지원 카테고리에 대한 안내가 전혀 없음"
+     },
+     {
+      "item": "지금 재고로 가능한 대안 요리 제시",
+      "ok": false,
+      "reason": "MODEL_UNAVAILABLE 오류로 인해 재고 기반 대안 요리 제시가 이루어지지 않았으며, contexts도 비어있음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "타코 레시피 생성",
+      "ok": false,
+      "reason": "응답에서 타코 레시피를 생성하지 않았음"
+     },
+     {
+      "item": "지원 카테고리 밖 요리 추천",
+      "ok": false,
+      "reason": "어떠한 요리도 추천하지 않았으며, 시스템 오류 메시지만 반환함"
+     },
+     {
+      "item": "응답에 '타코'라는 단어가 나옴",
+      "ok": false,
+      "reason": "응답 텍스트에 '타코'라는 단어가 포함되지 않음"
+     }
+    ]
+   },
+   "ragas": {
+    "skipped": "contexts 없음"
+   }
+  },
+  {
+   "id": "N02",
+   "category": "negative",
+   "input": "망고는 냉장고에서 며칠 보관할 수 있어?",
+   "user_id": "dad",
+   "abstain": true,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "망고는 냉장고에서 며칠 보관할 수 있어?",
+       "user_id": "dad"
+      },
+      "answer": "지금 AI 모델에 연결할 수 없어요. 잠시 후 다시 시도해 주세요",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-549fbc20",
+       "user_id": "dad",
+       "question": "망고는 냉장고에서 며칠 보관할 수 있어?",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [],
+       "rescued_g_week": 0,
+       "errors": [
+        {
+         "code": "MODEL_UNAVAILABLE",
+         "message": "ThrottlingException: An error occurred (ThrottlingException) when calling the Converse operation (reached max retries: 2): Too many tokens per day, please wait before trying again."
+        }
+       ],
+       "index": {
+        "builds": 1,
+        "built_ms": 3537,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": []
+       },
+       "request_id": "1ac534f5e488",
+       "concepts": {
+        "#6 가드레일": 2,
+        "#8 미들웨어": 1,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [],
+    "elapsed_s": 2.6
+   },
+   "tools": {
+    "match": false,
+    "called": [],
+    "reason": "빠진 호출: get_storage_days"
+   },
+   "judge": {
+    "passed": false,
+    "traits_met": 0,
+    "traits_total": 1,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "품목 기준표에 정보가 없다고 안내",
+      "ok": false,
+      "reason": "응답은 'AI 모델에 연결할 수 없다'는 시스템 오류 메시지만 제공하며, 품목 기준표에 망고 정보가 없다는 안내를 하지 않았음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "임의 보관일수 제시",
+      "ok": false,
+      "reason": "응답에서 망고의 보관일수를 전혀 제시하지 않았으므로 이 금지사항을 위반하지 않음"
+     },
+     {
+      "item": "다른 과일 정보를 망고 정보처럼 제시",
+      "ok": false,
+      "reason": "응답에서 다른 과일의 정보를 망고 정보로 제시하지 않았으므로 이 금지사항을 위반하지 않음"
+     }
+    ]
+   },
+   "ragas": {
+    "skipped": "contexts 없음"
+   }
+  }
+ ]
+}

@@ -22,7 +22,7 @@
 - `evaluation/report.md`, `SERVICE.md`(필요 시 수정)
 
 ## 완료 기준
-- 목표치 (SERVICE.md 10.3, 지금 문항 73개 기준, 2026-11-20 검증 Rule 문항 12개·HITL 문항 14개 추가): 문항 통과 59/73(80%) 이상, guardrail 11/11, forbidden 위반 0건, 도구 일치 66/73(90%) 이상, faithfulness·answer relevancy 0.8 이상. 문항 수가 바뀌면 같은 비율로 계산한다(평가 스크립트 요약 줄의 "목표" 값)
+- 목표치 (SERVICE.md 10.3, 지금 문항 84개 기준, 2026-11-20 검증 Rule 문항 12개·HITL 문항 14개·기능 범위 문항 11개 추가): 문항 통과 68/84(80%) 이상, guardrail 12/12, forbidden 위반 0건, 도구 일치 76/84(90%) 이상, faithfulness·answer relevancy 0.8 이상. 문항 수가 바뀌면 같은 비율로 계산한다(평가 스크립트 요약 줄의 "목표" 값)
 - 미달 항목에는 원인 분석이 있다.
 
 ## 참고
@@ -73,6 +73,10 @@
   - 전체 73문항 `run-20261120-124843.json`: 통과 73/73, guardrail 11/11, forbidden 0, 도구 일치 73/73, faithfulness 0.931, answer relevancy 0.858(P02 0.780). 토큰 한도 오류 없음.
   - 검색 `retrieval-20261120-125051.json`: Precision@3 0.96, Recall@3 1.0, MRR 0.973, Hit rate 1.0. R06 Precision 0.667, S10 Precision·MRR 0.333.
   - `evaluation/report.md` 1장을 이 결과로 바꿨다(요약, 새 HITL 문항 결과, 검색 지표별 분석, 73문항 상세 표).
+- 최신 결과 (2026-11-20, 기능 범위 문항 11개 추가 후 84문항, 리포트에 쓸 값)
+  - 84문항 84/84, guardrail 12/12, forbidden 0, 도구 일치 84/84, faithfulness 0.943, answer relevancy 0.839(P02 0.742). 하루 토큰 한도로 실행 다섯 개를 합쳤다(`run-20261120-132518`·`133457`·`133954`·`134306`·`134949`, 리포트 1장 표).
+  - 검색 `retrieval-20261120-132725.json`: Precision@3 0.96, Recall@3 1.0, MRR 0.973, Hit rate 1.0.
+  - 새 문항 E31이 만료 재료 D-day 표기("D-1")와 폐기 권고 누락을 찾아 고쳤다(TASK-04 후속 변경). 수정 뒤 E31 2/2.
 - 시연 리허설 때 볼 점 (2026-11-20 변경)
   - 대표 시나리오의 식사 평가는 자연어("규동 먹었어, 4점")가 아니라 평가 입력 Form JSON으로 보낸다. 터미널 데모(`src/cli.py`)는 질문 칸에 JSON을 붙여 넣어야 한다(SERVICE.md 4장).
   - 자연어 입고·평가를 시도하면 `FORM_REQUIRED` 안내가 나온다. 이것도 안전장치 시연 장면으로 쓸 수 있다.
