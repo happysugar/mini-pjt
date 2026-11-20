@@ -199,6 +199,14 @@ def test_search_recipes_tool_returns_sourced_recipe():
     assert data["search"]["queries"][0] == "규동 레시피 알려줘"
 
 
+def test_search_recipes_not_found_points_to_rank_recipes(monkeypatch):
+    """찾지 못하면 안내와 함께, 지원 밖 카테고리 요리면 rank_recipes로 대안을 받으라는 다음 할 일을 돌려준다(평가 N01)."""
+    monkeypatch.setattr(tools, "parse_recipes", lambda: {})  # 검색 결과가 레시피 문서와 하나도 맞지 않는 경우
+    data = json.loads(tools.search_recipes.invoke({"query": "멕시코식 타코"}))
+    assert data["results"] == [] and data["note"] == tools.RECIPE_NOT_FOUND
+    assert "rank_recipes" in data["next"] and "category" in data["next"]
+
+
 def test_search_docs_tool_returns_tip_with_source():
     data = json.loads(tools.search_docs.invoke({"query": "두부는 냉장 며칠 보관해?"}))
     assert data["results"][0].startswith("[storage_guide.md#두부]")

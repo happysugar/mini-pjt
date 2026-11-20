@@ -13,6 +13,7 @@ import asyncio
 import hmac
 import json
 import os
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -265,6 +266,27 @@ def unsupported_category_note(outputs: list[tuple[str, str]]) -> str | None:
     return None
 
 
+# 승인(HITL)을 받는 확정 도구. 승인 재개 턴의 답이 비면 이 도구의 결과 문장을 답으로 쓴다
+CONFIRM_TOOLS = frozenset({"confirm_meal_form", "confirm_inventory_form", "confirm_meal"})
+
+# 추천 답에 들어간 요리 kcal 수치("1인분 220kcal", "**1인분 칼로리:** 680kcal", "(680kcal)")
+_KCAL_ONLY_LINE = re.compile(r"^[\s>*\-•·]*(?:\**\s*1\s*인분\s*(?:칼로리|kcal)?\s*\**\s*[:：]?\s*\**\s*)?\d[\d,]*(?:\.\d+)?\s*kcal\W*$", re.I)
+_KCAL_INLINE = re.compile(r"\s*[(,·/]?\s*(?:\**\s*1\s*인분\s*(?:칼로리|kcal)?\s*\**\s*[:：]?\s*\**\s*)?\d[\d,]*(?:\.\d+)?\s*kcal\s*\)?\.?", re.I)
+
+
+def drop_dish_kcal(answer: str) -> str:
+    """추천 답에서 요리 kcal 수치를 뺀다(SERVICE.md 5.2: 추천 답에는 남은 칼로리 안인지만 쓴다).
+
+    kcal 수치만 있는 줄은 지우고, 문장 안의 수치는 그 부분만 지운다. 프롬프트 규칙을 모델이 어겨도 답에 남지 않게 한다.
+    """
+    lines = []
+    for line in answer.split("\n"):
+        if _KCAL_ONLY_LINE.match(line):
+            continue
+        lines.append(_KCAL_INLINE.sub("", line) if "kcal" in line.lower() else line)
+    return "\n".join(lines)
+
+
 def lead_with_note(answer: str, note: str) -> str:
     """답의 첫 문단을 도구 안내 문장으로 고정한다.
 
@@ -467,10 +489,16 @@ async def handle_query(agent: Any, req: QueryRequest, token: str | None, db_path
     rejected = next((o.strip() for _, o in tracer.outputs if o.strip() in REJECT_ANSWERS), None)
     if req.resume and rejected and not turn["pending_interrupt"]:
         answer = rejected
+    # 승인으로 재개한 턴에서 모델이 빈 답을 내면, 확정 도구가 돌려준 결과 문장(저장·출고·폐기 요약)을 그대로 쓴다
+    if req.resume and not answer.strip() and not turn["pending_interrupt"]:
+        answer = next((o.strip() for name, o in reversed(tracer.outputs) if name in CONFIRM_TOOLS and o.strip()), answer)
     # 지원하지 않는 카테고리 요청이면, 모델이 바꿔 쓴 안내 대신 rank_recipes 안내 문장을 첫 문단에 그대로 쓴다
     note = unsupported_category_note(tracer.outputs)
     if note and not turn["pending_interrupt"]:
         answer = lead_with_note(answer, note)
+    # 추천(rank_recipes) 답에는 요리 kcal 수치를 쓰지 않는다. 모델이 레시피 검색 결과의 kcal을 옮겨 적어도 지운다
+    if any(name == "rank_recipes" for name, _ in tracer.outputs):
+        answer = drop_dish_kcal(answer)
     trace.update(_domain_trace(db_path))
     trace["index"] = dict(retriever.BUILD_STATS)  # 질문 처리 중에 인덱스를 다시 만들지 않았는지 확인용
     return reply(answer, extract_contexts(tracer.outputs))

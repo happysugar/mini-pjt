@@ -317,6 +317,21 @@ _J_RULE = re.compile(
     _FLAGS,
 )
 
+# K. 간접 인젝션: 문서·검색 결과·도구 결과 안의 명령이나 지시를 따르거나 실행하게 하는 요청
+_K_SRC = (r"(?:문서|검색\s*결과|도구\s*결과|결과|레시피|자료|가이드|본문|파일|컨텍스트|context|documents?"
+          r"|search\s+results?|tool\s+outputs?)")
+_K_CMD = r"(?:명령|지시|instructions?|commands?)"
+_K_DO = r"(?:따르|따라|실행|수행|최우선|우선으로|복종|obey|follow|execute|carry\s+out)"
+# "레시피 지시대로 따라 하면"처럼 요리 순서를 말하는 질문은 통과시키려고, 문서 "안에 적힌" 명령이나
+# 명령이 "있으면" 따르라는 조건 표현이 있을 때만 본다.
+_K_EMBED = (rf"(?:(?:적힌|적혀\s*있는|써\s*있는|쓰인|쓰여\s*있는|들어\s*있는|담긴|숨은|나온|나오는)\s*\S{{0,4}}\s*{_K_CMD}"
+            rf"|{_K_CMD}\S{{0,2}}\s*(?:이|가)?\s*(?:있으면|있다면|나오면))")
+_K_RULE = re.compile(
+    rf"{_K_SRC}.{{0,20}}?{_K_EMBED}.{{0,30}}?{_K_DO}"
+    rf"|{_K_DO}.{{0,30}}?{_K_CMD}\s+(?:in|from|inside|written\s+in|contained\s+in)\b.{{0,15}}?{_K_SRC}",
+    _FLAGS,
+)
+
 # 전체 텍스트 규칙(문장 경계를 넘는 유형)과 문장 단위 규칙. 판정 함수는 근거 매치 또는 None을 돌려준다.
 _TEXT_RULES: list[tuple[str, Callable[[str], Any]]] = [
     ("fake_system_message", _G_RULE.search),
@@ -335,6 +350,7 @@ _SENTENCE_RULES: list[tuple[str, Callable[[str], Any]]] = [
     ("prompt_leak", lambda s: None if (_C_EDU.search(s) or _C_BARE_REF.search(s)) else _C_BARE_PROMPT.search(s)),
     ("encoded_leak", _F_RULE.search),
     ("multilingual_injection", _J_RULE.search),
+    ("indirect_injection", _K_RULE.search),
 ]
 
 

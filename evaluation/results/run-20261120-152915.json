@@ -1,0 +1,735 @@
+{
+ "run_at": "2026-11-20T15:29:15",
+ "fridge_today": "2026-11-20",
+ "agent_model": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "eval_model": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "ragas_mode": "ragas 0.4.4, 3회 평균",
+ "watch_server": "평가 전용 서버(임시 DB, 문항마다 초기화)",
+ "summary": {
+  "total": 4,
+  "passed": 4,
+  "guardrail_passed": 0,
+  "guardrail_total": 0,
+  "forbidden_violations": 0,
+  "tool_match": 4,
+  "faithfulness": 0.974,
+  "answer_relevancy": 0.922,
+  "ragas_n": 2,
+  "faithfulness_n": 2,
+  "relevancy_n": 1
+ },
+ "results": [
+  {
+   "id": "P03",
+   "category": "positive",
+   "input": "규동 레시피 알려줘",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "규동 레시피 알려줘",
+       "user_id": "dad"
+      },
+      "answer": "**규동 레시피**를 알려드릴게요.\n\n**규동 (일식)**\n얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다.\n\n**재료 (1인분 기준)**\n- 소고기 150g\n- 양파 0.5개\n\n**조리 순서**\n1. 소고기는 얇게 저미고, 양파는 0.5cm 두께로 채 썹니다.\n2. 냄비에 다시, 간장, 맛술, 설탕을 넣고 끓입니다.\n3. 양파를 넣고 3분 끓여 숨이 죽게 합니다.\n4. 소고기를 펼쳐 넣고 거품을 걷어 내며 2~3분 졸입니다.\n5. 그릇에 밥을 담고 고기와 양파를 국물과 함께 올린 뒤 초생강을 곁들입니다.\n\n1인분 680kcal이고, 알레르기 유발 재료는 없어요.\n\n(출처: recipes_japanese.md#규동)",
+      "contexts": [
+       "[recipes_japanese.md#규동] 규동 (일식)\n얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다.\n주재료: 소고기 / 1인분 680kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 소고기 150g\n- 양파 0.5개\n조리 순서\n1. 소고기는 얇게 저미고, 양파는 0.5cm 두께로 채 썹니다.\n2. 냄비에 다시, 간장, 맛술, 설탕을 넣고 끓입니다.\n3. 양파를 넣고 3분 끓여 숨이 죽게 합니다.\n4. 소고기를 펼쳐 넣고 거품을 걷어 내며 2~3분 졸입니다.\n5. 그릇에 밥을 담고 고기와 양파를 국물과 함께 올린 뒤 초생강을 곁들입니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261120-b73b9983",
+       "user_id": "dad",
+       "question": "규동 레시피 알려줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "recommend_agent"
+        },
+        {
+         "tool": "search_recipes",
+         "ms": 5523
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3355,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": []
+       },
+       "request_id": "0ffc908eb470",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#3 RAG": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_recommend_agent",
+      "args": {}
+     },
+     {
+      "name": "search_recipes",
+      "args": {
+       "query": "규동"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 20.4
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "search_recipes"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 4,
+    "traits_total": 4,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "인분당 재료와 양",
+      "ok": true,
+      "reason": "응답에 '재료 (1인분 기준) - 소고기 150g - 양파 0.5개'로 1인분 기준 재료와 양이 명시되어 있음"
+     },
+     {
+      "item": "조리 순서",
+      "ok": true,
+      "reason": "응답에 '조리 순서 1~5'까지 단계별로 상세히 기술되어 있음"
+     },
+     {
+      "item": "1인분 kcal",
+      "ok": true,
+      "reason": "응답에 '1인분 680kcal'이라고 명시되어 있음"
+     },
+     {
+      "item": "출처 recipes_japanese.md",
+      "ok": true,
+      "reason": "응답 마지막에 '(출처: recipes_japanese.md#규동)'으로 출처가 명시되어 있고, contexts에도 해당 문서가 포함됨"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "레시피 문서에 없는 재료나 단계 추가",
+      "ok": false,
+      "reason": "contexts의 recipes_japanese.md#규동 내용과 응답의 재료 및 조리 순서가 정확히 일치하며, 추가된 재료나 단계가 없음"
+     }
+    ]
+   },
+   "ragas": {
+    "faithfulness": 1.0,
+    "faithfulness_runs": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "answer_relevancy": 0.922,
+    "answer_relevancy_runs": [
+     0.922,
+     0.922,
+     0.922
+    ]
+   }
+  },
+  {
+   "id": "N01",
+   "category": "negative",
+   "input": "멕시코식 타코 레시피 알려줘",
+   "user_id": "dad",
+   "abstain": true,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "멕시코식 타코 레시피 알려줘",
+       "user_id": "dad"
+      },
+      "answer": "멕시코식은 지원하지 않아요. 멕시코식 요리의 레시피는 드릴 수 없어요. 대신 지금 재고를 활용할 수 있는 요리를 한식·일식·이탈리아식·중식 중에서 골랐어요.\n\n**대안 요리 추천**\n\n• **한식** - 소고기 무국  \n  소고기와 무를 참기름에 볶다가 끓여 낸 맑은 국입니다. 임박 재료(소고기, D-2) 활용\n\n• **일식** - 규동  \n  얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다. 임박 재료(소고기, D-2) 활용\n\n• **이탈리아식** - 소고기 라구 파스타 🆕  \n  소고기와 채소를 토마토와 함께 오래 끓인 라구 소스를 파스타에 버무린 요리입니다. 임박 재료(소고기, D-2) 활용  \n  부족 재료: 토마토 캔\n\n• **중식** - 소고기 굴소스볶음 🆕  \n  얇게 썬 소고기와 양파, 표고버섯을 센 불에 굴소스로 빠르게 볶은 요리입니다. 임박 재료(소고기, D-2) 활용\n\n모두 남은 칼로리 안에 드는 메뉴예요.",
+      "contexts": [
+       "[rank_recipes#안내] 멕시코식은 지원하지 않아요. 멕시코식 요리의 레시피는 드릴 수 없어요. 대신 지금 재고를 활용할 수 있는 요리를 한식·일식·이탈리아식·중식 중에서 골랐어요",
+       "[recipes_korean.md#소고기 무국] 한식 슬롯 / 한식 / 주재료 소고기 / 평점 4.5(2회 평가) / 1인분 220kcal / 임박 재료 소고기 D-2 / 부족 재료 없음\n소고기와 무를 참기름에 볶다가 끓여 낸 맑은 국입니다. 국간장으로 간을 해 담백하고 시원합니다.",
+       "[recipes_japanese.md#규동] 일식 슬롯 / 일식 / 주재료 소고기 / 평점 4.0(1회 평가) / 1인분 680kcal / 임박 재료 소고기 D-2 / 부족 재료 없음\n얇게 썬 소고기와 양파를 달짝지근한 간장 국물에 졸여 밥 위에 올린 덮밥입니다.",
+       "[recipes_italian.md#소고기 라구 파스타] 이탈리아식 슬롯 / 이탈리아식 / 주재료 소고기 / 신메뉴(평가 없음) / 1인분 720kcal / 임박 재료 소고기 D-2 / 부족 재료 토마토 캔\n소고기와 채소를 토마토와 함께 오래 끓인 라구 소스를 파스타에 버무린 요리입니다.",
+       "[recipes_chinese.md#소고기 굴소스볶음] 중식 슬롯 / 중식 / 주재료 소고기 / 신메뉴(평가 없음) / 1인분 420kcal / 임박 재료 소고기 D-2 / 부족 재료 없음\n얇게 썬 소고기와 양파, 표고버섯을 센 불에 굴소스로 빠르게 볶은 요리입니다. 밥 위에 얹어 덮밥으로 먹어도 좋습니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261120-5cfcd3e3",
+       "user_id": "dad",
+       "question": "멕시코식 타코 레시피 알려줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "recommend_agent"
+        },
+        {
+         "tool": "rank_recipes",
+         "ms": 135
+        },
+        {
+         "tool": "get_calorie_budget",
+         "via": "mcp",
+         "caller": "rank_recipes",
+         "members": 1,
+         "event": "ok",
+         "ms": 110
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3355,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": []
+       },
+       "request_id": "0e218b0094b7",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#4 도구 다중": 1,
+        "#5 MCP": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_recommend_agent",
+      "args": {}
+     },
+     {
+      "name": "rank_recipes",
+      "args": {
+       "category": "멕시코식"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 13.8
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "rank_recipes"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "한식·일식·이탈리아식·중식만 지원한다고 안내",
+      "ok": true,
+      "reason": "contexts 첫 번째 항목에 '멕시코식은 지원하지 않아요. 멕시코식 요리의 레시피는 드릴 수 없어요. 대신 지금 재고를 활용할 수 있는 요리를 한식·일식·이탈리아식·중식 중에서 골랐어요'라고 명시되어 있음"
+     },
+     {
+      "item": "지금 재고로 가능한 대안 요리 제시",
+      "ok": true,
+      "reason": "answer에서 소고기 무국(한식), 규동(일식), 소고기 라구 파스타(이탈리아식), 소고기 굴소스볶음(중식) 등 4가지 대안 요리를 제시하고 있으며, contexts에서 각 요리가 임박 재료(소고기 D-2)를 활용한다고 명시됨"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "타코 레시피 생성",
+      "ok": false,
+      "reason": "answer와 contexts 어디에도 타코 레시피가 생성되지 않았으며, 멕시코식은 지원하지 않는다고 안내함"
+     },
+     {
+      "item": "지원 카테고리 밖 요리 추천",
+      "ok": false,
+      "reason": "추천된 모든 요리(소고기 무국, 규동, 소고기 라구 파스타, 소고기 굴소스볶음)가 한식·일식·이탈리아식·중식 카테고리에 속함"
+     },
+     {
+      "item": "응답에 '타코'라는 단어가 나옴",
+      "ok": false,
+      "reason": "answer 전체 텍스트에 '타코'라는 단어가 포함되지 않음"
+     }
+    ]
+   },
+   "ragas": {
+    "faithfulness": 0.947,
+    "faithfulness_runs": [
+     0.947,
+     0.947,
+     0.947
+    ],
+    "answer_relevancy": null,
+    "answer_relevancy_runs": [
+     0.691,
+     0.691,
+     0.691
+    ],
+    "relevancy_skipped": "거절이 정답인 문항"
+   }
+  },
+  {
+   "id": "P25",
+   "category": "positive",
+   "input": "두부조림 2인분 만들려면 재료 얼마나 필요해?",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "두부조림 2인분 만들려면 재료 얼마나 필요해?",
+       "user_id": "dad"
+      },
+      "answer": "두부조림 2인분에 필요한 재료는 다음과 같아요.\n\n**두부조림 (한식) - 2인분 기준**\n- 두부 1개\n- 대파 0.4개\n- 간장, 고춧가루, 설탕, 다진 마늘, 물 (양념장용)\n\n1인분 기준으로 두부 0.5개, 대파 0.2개가 필요하므로 2인분은 각각 2배가 필요해요.\n\n(출처: recipes_korean.md#두부조림)",
+      "contexts": [
+       "[recipes_korean.md#두부조림] 두부조림 (한식)\n노릇하게 부친 두부에 간장 양념을 끼얹어 조린 반찬입니다.\n주재료: 두부 / 1인분 210kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 두부 0.5개\n- 대파 0.2개\n조리 순서\n1. 두부를 1cm 두께로 썰어 키친타월로 물기를 뺍니다.\n2. 대파를 송송 썰고, 간장·고춧가루·설탕·다진 마늘·물을 섞어 양념장을 만듭니다.\n3. 팬에 기름을 두르고 두부 양면을 노릇하게 부칩니다.\n4. 양념장과 대파를 두부 위에 끼얹고, 약불에서 국물이 자작해질 때까지 5분 조립니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261120-8234652c",
+       "user_id": "dad",
+       "question": "두부조림 2인분 만들려면 재료 얼마나 필요해?",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "recommend_agent"
+        },
+        {
+         "tool": "search_recipes",
+         "ms": 4861
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3355,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": []
+       },
+       "request_id": "6a225cb6d14f",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#3 RAG": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_recommend_agent",
+      "args": {}
+     },
+     {
+      "name": "search_recipes",
+      "args": {
+       "query": "두부조림"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 14.7
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "search_recipes"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 2,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "두부 1개·대파 0.4개(1인분 기준 양의 2배)라고 안내",
+      "ok": true,
+      "reason": "응답에서 '두부 1개', '대파 0.4개'를 명시하고 '1인분 기준으로 두부 0.5개, 대파 0.2개가 필요하므로 2인분은 각각 2배가 필요해요'라고 설명함"
+     },
+     {
+      "item": "출처 recipes_korean.md",
+      "ok": true,
+      "reason": "응답 마지막에 '(출처: recipes_korean.md#두부조림)'이라고 명시되어 있음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "레시피에 없는 재료나 양",
+      "ok": false,
+      "reason": "contexts의 레시피에는 두부 0.5개, 대파 0.2개(1인분)가 명시되어 있고, 응답은 이를 2배한 두부 1개, 대파 0.4개를 제시하여 레시피 기반으로 정확히 계산함"
+     },
+     {
+      "item": "1인분 양을 2인분 양으로 제시",
+      "ok": false,
+      "reason": "응답은 1인분 기준(두부 0.5개, 대파 0.2개)을 명시한 후 2배 계산하여 2인분 양(두부 1개, 대파 0.4개)을 제시했으므로 위반하지 않음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "N30",
+   "category": "negative",
+   "input": "냉장고 재료로 김치찌개 레시피 알려줘",
+   "user_id": "dad",
+   "abstain": true,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "냉장고 재료로 김치찌개 레시피 알려줘",
+       "user_id": "dad"
+      },
+      "answer": "죄송해요. 김치찌개 레시피는 레시피 문서에서 찾지 못했어요. 지원 카테고리는 한식·일식·이탈리아식·중식이에요.",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-1657ba76",
+       "user_id": "dad",
+       "question": "냉장고 재료로 김치찌개 레시피 알려줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "recommend_agent"
+        },
+        {
+         "tool": "search_recipes",
+         "ms": 4148
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3355,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": []
+       },
+       "request_id": "9f4d50cb7657",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#3 RAG": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_recommend_agent",
+      "args": {}
+     },
+     {
+      "name": "search_recipes",
+      "args": {
+       "query": "김치찌개"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 13.3
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "search_recipes"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 1,
+    "traits_total": 1,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "레시피 문서에 김치찌개가 없다고 안내",
+      "ok": true,
+      "reason": "응답에서 '김치찌개 레시피는 레시피 문서에서 찾지 못했어요'라고 명확히 안내하고 있음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "문서에 없는 김치찌개 재료나 조리 순서 생성",
+      "ok": false,
+      "reason": "응답에 김치찌개의 재료나 조리 순서가 전혀 포함되어 있지 않으며, 단순히 문서에서 찾지 못했다는 안내만 제공함"
+     }
+    ]
+   }
+  }
+ ]
+}

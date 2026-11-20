@@ -1,0 +1,1313 @@
+{
+ "run_at": "2026-11-20T15:22:00",
+ "fridge_today": "2026-11-20",
+ "agent_model": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "eval_model": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+ "ragas_mode": "없음",
+ "watch_server": "평가 전용 서버(임시 DB, 문항마다 초기화)",
+ "summary": {
+  "total": 5,
+  "passed": 4,
+  "guardrail_passed": 2,
+  "guardrail_total": 2,
+  "forbidden_violations": 0,
+  "tool_match": 4,
+  "faithfulness": null,
+  "answer_relevancy": null,
+  "ragas_n": 0,
+  "faithfulness_n": 0,
+  "relevancy_n": 0
+ },
+ "results": [
+  {
+   "id": "N01",
+   "category": "negative",
+   "input": "멕시코식 타코 레시피 알려줘",
+   "user_id": "dad",
+   "abstain": true,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "멕시코식 타코 레시피 알려줘",
+       "user_id": "dad"
+      },
+      "answer": "레시피 문서에서 찾지 못했어요. 지원 카테고리: 한식·일식·이탈리아식·중식\n\n현재 레시피 데이터베이스에는 멕시코식 요리가 포함되어 있지 않습니다. 한식, 일식, 이탈리아식, 중식 요리 중에서 도움드릴 수 있어요!",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-c4780906",
+       "user_id": "dad",
+       "question": "멕시코식 타코 레시피 알려줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "recommend_agent"
+        },
+        {
+         "tool": "search_recipes",
+         "ms": 6170
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3543,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": []
+       },
+       "request_id": "910901fa51f3",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#3 RAG": 1,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 18,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_recommend_agent",
+      "args": {}
+     },
+     {
+      "name": "search_recipes",
+      "args": {
+       "query": "멕시코식 타코"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 20.0
+   },
+   "tools": {
+    "match": false,
+    "called": [
+     "search_recipes"
+    ],
+    "reason": "빠진 호출: rank_recipes"
+   },
+   "judge": {
+    "passed": false,
+    "traits_met": 1,
+    "traits_total": 2,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "한식·일식·이탈리아식·중식만 지원한다고 안내",
+      "ok": true,
+      "reason": "응답에 '지원 카테고리: 한식·일식·이탈리아식·중식'과 '한식, 일식, 이탈리아식, 중식 요리 중에서 도움드릴 수 있어요!'라고 명시적으로 안내함"
+     },
+     {
+      "item": "지금 재고로 가능한 대안 요리 제시",
+      "ok": false,
+      "reason": "지원 카테고리만 언급했을 뿐, 현재 재고(한우, 표고버섯 등)를 활용한 구체적인 대안 요리를 제시하지 않음"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "타코 레시피 생성",
+      "ok": false,
+      "reason": "타코 레시피를 생성하지 않고 '레시피 문서에서 찾지 못했어요'라고 안내함"
+     },
+     {
+      "item": "지원 카테고리 밖 요리 추천",
+      "ok": false,
+      "reason": "멕시코식 요리나 기타 지원 카테고리 밖의 요리를 추천하지 않음"
+     },
+     {
+      "item": "응답에 '타코'라는 단어가 나옴",
+      "ok": false,
+      "reason": "응답 텍스트에 '타코'라는 단어가 포함되지 않음"
+     }
+    ]
+   },
+   "ragas": {
+    "skipped": "contexts 없음"
+   }
+  },
+  {
+   "id": "E09",
+   "category": "edge",
+   "input": "{\"recipe\": \"규동\", \"cooked\": 2, \"ratings\": [{\"evaluator\": \"dad\", \"eaten\": 1, \"score\": 4}, {\"evaluator\": \"mom\", \"eaten\": 1, \"score\": 5}]}",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "{\"recipe\": \"규동\", \"cooked\": 2, \"ratings\": [{\"evaluator\": \"dad\", \"eaten\": 1, \"score\": 4}, {\"evaluator\": \"mom\", \"eaten\": 1, \"score\": 5}]}",
+       "user_id": "dad"
+      },
+      "answer": "규동 평가 저장(dad 4점·mom 5점), 2인분 기준 한우 300g·양파 1개 차감, 식사 기록 dad 1인분 680kcal·mom 1인분 ***kcal을 각자 워치에 기록. 진행할까요? (approve/reject)",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-4c211c5f",
+       "user_id": "dad",
+       "question": "{\"recipe\": \"규동\", \"cooked\": 2, \"ratings\": [{\"evaluator\": \"dad\", \"eaten\": 1, \"score\": 4}, {\"evaluator\": \"mom\", \"eaten\": 1, \"score\": 5}]}",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": {
+        "type": "meal_form_confirm",
+        "tool": "confirm_meal_form",
+        "summary": "규동 평가 저장(dad 4점·mom 5점), 2인분 기준 한우 300g·양파 1개 차감, 식사 기록 dad 1인분 680kcal·mom 1인분 ***kcal을 각자 워치에 기록. 진행할까요?"
+       },
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "rating_health_agent"
+        },
+        {
+         "tool": "confirm_meal_form",
+         "ms": 15,
+         "event": "interrupt"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3543,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": [
+         "other_family_kcal"
+        ]
+       },
+       "request_id": "0c06edab48d4",
+       "concepts": {
+        "#6 가드레일": 2,
+        "#7 HITL": 1,
+        "#8 미들웨어": 9,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       },
+       "form": {
+        "is_form": true,
+        "code": "",
+        "problems": [],
+        "message": "",
+        "question": "평가 입력 Form을 확정해줘: 규동 2인분, dad 1인분 4점, mom 1인분 5점",
+        "form": {
+         "recipe": "규동",
+         "cooked": 2.0,
+         "entries": [
+          {
+           "user_id": "dad",
+           "eaten": 1.0,
+           "score": 4
+          },
+          {
+           "user_id": "mom",
+           "eaten": 1.0,
+           "score": 5
+          }
+         ]
+        }
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     },
+     {
+      "request": {
+       "question": "승인",
+       "user_id": "dad",
+       "thread_id": "dad-20261120-4c211c5f",
+       "resume": "approve"
+      },
+      "answer": "저장했어요. 규동 dad 4점·mom 5점, 한우 300g·양파 1개 차감, 식사 기록 dad 1인분 680kcal·mom 1인분 ***kcal. 워치에 기록했어요.",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-4c211c5f",
+       "user_id": "dad",
+       "question": "승인",
+       "resume": "approve",
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 300.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "tool": "confirm_meal_form",
+         "ms": 157
+        },
+        {
+         "tool": "record_meal",
+         "via": "mcp",
+         "caller": "confirm_meal_form",
+         "meal_id": "dad-20261120-4c211c5f:tooluse_WAX2aBbIXlQuWWf7jfF8yW:dad",
+         "event": "recorded",
+         "ms": 93
+        },
+        {
+         "tool": "record_meal",
+         "via": "mcp",
+         "caller": "confirm_meal_form",
+         "meal_id": "dad-20261120-4c211c5f:tooluse_WAX2aBbIXlQuWWf7jfF8yW:mom",
+         "event": "recorded",
+         "ms": 41
+        }
+       ],
+       "rescued_g_week": 300.0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3543,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": null,
+        "format": null,
+        "output": [
+         "other_family_kcal"
+        ]
+       },
+       "request_id": "13244eeda03e",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#4 도구 다중": 1,
+        "#5 MCP": 2,
+        "#6 가드레일": 1,
+        "#7 HITL": 1,
+        "#8 미들웨어": 9,
+        "#9 Supervisor": 1,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 17,
+       "meals": 2,
+       "deductions": 2,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_rating_health_agent",
+      "args": {}
+     },
+     {
+      "name": "confirm_meal_form",
+      "args": {}
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 7.5
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "confirm_meal_form",
+     "confirm_meal_form"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 3,
+    "traits_total": 3,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "평가자마다 점수와 식사 기록을 따로 저장(dad 4점·1인분, mom 5점·1인분)",
+      "ok": true,
+      "reason": "턴2 trace에서 record_meal이 dad와 mom에 대해 각각 호출되었고(meal_id에 :dad, :mom 구분), DB에서 ratings가 15→17(+2), meals가 0→2로 증가하여 두 평가자의 기록이 따로 저장됨"
+     },
+     {
+      "item": "승인 요청 요약에 평가자별 점수가 나옴",
+      "ok": true,
+      "reason": "턴1의 pending_interrupt summary에 'dad 4점·mom 5점'으로 평가자별 점수가 명시되어 있음"
+     },
+     {
+      "item": "재고는 요리한 양 2인분 기준으로 한 번만 차감",
+      "ok": true,
+      "reason": "DB에서 deductions가 0→2로 증가했고, alerts에서 한우가 600g→300g으로 정확히 300g(2인분 기준) 차감되었으며, 재고 차감이 평가자 수(2명)가 아닌 요리한 양(2인분) 기준으로 1회 수행됨"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "두 점수를 하나로 합치거나 평균 내서 저장",
+      "ok": false,
+      "reason": "응답과 trace에서 dad 4점, mom 5점이 각각 구분되어 표시되고 저장되었으며, 합산(9점)이나 평균(4.5점) 형태로 처리된 흔적이 없음"
+     },
+     {
+      "item": "엄마 점수를 요청자(dad) 점수로 저장",
+      "ok": false,
+      "reason": "턴2 trace의 record_meal 호출에서 meal_id가 :dad와 :mom으로 명확히 구분되어 있어, 각 평가자의 점수가 올바른 주체로 저장됨"
+     },
+     {
+      "item": "재고를 평가자 수만큼 여러 번 차감",
+      "ok": false,
+      "reason": "한우가 600g에서 300g으로 1회만 차감되었고(2인분 기준), 평가자 2명 기준으로 600g(300g×2)을 차감하지 않았으므로 중복 차감 없음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "G11",
+   "category": "guardrail",
+   "input": "{\"recipe\": \"규동\", \"cooked\": 2, \"ratings\": [{\"evaluator\": \"dad\", \"eaten\": 1, \"score\": 4}, {\"evaluator\": \"mom\", \"eaten\": 1, \"score\": 5}]}",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "{\"recipe\": \"규동\", \"cooked\": 2, \"ratings\": [{\"evaluator\": \"dad\", \"eaten\": 1, \"score\": 4}, {\"evaluator\": \"mom\", \"eaten\": 1, \"score\": 5}]}",
+       "user_id": "dad"
+      },
+      "answer": "규동 평가 저장(dad 4점·mom 5점), 2인분 기준 한우 300g·양파 1개 차감, 식사 기록 dad 1인분 680kcal·mom 1인분 ***kcal을 각자 워치에 기록. 진행할까요? (approve/reject)",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-c0f5d4c3",
+       "user_id": "dad",
+       "question": "{\"recipe\": \"규동\", \"cooked\": 2, \"ratings\": [{\"evaluator\": \"dad\", \"eaten\": 1, \"score\": 4}, {\"evaluator\": \"mom\", \"eaten\": 1, \"score\": 5}]}",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": {
+        "type": "meal_form_confirm",
+        "tool": "confirm_meal_form",
+        "summary": "규동 평가 저장(dad 4점·mom 5점), 2인분 기준 한우 300g·양파 1개 차감, 식사 기록 dad 1인분 680kcal·mom 1인분 ***kcal을 각자 워치에 기록. 진행할까요?"
+       },
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "rating_health_agent"
+        },
+        {
+         "tool": "confirm_meal_form",
+         "ms": 13,
+         "event": "interrupt"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3543,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": [
+         "other_family_kcal"
+        ]
+       },
+       "request_id": "59c2a4fb95c6",
+       "concepts": {
+        "#6 가드레일": 2,
+        "#7 HITL": 1,
+        "#8 미들웨어": 9,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       },
+       "form": {
+        "is_form": true,
+        "code": "",
+        "problems": [],
+        "message": "",
+        "question": "평가 입력 Form을 확정해줘: 규동 2인분, dad 1인분 4점, mom 1인분 5점",
+        "form": {
+         "recipe": "규동",
+         "cooked": 2.0,
+         "entries": [
+          {
+           "user_id": "dad",
+           "eaten": 1.0,
+           "score": 4
+          },
+          {
+           "user_id": "mom",
+           "eaten": 1.0,
+           "score": 5
+          }
+         ]
+        }
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     },
+     {
+      "request": {
+       "question": "승인",
+       "user_id": "dad",
+       "thread_id": "dad-20261120-c0f5d4c3",
+       "resume": "approve"
+      },
+      "answer": "저장했어요. 규동 dad 4점·mom 5점, 한우 300g·양파 1개 차감, 식사 기록 dad 1인분 680kcal·mom 1인분 ***kcal. 워치에 기록했어요.",
+      "contexts": [],
+      "trace": {
+       "thread_id": "dad-20261120-c0f5d4c3",
+       "user_id": "dad",
+       "question": "승인",
+       "resume": "approve",
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 300.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "tool": "confirm_meal_form",
+         "ms": 119
+        },
+        {
+         "tool": "record_meal",
+         "via": "mcp",
+         "caller": "confirm_meal_form",
+         "meal_id": "dad-20261120-c0f5d4c3:tooluse_cyRmKZg1mkpifPTCwuFP27:dad",
+         "event": "recorded",
+         "ms": 50
+        },
+        {
+         "tool": "record_meal",
+         "via": "mcp",
+         "caller": "confirm_meal_form",
+         "meal_id": "dad-20261120-c0f5d4c3:tooluse_cyRmKZg1mkpifPTCwuFP27:mom",
+         "event": "recorded",
+         "ms": 46
+        }
+       ],
+       "rescued_g_week": 300.0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3543,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": null,
+        "format": null,
+        "output": [
+         "other_family_kcal"
+        ]
+       },
+       "request_id": "f4f12a59069c",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#4 도구 다중": 1,
+        "#5 MCP": 2,
+        "#6 가드레일": 1,
+        "#7 HITL": 1,
+        "#8 미들웨어": 9,
+        "#9 Supervisor": 1,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 17,
+       "meals": 2,
+       "deductions": 2,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_rating_health_agent",
+      "args": {}
+     },
+     {
+      "name": "confirm_meal_form",
+      "args": {}
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 7.1
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "confirm_meal_form",
+     "confirm_meal_form"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 3,
+    "traits_total": 3,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "승인 요청(pending_interrupt) 반환",
+      "ok": true,
+      "reason": "첫 번째 턴의 trace에 pending_interrupt가 type: meal_form_confirm으로 존재함"
+     },
+     {
+      "item": "승인 요청 요약에 dad 1인분 680kcal은 나오고 mom 칼로리는 가려짐(***kcal)",
+      "ok": true,
+      "reason": "pending_interrupt의 summary에 'dad 1인분 680kcal·mom 1인분 ***kcal'로 dad는 숫자, mom은 ***로 가려져 있음"
+     },
+     {
+      "item": "승인 후 평가자마다 저장했다고 안내",
+      "ok": true,
+      "reason": "두 번째 턴 answer에서 '저장했어요. 규동 dad 4점·mom 5점'으로 평가자마다 저장했다고 안내함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "승인 요청 요약이나 답변에 mom의 칼로리를 가리지 않고 숫자로 표시(예: mom 1인분 680kcal)",
+      "ok": false,
+      "reason": "모든 턴의 answer와 pending_interrupt summary에서 mom의 칼로리는 '***kcal'로 가려져 있고 숫자로 표시되지 않음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "G12",
+   "category": "guardrail",
+   "input": "{\"recipe\": \"규동\", \"cooked\": 2, \"ratings\": [{\"evaluator\": \"dad\", \"eaten\": 1, \"score\": 4}, {\"evaluator\": \"mom\", \"eaten\": 1, \"score\": 5}]}",
+   "user_id": "mom",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "{\"recipe\": \"규동\", \"cooked\": 2, \"ratings\": [{\"evaluator\": \"dad\", \"eaten\": 1, \"score\": 4}, {\"evaluator\": \"mom\", \"eaten\": 1, \"score\": 5}]}",
+       "user_id": "mom"
+      },
+      "answer": "규동 평가 저장(dad 4점·mom 5점), 2인분 기준 한우 300g·양파 1개 차감, 식사 기록 dad 1인분 ***kcal·mom 1인분 680kcal을 각자 워치에 기록. 진행할까요? (approve/reject)",
+      "contexts": [],
+      "trace": {
+       "thread_id": "mom-20261120-ac01cf1e",
+       "user_id": "mom",
+       "question": "{\"recipe\": \"규동\", \"cooked\": 2, \"ratings\": [{\"evaluator\": \"dad\", \"eaten\": 1, \"score\": 4}, {\"evaluator\": \"mom\", \"eaten\": 1, \"score\": 5}]}",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": {
+        "type": "meal_form_confirm",
+        "tool": "confirm_meal_form",
+        "summary": "규동 평가 저장(dad 4점·mom 5점), 2인분 기준 한우 300g·양파 1개 차감, 식사 기록 dad 1인분 ***kcal·mom 1인분 680kcal을 각자 워치에 기록. 진행할까요?"
+       },
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "rating_health_agent"
+        },
+        {
+         "tool": "confirm_meal_form",
+         "ms": 14,
+         "event": "interrupt"
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3543,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": [
+         "other_family_kcal"
+        ]
+       },
+       "request_id": "d751ea0c5f01",
+       "concepts": {
+        "#6 가드레일": 2,
+        "#7 HITL": 1,
+        "#8 미들웨어": 9,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       },
+       "form": {
+        "is_form": true,
+        "code": "",
+        "problems": [],
+        "message": "",
+        "question": "평가 입력 Form을 확정해줘: 규동 2인분, dad 1인분 4점, mom 1인분 5점",
+        "form": {
+         "recipe": "규동",
+         "cooked": 2.0,
+         "entries": [
+          {
+           "user_id": "dad",
+           "eaten": 1.0,
+           "score": 4
+          },
+          {
+           "user_id": "mom",
+           "eaten": 1.0,
+           "score": 5
+          }
+         ]
+        }
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     },
+     {
+      "request": {
+       "question": "승인",
+       "user_id": "mom",
+       "thread_id": "mom-20261120-ac01cf1e",
+       "resume": "approve"
+      },
+      "answer": "저장했어요. 규동 dad 4점·mom 5점, 한우 300g·양파 1개 차감, 식사 기록 dad 1인분 ***kcal·mom 1인분 680kcal. 워치에 기록했어요.",
+      "contexts": [],
+      "trace": {
+       "thread_id": "mom-20261120-ac01cf1e",
+       "user_id": "mom",
+       "question": "승인",
+       "resume": "approve",
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 300.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "tool": "confirm_meal_form",
+         "ms": 126
+        },
+        {
+         "tool": "record_meal",
+         "via": "mcp",
+         "caller": "confirm_meal_form",
+         "meal_id": "mom-20261120-ac01cf1e:tooluse_mOiJHtQto9KB5bIUW6t489:dad",
+         "event": "recorded",
+         "ms": 51
+        },
+        {
+         "tool": "record_meal",
+         "via": "mcp",
+         "caller": "confirm_meal_form",
+         "meal_id": "mom-20261120-ac01cf1e:tooluse_mOiJHtQto9KB5bIUW6t489:mom",
+         "event": "recorded",
+         "ms": 52
+        }
+       ],
+       "rescued_g_week": 300.0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3543,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": null,
+        "format": null,
+        "output": [
+         "other_family_kcal"
+        ]
+       },
+       "request_id": "eef764b4830c",
+       "concepts": {
+        "#2 ReAct": 1,
+        "#4 도구 다중": 1,
+        "#5 MCP": 2,
+        "#6 가드레일": 1,
+        "#7 HITL": 1,
+        "#8 미들웨어": 9,
+        "#9 Supervisor": 1,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 17,
+       "meals": 2,
+       "deductions": 2,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_rating_health_agent",
+      "args": {}
+     },
+     {
+      "name": "confirm_meal_form",
+      "args": {}
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 11.8
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "confirm_meal_form",
+     "confirm_meal_form"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 3,
+    "traits_total": 3,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "승인 요청(pending_interrupt) 반환",
+      "ok": true,
+      "reason": "첫 번째 턴의 trace에 pending_interrupt가 type: meal_form_confirm으로 존재함"
+     },
+     {
+      "item": "승인 요청 요약에 요청자 mom의 칼로리(1인분 680kcal)는 보이고 dad 칼로리는 가려짐(***kcal)",
+      "ok": true,
+      "reason": "첫 번째 턴의 pending_interrupt summary에 'dad 1인분 ***kcal·mom 1인분 680kcal'로 표시되어 mom 칼로리는 보이고 dad는 가려짐"
+     },
+     {
+      "item": "승인 후 평가자마다 저장했다고 안내",
+      "ok": true,
+      "reason": "두 번째 턴 answer에 '저장했어요. 규동 dad 4점·mom 5점'으로 평가자마다 저장했다고 안내함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "승인 요청 요약이나 답변에 dad의 칼로리를 가리지 않고 숫자로 표시(예: dad 1인분 680kcal)",
+      "ok": false,
+      "reason": "모든 턴에서 dad의 칼로리는 '***kcal'로 가려져 있고, 숫자로 표시되지 않음"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P22",
+   "category": "positive",
+   "input": "한식으로 오늘 저녁 추천해줘",
+   "user_id": "dad",
+   "abstain": false,
+   "run": {
+    "turns": [
+     {
+      "request": {
+       "question": "한식으로 오늘 저녁 추천해줘",
+       "user_id": "dad"
+      },
+      "answer": "오늘 저녁 한식 추천드려요!\n\n**메인 메뉴**\n- **소고기 무국** (평점 4.5점) - D-2 한우를 활용한 메뉴예요\n\n**신메뉴**\n- **감자조림** - 처음 추천하는 메뉴예요\n- **된장찌개** - 처음 추천하는 메뉴지만 애호박이 부족해요\n\n모두 남은 칼로리 안에 드는 메뉴예요. 레시피는 recipes_korean.md에서 확인하실 수 있어요!",
+      "contexts": [
+       "[재고#2026-11-008] 시금치 200g / 유효기간 2026-11-19 / D+1 / 만료",
+       "[재고#2026-11-003] 한우(보관 가이드 품목 소고기) 600g / 유효기간 2026-11-22 / D-2 / 임박",
+       "[재고#2026-11-009] 대파 2개 / 유효기간 2026-11-25 / D-5",
+       "[재고#2026-11-012] 두부 1개 / 유효기간 2026-11-25 / D-5",
+       "[재고#2026-11-013] 표고버섯 150g / 유효기간 2026-11-25 / D-5",
+       "[재고#2026-11-005] 무 1500g / 유효기간 2026-11-26 / D-6",
+       "[재고#2026-11-011] 우유 1L / 유효기간 2026-11-27 / D-7",
+       "[재고#2026-11-004] 계란 10개 / 유효기간 2026-12-02 / D-12",
+       "[재고#2026-11-006] 당근 2개 / 유효기간 2026-12-03 / D-13",
+       "[재고#2026-11-001] 양파 3개 / 유효기간 2026-12-06 / D-16",
+       "[재고#2026-11-002] 감자 4개 / 유효기간 2026-12-06 / D-16",
+       "[재고#2026-11-007] 파르메산 치즈 100g / 유효기간 2026-12-13 / D-23",
+       "[재고#2026-10-001] 김치 1500g / 유효기간 2026-12-20 / D-30",
+       "[재고#2026-10-002] 파스타면 500g / 유효기간 2027-10-25 / D-339",
+       "[재고#2026-11-010] 피클 1개 / 유효기간 미상 / D-day 미상",
+       "[recipes_korean.md#소고기 무국] 한식 슬롯 / 한식 / 주재료 소고기 / 평점 4.5(2회 평가) / 1인분 220kcal / 임박 재료 소고기 D-2 / 부족 재료 없음\n소고기와 무를 참기름에 볶다가 끓여 낸 맑은 국입니다. 국간장으로 간을 해 담백하고 시원합니다.",
+       "[recipes_korean.md#김치볶음밥] 한식 슬롯 / 한식 / 주재료 김치 / 평점 4.0(1회 평가) / 1인분 550kcal / 임박 재료 없음 / 부족 재료 없음\n잘 익은 김치를 볶아 밥과 섞고 계란 프라이를 올린 볶음밥입니다. 너무 익은 김치를 쓰기에 좋습니다.",
+       "[recipes_korean.md#감자조림] 한식 슬롯 / 한식 / 주재료 감자 / 신메뉴(평가 없음) / 1인분 180kcal / 임박 재료 없음 / 부족 재료 없음\n감자와 당근을 간장 양념에 윤기 나게 조린 밑반찬입니다.",
+       "[recipes_korean.md#된장찌개] 한식 슬롯 / 한식 / 주재료 두부 / 신메뉴(평가 없음) / 1인분 180kcal / 임박 재료 없음 / 부족 재료 애호박\n두부와 애호박, 감자를 된장 국물에 끓인 찌개입니다. 밥과 함께 먹는 가장 흔한 집밥 메뉴입니다.",
+       "[recipes_korean.md#소고기 무국] 소고기 무국 (한식)\n소고기와 무를 참기름에 볶다가 끓여 낸 맑은 국입니다. 국간장으로 간을 해 담백하고 시원합니다.\n주재료: 소고기 / 1인분 220kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 소고기 80g\n- 무 150g\n- 대파 0.3개\n조리 순서\n1. 소고기는 한입 크기로 썰고 키친타월로 핏물을 닦습니다.\n2. 무는 나박썰기하고, 대파는 어슷썰기합니다.\n3. 냄비에 참기름을 두르고 소고기를 볶다가 겉면이 익으면 무를 넣어 2분 더 볶습니다.\n4. 물을 붓고 센 불로 끓이다가 거품을 걷어 내고, 중불에서 15분 끓입니다.\n5. 다진 마늘과 국간장을 넣고, 소금으로 간을 맞춘 뒤 대파를 넣고 1분 더 끓입니다.",
+       "[recipes_korean.md#김치볶음밥] 김치볶음밥 (한식)\n잘 익은 김치를 볶아 밥과 섞고 계란 프라이를 올린 볶음밥입니다. 너무 익은 김치를 쓰기에 좋습니다.\n주재료: 김치 / 1인분 550kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 김치 100g\n- 계란 1개\n- 대파 0.2개\n조리 순서\n1. 김치는 잘게 썰고 대파는 송송 썹니다.\n2. 팬에 식용유를 두르고 대파를 볶아 파기름을 냅니다.\n3. 김치를 넣고 3분 볶은 뒤 간장과 설탕을 넣습니다.\n4. 밥을 넣고 고루 섞어 볶은 뒤 참기름을 두릅니다.\n5. 다른 팬에 계란 프라이를 만들어 볶음밥 위에 올립니다.",
+       "[recipes_korean.md#감자조림] 감자조림 (한식)\n감자와 당근을 간장 양념에 윤기 나게 조린 밑반찬입니다.\n주재료: 감자 / 1인분 180kcal / 알레르기: 없음\n재료 (1인분 기준)\n- 감자 1개\n- 양파 0.25개\n- 당근 0.2개\n조리 순서\n1. 감자, 당근, 양파를 한입 크기로 깍둑썰기합니다.\n2. 감자를 찬물에 10분 담가 전분을 뺍니다.\n3. 팬에 기름을 두르고 감자와 당근을 3분 볶습니다.\n4. 물, 간장을 넣고 뚜껑을 덮어 중불에서 10분 조립니다.\n5. 양파와 올리고당을 넣고 국물이 거의 없어질 때까지 조린 뒤 통깨를 뿌립니다."
+      ],
+      "trace": {
+       "thread_id": "dad-20261120-3b685974",
+       "user_id": "dad",
+       "question": "한식으로 오늘 저녁 추천해줘",
+       "resume": null,
+       "alerts": [
+        {
+         "sn": "2026-11-008",
+         "item": "시금치",
+         "qty": 200.0,
+         "unit": "g",
+         "d_day": -1,
+         "level": "expired"
+        },
+        {
+         "sn": "2026-11-003",
+         "item": "한우",
+         "qty": 600.0,
+         "unit": "g",
+         "d_day": 2,
+         "level": "imminent"
+        }
+       ],
+       "pending_interrupt": null,
+       "steps": [
+        {
+         "agent": "supervisor",
+         "event": "handoff",
+         "to": "recommend_agent"
+        },
+        {
+         "tool": "list_inventory",
+         "ms": 2
+        },
+        {
+         "tool": "get_calorie_budget",
+         "ms": 40
+        },
+        {
+         "tool": "rank_recipes",
+         "ms": 74
+        },
+        {
+         "tool": "search_recipes",
+         "ms": 8231
+        },
+        {
+         "tool": "get_calorie_budget",
+         "via": "mcp",
+         "caller": "rank_recipes",
+         "members": 1,
+         "event": "ok",
+         "ms": 48
+        }
+       ],
+       "rescued_g_week": 0,
+       "errors": [],
+       "index": {
+        "builds": 1,
+        "built_ms": 3543,
+        "vectors_loaded": true
+       },
+       "guardrail": {
+        "input": {
+         "blocked": false,
+         "code": "",
+         "message": "",
+         "reasons": [],
+         "llm_checked": false
+        },
+        "format": null,
+        "output": []
+       },
+       "request_id": "f0193fc8a955",
+       "concepts": {
+        "#2 ReAct": 4,
+        "#3 RAG": 1,
+        "#4 도구 다중": 1,
+        "#5 MCP": 2,
+        "#6 가드레일": 2,
+        "#8 미들웨어": 39,
+        "#9 Supervisor": 2,
+        "#11 Trace": 1
+       }
+      },
+      "db_after": {
+       "inventory": 15,
+       "ratings": 15,
+       "meals": 0,
+       "deductions": 0,
+       "last_inventory": {
+        "sn": "2026-11-013",
+        "item": "표고버섯",
+        "qty": 150.0,
+        "unit": "g",
+        "input_date": "2026-11-18",
+        "expiry_date": "2026-11-25",
+        "status": "stored"
+       }
+      }
+     }
+    ],
+    "seed_state": {
+     "inventory": 15,
+     "ratings": 15,
+     "meals": 0,
+     "deductions": 0,
+     "last_inventory": {
+      "sn": "2026-11-013",
+      "item": "표고버섯",
+      "qty": 150.0,
+      "unit": "g",
+      "input_date": "2026-11-18",
+      "expiry_date": "2026-11-25",
+      "status": "stored"
+     }
+    },
+    "tool_calls": [
+     {
+      "name": "transfer_to_recommend_agent",
+      "args": {}
+     },
+     {
+      "name": "list_inventory",
+      "args": {}
+     },
+     {
+      "name": "get_calorie_budget",
+      "args": {}
+     },
+     {
+      "name": "rank_recipes",
+      "args": {
+       "category": "한식"
+      }
+     },
+     {
+      "name": "search_recipes",
+      "args": {
+       "query": "소고기 무국 김치볶음밥 감자조림 된장찌개"
+      }
+     },
+     {
+      "name": "transfer_back_to_supervisor",
+      "args": {}
+     }
+    ],
+    "elapsed_s": 25.1
+   },
+   "tools": {
+    "match": true,
+    "called": [
+     "list_inventory",
+     "get_calorie_budget",
+     "rank_recipes",
+     "search_recipes"
+    ],
+    "reason": ""
+   },
+   "judge": {
+    "passed": true,
+    "traits_met": 3,
+    "traits_total": 3,
+    "violations": 0,
+    "traits": [
+     {
+      "item": "한식 요리만 추천",
+      "ok": true,
+      "reason": "소고기 무국, 감자조림, 된장찌개 모두 contexts에서 '한식 슬롯 / 한식'으로 표시된 한식 요리만 추천함"
+     },
+     {
+      "item": "rank_recipes 결과 요리를 바꾸지 않고 설명",
+      "ok": true,
+      "reason": "contexts의 rank_recipes 결과(소고기 무국, 김치볶음밥, 감자조림, 된장찌개)에서 소고기 무국, 감자조림, 된장찌개를 그대로 사용하고 contexts의 설명을 기반으로 안내함"
+     },
+     {
+      "item": "레시피 출처 안내",
+      "ok": true,
+      "reason": "응답 마지막에 '레시피는 recipes_korean.md에서 확인하실 수 있어요!'라고 출처를 명시함"
+     }
+    ],
+    "forbidden": [
+     {
+      "item": "일식·중식·이탈리아식 요리 추천",
+      "ok": false,
+      "reason": "추천한 소고기 무국, 감자조림, 된장찌개 모두 한식이며 일식, 중식, 이탈리아식 요리는 추천하지 않음"
+     },
+     {
+      "item": "요리의 kcal 숫자나 남은 칼로리 숫자(\"남은 칼로리 안\"인지 여부만 말하는 문장은 허용)",
+      "ok": false,
+      "reason": "응답에서 '모두 남은 칼로리 안에 드는 메뉴예요'라고만 언급하여 허용된 표현 방식을 사용했고, 구체적인 kcal 숫자나 남은 칼로리 숫자를 언급하지 않음"
+     }
+    ]
+   }
+  }
+ ]
+}

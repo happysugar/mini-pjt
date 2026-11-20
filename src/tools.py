@@ -1159,6 +1159,25 @@ def has_allergen(recipe: Recipe, allergies: list[str] | tuple[str, ...]) -> bool
     return False
 
 
+def wanted_allergy(wanted: str, allergies: list[str] | tuple[str, ...]) -> str | None:
+    """요청한 재료·요리(`wanted`)가 알레르기에 걸리면 그 알레르기 이름을, 아니면 None을 돌려준다.
+
+    알레르기 이름이 요청과 같거나(예: 새우), 요청한 요리 또는 요청한 재료가 든 레시피의 알레르기 분류에
+    걸리면(예: 새우 → 갑각류) 해당한다.
+    """
+    wanted = wanted.strip().removesuffix("요리").strip()  # "새우 요리" → "새우"
+    if not wanted:
+        return None
+    key = item_key(wanted)
+    hits = [r for r in parse_recipes().values()
+            if r.name == wanted or key in {item_key(ing.item) for ing in r.ingredients}]
+    for allergy in allergies:
+        allergy = allergy.strip()
+        if allergy and (allergy == wanted or item_key(allergy) == key or any(has_allergen(r, [allergy]) for r in hits)):
+            return allergy
+    return None
+
+
 def _safe_candidates(
     conn: sqlite3.Connection, allergies: list[str], dislikes: list[str], servings: float
 ) -> tuple[list[_Candidate], _Exclusions]:
@@ -1755,6 +1774,8 @@ def recipe_text(recipe: Recipe) -> str:
 
 # "우리 가족"처럼 가족 전원을 가리키는 말. diners에 이 말이 오면 가족 구성원 전원을 참여자로 넣는다(SERVICE.md 5.5).
 REQUESTER_EXCLUDED = "요청하신 대로 본인은 빼고 함께 먹는 가족 기준으로 골랐어요"
+# 요청한 재료·요리가 참여자 알레르기에 걸릴 때의 안내. 누구의 알레르기인지는 밝히지 않는다
+WANTED_ALLERGY = "요청하신 {wanted}{particle} 함께 먹는 사람의 알레르기({allergy})에 해당해 추천에서 뺐어요"
 FAMILY_ALL_NAMES = ("가족", "우리 가족", "우리가족", "온 가족", "온가족", "가족 모두", "가족 전원", "가족 다", "다 같이", "모두", "전체")
 
 
@@ -1973,6 +1994,14 @@ def _search_meta(result: SearchResult) -> dict:
     return meta
 
 
+# 레시피 검색에서 찾지 못했을 때의 안내와 다음 할 일. 지원 밖 카테고리 요리면 rank_recipes로 대안을 받게 한다(평가 N01)
+RECIPE_NOT_FOUND = "레시피 문서에서 찾지 못했어요. 지원 카테고리: 한식·일식·이탈리아식·중식"
+RECIPE_NOT_FOUND_NEXT = (
+    "지원 카테고리 밖 요리(예: 멕시코식 타코)면 이 결과로 답하지 말고 rank_recipes를 category=그 카테고리로 불러 "
+    "notes의 지원하지 않아요 안내와 지금 재고로 만들 수 있는 대안 요리를 답한다. 지원 카테고리 요리인데 없으면 문서에 없다고만 답한다"
+)
+
+
 @tool
 def search_recipes(query: str) -> str:
     """레시피 질문("규동 레시피 알려줘", "소고기로 뭐 만들어?")에 쓰는 레시피 검색 도구.
@@ -1985,7 +2014,7 @@ def search_recipes(query: str) -> str:
     recipes = parse_recipes()
     hits = [recipe_text(recipes[h.title]) for h in result.hits if h.title in recipes]
     if not hits:
-        return _to_json({"results": [], "note": "레시피 문서에서 찾지 못했어요. 지원 카테고리: 한식·일식·이탈리아식·중식",
+        return _to_json({"results": [], "note": RECIPE_NOT_FOUND, "next": RECIPE_NOT_FOUND_NEXT,
                          "search": _search_meta(result)})
     return _to_json({"results": hits, "search": _search_meta(result)})
 
@@ -2029,6 +2058,7 @@ def rank_recipes(
     category: str | None = None,
     diners: list[str] | None = None,
     exclude_requester: bool = False,
+    wanted: str | None = None,
 ) -> str:
     """재고·평점·알레르기·비선호 규칙으로 오늘 만들 요리를 추천한다. 결과를 바꾸지 말고 그대로 설명한다.
 
@@ -2037,7 +2067,9 @@ def rank_recipes(
       "우리 가족", "가족"처럼 이름 없이 가족 전원을 말하면 diners=["가족"]으로 넣는다(가족 전원이 참여자).
     - exclude_requester: 요청 문장이 요청자를 명확히 뺄 때만 true("나는 빼고", "나 말고", "나는 안 먹어").
       그런 말이 없으면 false다. 요청자는 언제나 기본 참여자다.
-      주면 가족 합의 저녁 규칙으로 메뉴 1개와 신메뉴 2개를 고른다. 참여자 알레르기·비선호를 빼고,
+    - wanted: 요청 문장에 특정 재료나 요리가 있으면 그 이름(예: "새우 요리 추천해줘" → "새우"). 없으면 null.
+      참여자 알레르기에 걸리면 누구인지 밝히지 않고 notes로 알린다.
+    - diners를 주면 가족 합의 저녁 규칙으로 메뉴 1개와 신메뉴 2개를 고른다. 참여자 알레르기·비선호를 빼고,
       참여자 전원의 남은 칼로리를 워치에서 읽어 within_calorie_budget(모두의 남은 칼로리 안인지)만 돌려준다.
       가족 구성원 정보에 없는 이름은 참여자에서 빼고 notes로 알린다.
     - 혼자 먹는 추천도 요청자의 남은 칼로리를 워치에서 읽어 칼로리 제약에 쓰고 within_calorie_budget을 돌려준다.
@@ -2068,6 +2100,10 @@ def rank_recipes(
         # 안전 필터의 알레르기·비선호는 장기 메모리(Store)에서 읽고, 없으면 시드 정보를 쓴다.
         store = getattr(runtime, "store", None)
         group = [lead, *others]
+        if wanted:
+            allergies = [a for m in group for a in memory.profile_or(store, m, seed_profile(m))["allergies"]]
+            if hit := wanted_allergy(wanted, allergies):
+                notes.append(WANTED_ALLERGY.format(wanted=wanted.strip(), particle=topic_particle(wanted.strip()), allergy=hit))
         if group != [ctx.user_id]:
             profiles = memory.filter_profiles(store, group) if store is not None else None
             # 참여자 전원의 남은 칼로리는 코드에서만 읽어 칼로리 제약에 쓴다(답변에는 "모두의 남은 칼로리 안" 여부만).
