@@ -1739,7 +1739,7 @@ def recipe_text(recipe: Recipe) -> str:
 
 # "우리 가족"처럼 가족 전원을 가리키는 말. diners에 이 말이 오면 가족 구성원 전원을 참여자로 넣는다(SERVICE.md 5.5).
 REQUESTER_EXCLUDED = "요청하신 대로 본인은 빼고 함께 먹는 가족 기준으로 골랐어요"
-FAMILY_ALL_NAMES = ("가족", "우리 가족", "우리가족", "온 가족", "온가족", "가족 모두", "가족 전원", "가족 다", "다 같이", "모두")
+FAMILY_ALL_NAMES = ("가족", "우리 가족", "우리가족", "온 가족", "온가족", "가족 모두", "가족 전원", "가족 다", "다 같이", "모두", "전체")
 
 
 def _resolve_diners(conn: sqlite3.Connection, family_id: str, names: list[str]) -> tuple[list[str], list[str]]:
